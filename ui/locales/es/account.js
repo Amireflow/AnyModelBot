@@ -1,5 +1,11 @@
 // account · es
 export default {
+  "profile": {
+    "connecting": "Conectando…",
+    "retryHint": "No se pudo cargar la información de tu cuenta. Haz clic para reintentar.",
+    "retry": "Reintentar cargar la información de la cuenta",
+    "reload": "Volver a cargar la información de la cuenta"
+  },
   usage: {
     title: "Uso",
     days: "{n} días",

@@ -56,7 +56,7 @@ Conversations, memory, files, and API keys stay on your device. Models can come 
 
 Ready to use after install: background tasks, scheduled rules, and items waiting for your OK are built in.
 
-**0.1.35:** A cleaner sidebar and Heroicons, balance in Settings, stable preview widths, and fixes for rules, permissions and seven-language copy. [Changelog](./CHANGELOG_en.md#0135---2026-11-14)
+**0.1.36:** A skill library with 155 skills you can install by link, saving what a bot did as My skills to reuse on several bots or schedule, and picking skills and apps right in the chat. [Changelog](./CHANGELOG_en.md#0136---2026-11-15)
 
 📥 [Download](#-download-and-run) · 🌠 [Screenshots](#-screenshots) · 🌟 [Features](#-key-features) · 🆚 [Compare](#-anymodelbot-vs-grok-bot-openai-dots-and-claude-duet) · 🔐 [Privacy](#-how-it-works--privacy)
 
@@ -191,7 +191,7 @@ A bot is more than a chat window: it has a persona, a default model, its own wor
 - **You define each bot.** A persona is just text, and templates are only a starting point. The six avatars change how a bot looks, not what it can do.
 - **Real file work.** Bots read and write files, run commands in a sandbox, and send the results back to the chat as files.
 - **Three permission presets per bot.** *Read-only*, *Workspace* (the default: write inside the bot's own folder; it asks before writing outside its workspace) and *Full access* (no sandbox; even with full access, it asks before deleting a whole folder).
-- **Import skills.** In **Bot settings → Skills**, import a ZIP containing `SKILL.md` (one skill per ZIP, up to 20 MB), then preview and add it. View, enable, disable or delete skills; import the same name again to confirm replacement. Changes take effect after current work finishes. [Skill guide](./docs/skills_en.md).
+- **Skills: install, import or save your own.** Pick a skill from the library in **Apps & skills**, then send its install prompt or GitHub link to a bot and confirm the card; or import a ZIP containing `SKILL.md` in **Bot settings → Skills** (one skill per ZIP, up to 20 MB). Once a bot gets something right, say "save as skill" or send `/skill` and confirm the draft card to keep it in My skills, use it on several bots, export it as a ZIP or schedule it. Changes take effect after current work finishes. [Skill guide](./docs/skills_en.md).
 - **Approval cards, not surprises.** Actions that write outside the workspace stop and wait for your answer.
 - **Told after a restart.** A message still in progress when the app quit or crashed is flagged in its conversation at the next start, so you can send it again; nothing is redone on its own.
 - **Group chats.** Create a group and add a few bots. Whoever you @ answers; with no @, the bot that answered last carries on. Bots can also @ another member to hand off. Each bot keeps its own model, workspace and memory, and costs are tracked per bot.
@@ -265,7 +265,7 @@ The runtime is built on [DeepSeek Harness](https://github.com/deepseek-ai/deepse
 - **Memory that carries over.** Each bot, group, and team has its own memory, kept as Markdown and kept separate. Content that looks like passwords or keys isn't saved.
 - **Long chats stay usable.** A context steward compacts or starts a fresh segment with a hand-off summary before the window fills up.
 - **Accounts shared by all bots.** Add WeChat, Feishu, Telegram, Slack and Discord chat accounts once under Settings › Chat channels. Every bot shares them, and each channel can have several accounts with aliases. Send `/bot name` once in a chat app to talk to a different bot.
-- **Connect apps.** Connect apps in the avatar menu comes with connectors for Feishu, Tencent Docs, DingTalk, Amap, Yuque, Notion, GitHub, Linear, Atlassian and Canva, and you can add custom MCP connectors (remote servers or local commands). Connect once and every bot can use it by default; narrow it per bot and per tool. Read-only tools run right away, writes ask you first, and deletes or anything sent to other people always ask.
+- **Connect apps.** Apps & skills in the avatar menu comes with connectors for Feishu, Tencent Docs, DingTalk, Amap, Yuque, Notion, GitHub, Linear, Atlassian and Canva, and you can add custom MCP connectors (remote servers or local commands). Connect once and every bot can use it by default; narrow it per bot and per tool. Read-only tools run right away, writes ask you first, and deletes or anything sent to other people always ask.
 - **WeChat and Feishu.** Scan a QR code to connect WeChat, or connect a Feishu bot with streaming reply cards. WeChat also carries images and files.
 - **Telegram, Slack and Discord.** Paste a token in Settings › Chat channels. No public address needed. Replies appear as they're written, and images and files work both ways. Direct messages only for now, and approvals and questions are answered by text.
 - **Four ways to run it.** Desktop app, command line, Docker, or the local web console at `127.0.0.1:3600`.

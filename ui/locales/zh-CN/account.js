@@ -1,5 +1,11 @@
 // account · zh-CN（screens/account.js）
 export default {
+  "profile": {
+    "connecting": "正在连接…",
+    "retryHint": "账号信息暂时取不到，点击重试",
+    "retry": "重试读取账号信息",
+    "reload": "重新读取账号信息"
+  },
   usage: {
     title: "用量",
     days: "{n} 天",

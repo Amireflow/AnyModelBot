@@ -1,4 +1,10 @@
 export default {
+  "profile": {
+    "connecting": "接続中…",
+    "retryHint": "アカウント情報を取得できません。クリックして再試行してください。",
+    "retry": "アカウント情報の読み込みを再試行",
+    "reload": "アカウント情報を再読み込み"
+  },
   "usage": {
     "title": "利用状況",
     "days": "{n} 日間",

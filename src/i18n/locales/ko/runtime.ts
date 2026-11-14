@@ -1,6 +1,6 @@
 import type { TranslatedCatalog } from "../../index.js";
 export default {
-  "help": "명령어:\n/model — 사용 가능한 모델 목록(번호 포함)\n/model <number or name> — 이 대화의 모델 변경\n/reset — 이 대화의 컨텍스트 지우기(에이전트 모드에서는 새 세션도 시작하며 장기 기억은 유지)\n/new — 새 대화 시작: 기존 대화는 인계 메모와 함께 보관하고 장기 기억은 유지\n/bot — 봇 목록; /bot <number or name> — 다른 봇으로 전환(채팅 앱에서만 사용)\n/status — 현재 모델, 에이전트 상태, 처리 중인 메시지의 진행 상황 표시\n/stop — 처리 중인 메시지 중지(현재 대화만 중지하며 봇의 다른 대화는 계속 진행)\n/tasks — 이 대화의 백그라운드 작업과 규칙 목록\n/stop <number> — /tasks 목록의 백그라운드 작업이나 규칙 중지\n/help — 도움말 표시",
+  "help": "명령어:\n/model — 사용 가능한 모델 목록(번호 포함)\n/model <number or name> — 이 대화의 모델 변경\n/reset — 이 대화의 컨텍스트 지우기(에이전트 모드에서는 새 세션도 시작하며 장기 기억은 유지)\n/skill — 방금 한 일을 스킬로 저장(뒤에 적으면 일부만 저장)\n/new — 새 대화 시작: 기존 대화는 인계 메모와 함께 보관하고 장기 기억은 유지\n/bot — 봇 목록; /bot <number or name> — 다른 봇으로 전환(채팅 앱에서만 사용)\n/status — 현재 모델, 에이전트 상태, 처리 중인 메시지의 진행 상황 표시\n/stop — 처리 중인 메시지 중지(현재 대화만 중지하며 봇의 다른 대화는 계속 진행)\n/tasks — 이 대화의 백그라운드 작업과 규칙 목록\n/stop <number> — /tasks 목록의 백그라운드 작업이나 규칙 중지\n/help — 도움말 표시",
   "botList": "대화할 수 있는 봇:\n{list}\n\n/bot <number or name>을 보내 전환하세요.",
   "botCurrent": "(현재)",
   "botMissing": "‘{name}’ 봇이 없습니다. /bot으로 목록을 확인하세요.",

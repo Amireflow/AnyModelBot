@@ -5,6 +5,7 @@ export default {
     "/model — lista os modelos disponíveis (numerados)",
     "/model <número ou nome> — troca o modelo desta conversa",
     "/reset — limpa o contexto desta conversa (no modo agente, também inicia uma nova sessão do agente; a memória de longo prazo é mantida)",
+    "/skill — salva o que acabamos de fazer como habilidade (acrescente uma nota para salvar só uma parte)",
     "/new — inicia uma nova conversa: a anterior é arquivada com uma nota de transição; a memória de longo prazo é mantida",
     "/bot — lista os bots; /bot <número ou nome> — fala com outro bot (só em apps de chat)",
     "/status — mostra o modelo atual, o estado do agente e o andamento da mensagem em processamento",

@@ -4,6 +4,24 @@
 
 This covers changes you'll notice in the app. For older versions, see the [GitHub releases](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.36 - 2026-11-15
+
+### New
+
+- **Save what you did as a skill:** once a bot gets something right, choose "Save as skill…" from the input box's + menu, send `/skill`, or just say "save as skill". The bot drafts a card with the steps, what you corrected, the apps and skills it used, and a "Try saying" line. Save it to My skills, turn it on for other bots with one switch, or schedule it. Secrets are never written into a skill, and personal details such as phone numbers and emails default to being asked each time. You can update a skill, restore the previous version or export it as a ZIP.
+- **Save skills from WeChat and Feishu:** private chats in WeChat, Feishu, Telegram, Slack and Discord can start it too. Reply "save" to keep it or "cancel" to drop it; it can't be started from a group.
+- **Skill library:** Connect apps is now Apps & skills, with a new Skills tab listing 155 skills from 31 open-source repositories, by category and by author. Copy an install prompt and send it to any bot, or send a skill's GitHub link, then confirm the card to install it.
+- **Use skills and apps in a chat:** + → Skills & apps in the input box lists what the bot can use; pick one to insert "Use {name} to help me…". Above the reply you see which skills and apps are in use or were used, and skill names open their details.
+
+### Improvements and fixes
+
+- **An easier skill list:** skills that are on come first. With more than 10, search and filter by My skills, GitHub, Local ZIP or Off. Each skill shows whether it's active, where it came from and a "Try saying" line.
+- **Templates during trial credits:** templates use a model tier that fits your current credits and say which tier they normally recommend.
+- **Computer use permissions:** when a background task is stopped by a missing permission, the permission card now appears, and no orphaned waiting state is left behind.
+- **Getting started and notices:** clicking a blocked checklist step explains why. Notices now appear at the top center of the main area.
+- **Scheduled rules:** an expanded rule is split into prompt, frequency, next run and destination. Choosing a bot uses a searchable list, and new rules start with cards for "Send a reminder" or "Do a task", which can follow one of My skills. Empty states and the time zone notice are clearer.
+- **Updates, account and details:** the update entry names the version. Account details can be retried if they fail to load, Sign out is red, group chats in the app show a top-up action when the balance runs out, template cards have borders and their links drop the arrow.
+
 ## 0.1.35 - 2026-11-14
 
 ### New

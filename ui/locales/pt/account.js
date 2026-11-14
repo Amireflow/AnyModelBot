@@ -1,5 +1,11 @@
 // account · pt
 export default {
+  "profile": {
+    "connecting": "Conectando…",
+    "retryHint": "Não foi possível carregar os dados da conta. Clique para tentar novamente.",
+    "retry": "Tentar carregar os dados da conta novamente",
+    "reload": "Recarregar os dados da conta"
+  },
   usage: {
     title: "Uso",
     days: "{n} dias",

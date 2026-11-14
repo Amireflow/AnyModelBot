@@ -25,6 +25,11 @@ export default {
   later: "Quizás más tarde",
   stopHere: "Suficiente por ahora",
   next: "Siguiente: {title}",
+  blocked: {
+    permission: "Primero resuelve la solicitud de permiso pendiente y luego sigue con la lista.",
+    needs: "Primero atiende lo que está en «Te necesita» y luego sigue con la lista.",
+    replying: "Espera a que termine de responder y luego sigue con la lista.",
+  },
   demo: {
     label: "Demostración",
     generating: "Generando la imagen de ejemplo",

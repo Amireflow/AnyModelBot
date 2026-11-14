@@ -4,6 +4,24 @@
 
 Aquí se recogen los cambios que notarás en la app. Para versiones anteriores, consulta las [versiones publicadas en GitHub](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.36 - 2026-11-15
+
+### Novedades
+
+- **Guarda lo que hiciste como habilidad:** cuando un bot hace algo bien, elige «Guardar como habilidad…» en el menú + del cuadro de texto, envía `/skill` o simplemente di «guardar como habilidad». El bot arma una tarjeta con los pasos, lo que corregiste, las apps y habilidades que usó y una línea de «Prueba a decir». Guárdala en Mis habilidades, actívala para otros bots con un interruptor o prográmala. Los secretos nunca se escriben en la habilidad, y los datos personales, como teléfonos y correos, se preguntan cada vez por defecto. Puedes actualizar una habilidad, restaurar la versión anterior o exportarla como ZIP.
+- **Guarda habilidades desde WeChat y Feishu:** también puedes empezar en chats privados de WeChat, Feishu, Telegram, Slack y Discord. Responde «guardar» para conservarla o «cancelar» para descartarla; no se puede iniciar desde un grupo.
+- **Biblioteca de habilidades:** Conectar apps ahora se llama Apps y habilidades, con una nueva pestaña Habilidades que reúne 155 habilidades de 31 repositorios de código abierto, por categoría y por autor. Copia una instrucción de instalación y envíala a cualquier bot, o envía el enlace de GitHub de una habilidad, y confirma la tarjeta para instalarla.
+- **Usa habilidades y apps en un chat:** + › Habilidades y apps en el cuadro de texto muestra lo que el bot puede usar; elige una para insertar «Usa {name} para ayudarme a…». Sobre la respuesta ves qué habilidades y apps se están usando o se usaron, y los nombres de las habilidades abren sus detalles.
+
+### Mejoras y correcciones
+
+- **Una lista de habilidades más fácil:** primero aparecen las activadas. Con más de 10, puedes buscar y filtrar por Mis habilidades, GitHub, ZIP local o Desactivadas. Cada habilidad muestra si está activa, de dónde viene y una línea de «Prueba a decir».
+- **Plantillas con créditos de prueba:** las plantillas usan un nivel de modelo acorde a tus créditos actuales y dicen qué nivel recomiendan normalmente.
+- **Permisos para controlar la computadora:** si a una tarea en segundo plano la detiene un permiso, ahora aparece la tarjeta de permiso y no queda ninguna espera sin tarjeta.
+- **Primeros pasos y avisos:** al tocar un paso bloqueado de la lista se explica el motivo. Los avisos aparecen arriba al centro del área principal.
+- **Rutinas programadas:** una rutina abierta se divide en instrucción, frecuencia, próxima ejecución y destino. Elegir un bot usa una lista con búsqueda, y las rutinas nuevas empiezan con tarjetas para «Enviar un recordatorio» o «Hacer una tarea», que puede seguir una de Mis habilidades. Los estados vacíos y el aviso de zona horaria son más claros.
+- **Actualizaciones, cuenta y detalles:** el acceso a la actualización muestra la versión. Si los datos de la cuenta no cargan, puedes reintentar; «Cerrar sesión» aparece en rojo; los chats grupales de la app muestran una opción de recarga cuando se acaba el saldo, y las tarjetas de plantillas tienen borde y sus enlaces ya no llevan flecha.
+
 ## 0.1.35 - 2026-11-14
 
 ### Novedades

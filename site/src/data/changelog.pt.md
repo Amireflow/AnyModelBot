@@ -4,6 +4,24 @@
 
 Aqui estão as mudanças que você vai notar no app. Para versões mais antigas, veja as [versões no GitHub](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.36 - 2026-11-15
+
+### Novidades
+
+- **Salve o que você fez como habilidade:** quando um bot faz algo do jeito certo, escolha “Salvar como habilidade…” no menu + da caixa de texto, envie `/skill` ou apenas diga “salvar como habilidade”. O bot monta um cartão com as etapas, o que você corrigiu, os apps e habilidades usados e uma linha de “Experimente dizer”. Salve em Minhas habilidades, ative em outros bots com um interruptor ou agende. Segredos nunca entram na habilidade, e dados pessoais como telefones e e-mails são perguntados a cada uso por padrão. Dá para atualizar uma habilidade, restaurar a versão anterior ou exportá-la como ZIP.
+- **Salve habilidades no WeChat e no Feishu:** também dá para começar em conversas privadas do WeChat, Feishu, Telegram, Slack e Discord. Responda “salvar” para manter ou “cancelar” para descartar; não dá para iniciar em grupos.
+- **Biblioteca de habilidades:** Conectar apps agora se chama Apps e habilidades, com uma nova aba Habilidades reunindo 155 habilidades de 31 repositórios de código aberto, por categoria e por autor. Copie uma instrução de instalação e envie para qualquer bot, ou envie o link do GitHub de uma habilidade, e confirme o cartão para instalar.
+- **Use habilidades e apps na conversa:** + › Habilidades e apps na caixa de texto mostra o que o bot pode usar; escolha um item para inserir “Use {name} para me ajudar a…”. Acima da resposta você vê quais habilidades e apps estão em uso ou foram usados, e os nomes das habilidades abrem os detalhes.
+
+### Melhorias e correções
+
+- **Uma lista de habilidades mais fácil:** as ativadas aparecem primeiro. Com mais de 10, dá para buscar e filtrar por Minhas habilidades, GitHub, ZIP local ou Desativadas. Cada habilidade mostra se está ativa, de onde veio e uma linha de “Experimente dizer”.
+- **Modelos durante os créditos de teste:** os modelos usam um nível de modelo adequado aos seus créditos atuais e dizem qual nível costumam recomendar.
+- **Permissões para controlar o computador:** quando uma tarefa em segundo plano é barrada por uma permissão, o cartão de permissão aparece, e não sobra nenhuma espera sem cartão.
+- **Primeiros passos e avisos:** ao tocar em uma etapa bloqueada da lista, o app explica o motivo. Os avisos aparecem no topo, ao centro da área principal.
+- **Rotinas agendadas:** uma rotina aberta é dividida em instrução, frequência, próxima execução e destino. A escolha do bot usa uma lista com busca, e novas rotinas começam com cartões para “Enviar um lembrete” ou “Executar uma tarefa”, que pode seguir uma de Minhas habilidades. Estados vazios e o aviso de fuso horário ficaram mais claros.
+- **Atualizações, conta e detalhes:** a entrada de atualização mostra a versão. Se os dados da conta não carregarem, dá para tentar de novo; “Sair” fica em vermelho; conversas em grupo no app mostram a opção de recarga quando o saldo acaba, e os cartões de modelos ganharam borda e os links perderam a seta.
+
 ## 0.1.35 - 2026-11-14
 
 ### Novidades

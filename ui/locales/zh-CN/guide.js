@@ -29,6 +29,12 @@ export default {
   later: "稍后再说",
   stopHere: "先到这里",
   next: "下一步：{title}",
+  /** 主动点清单步骤却被挡住时的提示（按优先级只说最前一条） */
+  blocked: {
+    permission: "先处理完当前的权限请求，再继续上手引导",
+    needs: "先处理完需要你处理的事项，再继续上手引导",
+    replying: "等它回复完，再继续上手引导",
+  },
   demo: {
     label: "预置演示",
     generating: "正在生成示例图",

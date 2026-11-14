@@ -24,6 +24,11 @@ export default {
   "later": "나중에",
   "stopHere": "여기까지 하기",
   "next": "다음: {title}",
+  "blocked": {
+    "permission": "대기 중인 권한 요청을 먼저 처리한 뒤 체크리스트를 이어 가세요.",
+    "needs": "‘내 확인 필요’ 항목을 먼저 처리한 뒤 체크리스트를 이어 가세요.",
+    "replying": "답장이 끝날 때까지 기다린 뒤 체크리스트를 이어 가세요.",
+  },
   "demo": {
     "label": "데모",
     "generating": "예제 이미지 생성 중",

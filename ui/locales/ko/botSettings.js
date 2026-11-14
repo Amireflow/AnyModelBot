@@ -3,7 +3,18 @@ export default {
     "head": "스킬",
     "note": "이 봇에 작업 방법을 추가합니다. 변경 사항은 진행 중인 작업이 끝난 후 적용됩니다.",
     "import": "ZIP 가져오기",
-    "importSub": "ZIP당 스킬 1개, 최대 20 MB",
+    "importSub": "ZIP당 스킬 1개, 최대 20 MB. 스킬의 GitHub 링크를 봇에게 보내 설치할 수도 있습니다",
+    "browse": "스킬 라이브러리 보기",
+    "sourceGithub": "출처: GitHub · {repo}",
+    "sourceZip": "출처: 로컬 ZIP",
+    "source": "출처",
+    "zip": "로컬 ZIP",
+    "repo": "저장소",
+    "path": "경로",
+    "root": "저장소 루트",
+    "branch": "브랜치",
+    "commit": "커밋",
+    "installedAt": "설치 시각",
     "empty": "아직 가져온 스킬이 없습니다",
     "enable": "{name} 활성화",
     "files": "파일 {count}개 · {size} KB",
@@ -25,7 +36,13 @@ export default {
       "conflict": "설치된 스킬이 변경되었습니다. ZIP을 다시 선택하고 교체를 확인하세요.",
       "not_found": "스킬을 찾을 수 없습니다. 목록을 새로 고치세요.",
       "too_many": "봇당 최대 100개 스킬을 가져올 수 있습니다. 사용하지 않는 스킬을 먼저 삭제하세요."
-    }
+    },
+    "imported": {
+      "active": "{name}을(를) 가져왔습니다. 다음 메시지부터 사용할 수 있습니다.",
+      "waiting": "{name}을(를) 가져왔습니다. 현재 작업이 끝나면 다음 메시지부터 사용할 수 있습니다.",
+      "loading": "{name}을(를) 가져왔습니다. 불러오는 중이며, 다음 메시지부터 사용할 수 있습니다."
+    },
+    "manualOnly": "이 스킬은 봇이 스스로 사용하지 않도록 설정되어 있습니다. 메시지에 /{name}을(를) 쓰면 사용됩니다."
   },
   "back": "대화로 돌아가기",
   "backTitle": "대화로 돌아가기(Esc)",

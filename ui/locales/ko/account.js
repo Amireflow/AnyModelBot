@@ -1,4 +1,10 @@
 export default {
+  "profile": {
+    "connecting": "연결 중…",
+    "retryHint": "계정 정보를 불러오지 못했어요. 클릭하여 다시 시도하세요.",
+    "retry": "계정 정보 불러오기 재시도",
+    "reload": "계정 정보 다시 불러오기"
+  },
   "usage": {
     "title": "사용량",
     "days": "{n}일",

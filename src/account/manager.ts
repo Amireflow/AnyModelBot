@@ -69,6 +69,8 @@ export interface AccountStatus {
   avatar?: string;
   email?: string;
   profileReady?: boolean;
+  profileState?: "loading" | "ready" | "error";
+  profileCached?: boolean;
   profileUrl?: string;
   /** 余额来源：account = 登录账户；key = 只用 API Key；none = 未连接 */
   source: "account" | "none";
@@ -199,6 +201,8 @@ export class AccountManager {
     const bal = this.snapshot.balanceUsd;
     return {
       ...this.snapshot,
+      profileState: this.refreshing ? "loading" : this.snapshot.error ? "error" : this.snapshot.profileReady ? "ready" : "loading",
+      profileCached: !!this.session?.record.profile,
       state: this.state,
       loginUrl: this.state === "signing_in" ? (this.login?.url ?? "") : "",
       alerts,
@@ -422,10 +426,14 @@ export class AccountManager {
   }
 
   private async doRefresh(): Promise<AccountStatus> {
+    const session = this.session;
+    let timer: NodeJS.Timeout | undefined;
     try {
       if (this.session) {
-        const session = this.session;
-        const account = await this.call((s) => s.account());
+        const account = await Promise.race([
+          this.call((s) => s.account()),
+          new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(t("account.unreachable", { reason: "timeout" }))), 15_000); }),
+        ]);
         if (this.session !== session) return this.status();
         this.applyAccount(account);
         // 启动后、之后每 5 分钟、切回窗口时都顺带核对一次 Key；不拖慢余额的返回
@@ -435,15 +443,15 @@ export class AccountManager {
       }
       this.checkLowBalance();
     } catch (e) {
-      if (!(e instanceof AccountRevokedError)) {
+      if (this.session === session && !(e instanceof AccountRevokedError)) {
         this.snapshot.error = (e as Error).message;
         this.snapshot.profileReady = true;
         // 读不到时 bot 额度也不留旧数：界面和以前一样显示"暂不可用"
         this.snapshot.balanceUsd = null;
         this.snapshot.bot = null;
       }
-    }
-    return this.status();
+    } finally { clearTimeout(timer); }
+    return { ...this.status(), profileState: this.snapshot.error ? "error" : "ready" };
   }
 
   /** 余额跌破阈值时提醒一次；回到阈值以上后才会再次提醒 */

@@ -25,6 +25,11 @@ export default {
   later: "Maybe later",
   stopHere: "Done for now",
   next: "Next: {title}",
+  blocked: {
+    permission: "Finish the pending permission request first, then continue the checklist.",
+    needs: "Take care of the things that need you first, then continue the checklist.",
+    replying: "Wait for it to finish replying, then continue the checklist.",
+  },
   demo: {
     label: "Demo",
     generating: "Generating the sample image",

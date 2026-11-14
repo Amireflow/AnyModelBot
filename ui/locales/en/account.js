@@ -1,5 +1,11 @@
 // account · en
 export default {
+  "profile": {
+    "connecting": "Connecting…",
+    "retryHint": "Couldn’t load your account info. Click to retry.",
+    "retry": "Retry loading account info",
+    "reload": "Reload account info"
+  },
   usage: {
     title: "Usage",
     days: "{n} days",
