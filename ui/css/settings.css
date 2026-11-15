@@ -3,7 +3,7 @@
    设置分页在侧栏：和机器人列表同一种结构（shell.css 的 .side-list + .nav-item），列表撑满、账户区贴底。 */
 @layer app {
 .skill-list .name, .skill-list .sub { overflow-wrap: anywhere; }
-/* 名字旁的生效状态（已生效 / 当前任务结束后生效 / 加载中），下面一行常驻的「试试这样说」：点了把这句填进对话的输入框 */
+/* 名字旁的生效状态（已生效 / 下一条消息起生效 / 加载中），下面一行常驻的「试试这样说」：点了把这句填进对话的输入框 */
 .skill-list .skill-name { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-2); }
 .skill-list .skill-state { font-weight: var(--fw-regular); }
 .skill-list .skill-try, .apps-bot-row .skill-try { display: block; min-height: 0; margin-top: var(--space-1); padding: 0; text-align: left; font-size: var(--fs-xs); line-height: var(--lh-snug); color: var(--fg-2); overflow-wrap: anywhere; }
@@ -75,6 +75,11 @@
 .settings .row .name, .new-model .row .name { font-size: var(--fs-lg); font-weight: var(--fw-regular); line-height: var(--lh-snug); }
 .settings .row .sub, .new-model .row .sub { font-size: var(--fs-xs); line-height: var(--lh-snug); max-width: 480px; white-space: normal; }
 .settings .row:has(> .ctl:empty) .sub { max-width: none; }
+/* 行里的操作（R7）：按钮一律是小胶囊，比下拉框矮一档（危险胶囊 .danger.soft、主按钮 .primary 同一个尺寸）；
+   设置里可点的东西（胶囊、文字按钮、「⋯」、整行可点的行）指针都是手形。下拉框、分段、开关、复制图标按钮不变 */
+.set-body > .list > .row > .ctl .btn:not(.lg) { --btn-h: var(--ctl-sm); --btn-px: var(--ctl-px-sm); }
+.settings :is(.btn, button.text, a.text[href], .more-btn, .row.go):not(:disabled):not([aria-disabled="true"]) { cursor: pointer; }
+.settings .row.go .sub { max-width: 480px; }
 .set-body > .list:first-child { margin-top: var(--title-gap); }
 .set-none { margin: var(--section-gap) 0; font-size: var(--fs-md); color: var(--muted); }
 .balance { font-size: var(--fs-lg); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; }
@@ -263,7 +268,6 @@ button.need-head:hover, button.need-head:hover .need-who b { color: var(--fg); }
 .login-manual { display: grid; gap: var(--space-2-5); }
 .login-manual .hint { margin: 0; }
 .login-cta > .pick { width: 100%; max-width: none; height: var(--ctl-lg); }
-.login-cta > .pick .v { flex: 1; text-align: left; }
 .login-wait { display: flex; align-items: center; justify-content: center; gap: var(--space-2); font-size: var(--fs-md); color: var(--fg-2); }
 .login-links { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--space-3); font-size: var(--fs-sm); }
 .picklist { max-height: 300px; overflow-y: auto; margin: 0 calc(-1 * var(--item-px)); }   /* 项的悬停底往外伸出 --item-px，字和卡片里的其他文字对齐 */
@@ -359,7 +363,7 @@ button.need-head:hover, button.need-head:hover .need-who b { color: var(--fg); }
 .onboard-col.returning .onboard-hero { margin-bottom: var(--space-1); }
 .official-start { display: grid; gap: var(--space-4); min-width: 0; }
 .official-start > .set-field { text-align: left; gap: var(--space-1-5); }
-.official-start .pick { width: 100%; max-width: none; height: var(--ctl-xl); border-radius: var(--r-field); }
+.official-start .pick { height: var(--ctl-xl); border-radius: var(--r-field); }   /* 整行选择框（.pick.block）：高度和圆角跟着输入框 */
 .provider-option { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 0; width: 100%; text-align: left; }
 .pick .provider-option > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .provider-option small { color: var(--muted); font-size: var(--fs-2xs); flex: none; }

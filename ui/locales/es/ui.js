@@ -27,4 +27,7 @@ export default {
     answered: "Respondido",
     denied: "Denegado",
   },
+  /** "⋯" at the end of a row (MoreButton): hover hint and screen-reader name */
+  more: "Más",
+  moreFor: "Más acciones para {name}",
 };

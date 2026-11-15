@@ -1214,11 +1214,23 @@ export class Store {
   clearAgentSession(conversationId: string): void {
     this.db.prepare("DELETE FROM agent_sessions WHERE conversation_id = ?").run(conversationId);
   }
-  /** 段落归档：上下文管家换段时记下旧 session 与交接便条。 */
-  archiveSegment(conversationId: string, sessionId: string, reason: string, handoff: string): void {
-    this.db
+  /**
+   * 段落归档：换段时记下旧 session 与交接便条，返回这条记录的 id。reason = manual 是用户主动开的新对话（/new、新建按钮）：
+   * 对话里在 ended_at 的位置画「已开始新对话」分隔线；上下文管家自动换段不画。
+   */
+  archiveSegment(conversationId: string, sessionId: string, reason: string, handoff: string, endedAt = Date.now()): number {
+    const r = this.db
       .prepare("INSERT INTO agent_segments(conversation_id, session_id, reason, handoff, ended_at) VALUES(?, ?, ?, ?, ?)")
-      .run(conversationId, sessionId, reason, handoff, Date.now());
+      .run(conversationId, sessionId, reason, handoff, endedAt);
+    return Number(r.lastInsertRowid);
+  }
+  /** 后台写好的交接便条替换归档时先存的兜底原文 */
+  setSegmentHandoff(id: number, handoff: string): void {
+    this.db.prepare("UPDATE agent_segments SET handoff = ? WHERE id = ?").run(handoff, id);
+  }
+  /** 用户主动开新对话的时刻（旧→新）：对话里画分隔线的位置 */
+  manualSegmentTimes(conversationId: string): number[] {
+    return (this.db.prepare("SELECT ended_at FROM agent_segments WHERE conversation_id = ? AND reason = 'manual' ORDER BY ended_at").all(conversationId) as Row[]).map((r) => Number(r.ended_at));
   }
   listSegments(conversationId: string): Array<{ sessionId: string; reason: string; handoff: string; endedAt: number }> {
     return (this.db.prepare("SELECT * FROM agent_segments WHERE conversation_id = ? ORDER BY id").all(conversationId) as Row[]).map((r) => ({

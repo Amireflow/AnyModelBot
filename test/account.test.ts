@@ -253,7 +253,7 @@ describe("AccountManager", () => {
     await signIn();
     const again = make();
     expect(again.status()).toMatchObject({ state: "signed_in", name: "Ada", profileReady: true });
-    expect(AccountVault.at(dir).load()?.profile).toEqual({ name: "Ada", email: "", avatar: "" });
+    expect(AccountVault.at(dir).load()?.profile).toEqual({ name: "Ada", nameFrom: "nickname", email: "", avatar: "" });
     await again.refresh();
     expect(again.status().balanceUsd).toBe(12.5);
     expect(AccountVault.at(dir).load()!.refreshToken).toBe("rt-2");

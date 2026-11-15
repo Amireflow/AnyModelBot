@@ -141,6 +141,17 @@
   --user-avatar-tone-11: hsl(286 82% 67%);
   --user-avatar-tone-12: hsl(330 90% 67%);
 
+  /* —— 技能库作者的首字母头像（「应用与技能」› 技能）：白字彩色底，按作者固定一种；8 种互相分得开的沉稳色，白字对比够 —— */
+  --skill-avatar-fg: #ffffff;
+  --skill-tone-1: #5b6f8f;
+  --skill-tone-2: #6a8160;
+  --skill-tone-3: #8a6474;
+  --skill-tone-4: #4c7d7e;
+  --skill-tone-5: #8a7140;
+  --skill-tone-6: #6d5f91;
+  --skill-tone-7: #93604b;
+  --skill-tone-8: #5f7449;
+
 }
 /* 由其他语义 token 推导的值：每个主题作用域都要重新计算，否则子树会继承外层主题算好的结果 */
 :root, [data-theme] {
@@ -361,6 +372,17 @@
   --avatar-aura: 52%;
   --avatar-shadow: rgba(0, 0, 0, .5);
   --user-avatar-fg: #fcfcfe;
+
+  /* 技能库作者的首字母头像：深色底上压暗一档，白字仍清楚 */
+  --skill-avatar-fg: #f4f5f7;
+  --skill-tone-1: #4a5c78;
+  --skill-tone-2: #566b4d;
+  --skill-tone-3: #73525f;
+  --skill-tone-4: #3d6869;
+  --skill-tone-5: #725d33;
+  --skill-tone-6: #5a4e79;
+  --skill-tone-7: #7b4f3d;
+  --skill-tone-8: #4e603b;
 }
 
 /* 系统开了"降低透明度"时（data-glass="off"，prefers-reduced-transparency）：

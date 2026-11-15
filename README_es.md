@@ -56,7 +56,7 @@ Las conversaciones, la memoria, los archivos y las claves de API se quedan en tu
 
 Listo para usar desde la instalación: las tareas en segundo plano, las reglas programadas y los asuntos que esperan tu visto bueno ya vienen integrados.
 
-**0.1.38:** Corrige los modelos «auto/…» que aparecían en la lista y hacían fallar las solicitudes. La 0.1.37 trajo Sobre mí, compartido por todos tus bots, y bots que se envían mensajes. [Historial de cambios](./CHANGELOG_es.md#0138---2026-11-15)
+**0.1.39:** Las conversaciones nuevas empiezan al instante sin quedarse en «Pensando», la zona de la cuenta muestra tu nombre y tu foto, el proceso indica qué herramienta se usó y los botones de la lista de habilidades y de la configuración se distinguen mejor. [Historial de cambios](./CHANGELOG_es.md#0139---2026-11-15)
 
 📥 [Descargar](#-descargar-y-ejecutar) · 🌠 [Capturas](#-capturas-de-pantalla) · 🌟 [Funciones](#-funciones-principales) · 🆚 [Comparativa](#-anymodelbot-frente-a-grok-bot-openai-dots-y-claude-duet) · 🔐 [Privacidad](#-cómo-funciona-y-privacidad)
 

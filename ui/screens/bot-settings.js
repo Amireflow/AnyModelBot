@@ -1,6 +1,6 @@
 // 机器人设置（信息面板的 ⚙，参考 Codex 的编辑页）：返回 + 头像 + 大标题；身份是头像角色 + 带标签的输入框，其余是白色圆角 list + 行，改动即保存。
 import { useEffect, useRef, useState } from "preact/hooks";
-import { html, Icon, Seg, Switch, MenuButton, Notice, Skeleton, autoGrow } from "../components/ui.js";
+import { html, GoRow, Icon, Seg, Switch, MenuButton, Notice, Skeleton, autoGrow } from "../components/ui.js";
 import { BotAvatar, AvatarPicker, charOf, ownCharOf } from "../components/avatar.js";
 import { ModelPicker, shortModel } from "../components/model-picker.js";
 import { api } from "../lib/api.js";
@@ -73,7 +73,7 @@ function BudgetRows({ bot, budget, account, onSaved, onOpenSettings }) {
   };
   if (!signedIn) {
     return html`<${Row} id="budget" name=${t("botSettings.budget.name")} sub=${t("botSettings.budget.signedOut")}>
-      <button type="button" class="text accent" onClick=${() => onOpenSettings("modelflare", "account")}>${t("botSettings.budget.signIn")}</button>
+      <button type="button" class="btn sm" onClick=${() => onOpenSettings("modelflare", "account")}>${t("botSettings.budget.signIn")}</button>
     <//>`;
   }
   const sub = !budget.enabled
@@ -214,9 +214,8 @@ export function BotSettingsScreen({ bot, section, models, modelsError, reloadMod
           <${Row} id="memory-review" name=${t("botSettings.memory.review")} off=${!s.memory.enabled}>
             <${Switch} label=${t("botSettings.memory.reviewLabel")} value=${s.memory.review} disabled=${!s.memory.enabled} onChange=${(v) => put({ memory: { review: v } })} />
           <//>
-          <${Row} id="about-me" name=${t("aboutMe.botEntry")} sub=${s.memory.enabled ? t("aboutMe.botEntrySub") : t("aboutMe.memoryOff")} off=${!s.memory.enabled}>
-            <button type="button" class="text" onClick=${() => onOpenSettings?.("aboutMe")}>${t("aboutMe.open")} ›</button>
-          <//>
+          <${GoRow} id="bot-about-me" name=${t("aboutMe.botEntry")} sub=${s.memory.enabled ? t("aboutMe.botEntrySub") : t("aboutMe.memoryOff")} disabled=${!s.memory.enabled}
+            onClick=${() => onOpenSettings?.("aboutMe")} />
         </div>
 
         <div class="list-head">${t("botSettings.context.head")}</div>
@@ -243,7 +242,7 @@ export function BotSettingsScreen({ bot, section, models, modelsError, reloadMod
             <${Switch} label=${t("botSettings.proactive.nudge")} value=${s.nudge} onChange=${(v) => put({ nudge: v })} />
           <//>
           <${Row} id="rules" name=${t("botSettings.proactive.rules")} sub=${t("scheduled.settingsSub")}>
-            <button type="button" class="btn" onClick=${() => setNewRule(true)}>${t("botSettings.proactive.newRule")}</button>
+            <button type="button" class="btn sm" onClick=${() => setNewRule(true)}>${t("botSettings.proactive.newRule")}</button>
           <//>
         </div>
         ${newRule && html`<${RuleEditor} botId=${bot.id} onClose=${() => setNewRule(false)} onSaved=${() => (setNewRule(false), loadRules())} />`}
@@ -277,7 +276,7 @@ export function BotSettingsScreen({ bot, section, models, modelsError, reloadMod
       <div class="list-head">${t("botSettings.danger.head")}</div>
       <div class="list">
         <${Row} id="delete" name=${t("botSettings.danger.delete")} sub=${t("botSettings.danger.deleteSub")}>
-          <button type="button" class="text danger" onClick=${del}>${t("botSettings.danger.delete")}</button>
+          <button type="button" class="btn sm danger soft" onClick=${del}>${t("botSettings.danger.delete")}</button>
         <//>
       </div>
     </div>

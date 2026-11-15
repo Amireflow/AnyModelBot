@@ -179,6 +179,8 @@ export function botsRoutes(ctx: WebContext, previews = new FilePreviews()): Rout
           conversationId: consoleConvId(id),
           model: conv?.model ?? "",
           messages: conv ? app.store.listMessages(conv.id, 200).filter((x) => x.id <= cut).map(publicMessage) : [],
+          // 用户主动开新对话的时刻：对话里在这些位置画「已开始新对话」分隔线（上下文管家自动换段不画）
+          dividers: conv ? app.store.manualSegmentTimes(conv.id) : [],
           pending: app.store.listApprovals({ status: "pending", conversationId: consoleConvId(id), limit: 50 }).map((r) => publicApproval(r, app.store)),
           // 技能安装卡片：按时间插进历史（处理过的只显示结果）
           installs: [
@@ -208,6 +210,12 @@ export function botsRoutes(ctx: WebContext, previews = new FilePreviews()): Rout
         const off = t.subscribe((e, d) => (e === "done" || e === "error" ? out.end(e, d) : out.send(e, d)));
         res.on("close", off);
         return;
+      }
+      // 开始新对话（新建按钮、加号菜单、手动输入 /new）：不发消息、不出回复，立刻换段，交接便条在后台写。
+      // started 带分隔线的时刻；already 已经是新对话；off 代理没有启用；failed 开新段本身出错（交接便条出错不算）
+      if (sub === "chat/new" && m === "POST") {
+        const r = await app.runtime.newConversation(id, consoleConvId(id));
+        return send(res, 200, r);
       }
       // 控制台对话当前用的模型（空 = 跟着 Bot）：目录 Bot 的界面打开时读，不用把整段历史取回来
       if (sub === "chat/model" && m === "GET") {

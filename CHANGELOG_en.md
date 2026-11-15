@@ -4,6 +4,21 @@
 
 This covers changes you'll notice in the app. For older versions, see the [GitHub releases](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.39 - 2026-11-15
+
+### New
+
+- **Know what to say right after setup:** after you import a skill ZIP or assign an app to a bot under **Skills & apps**, the confirmation adds a **Try saying** example with **Insert into the input** and **Copy**.
+
+### Improvements and fixes
+
+- **New conversations start right away:** the new-conversation button, **New conversation** in the + menu and typing /new switch to a fresh conversation at once and leave a "New conversation started" line in the chat (still there after a reload or restart). No more "/new" bubble stuck on "Thinking". Where you left off is written up as a handoff note in the background, and the first message of the new conversation waits for it for at most 8 seconds. The button is grayed out while a reply is running. /new in chat apps replies right away too.
+- **Your name and picture in the account area:** after you sign in to Modelflare, the bottom-left corner and the account menu show your nickname and profile picture (or your own username, then your email; the first letter of your name when there is no picture) instead of "Modelflare account". After a restart, your last name shows right away.
+- **The process shows which tool was used:** each app tool gets its own line, such as "Using Notion · Search pages", folding into "Used: Notion · Search pages, Notion · Read page" when the reply ends.
+- **A clearer skills list:** **Apps & skills › Skills** now shows cards. Author pictures start as initials, fade in once loaded and are kept on your device, so they show at once next time. **GitHub ↗** and **Copy install prompt** are always visible and no longer squeeze the title.
+- **Settings make clickable things obvious:** actions in Settings and bot settings are small pill buttons, with Delete, Remove and Sign out in red. A row with a single "View" is clickable as a whole, and a row has at most two buttons, with the rest under "⋯".
+- **Pickers and small fixes:** the **Provider** picker on the **Use your own API key** page and the switcher in Preview keep their arrow at the right edge and open from anywhere on the row. A skill that is set up but not active yet says "Ready from your next message". For built-in bots you haven't used yet, the sidebar "⋯" no longer covers the "new" dot.
+
 ## 0.1.38 - 2026-11-15
 
 ### New

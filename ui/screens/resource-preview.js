@@ -61,7 +61,7 @@ export function ResourcePreview({ state = { items: [], active: "" }, onSelect, o
   const href = item.type === "website" ? item.url : resourceFileUrl(item);
   return html`<div class="resource-preview">
     <div class="preview-toolbar">
-      <${MenuButton} label=${t("info.preview.opened")} value=${item.id} options=${state.items.map((x) => [x.id, x.name])} onChange=${onSelect} />
+      <${MenuButton} block label=${t("info.preview.opened")} value=${item.id} options=${state.items.map((x) => [x.id, x.name])} onChange=${onSelect} />
       <${IconButton} icon="refresh" label=${t("common.refresh")} onClick=${() => setRevision((v) => v + 1)} />
       <${IconButton} icon="close" label=${t("info.preview.closeFile")} onClick=${() => onRemove(item.id)} />
     </div>

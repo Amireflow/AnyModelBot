@@ -102,7 +102,7 @@ export function AboutMePane() {
                   </div>
                   <div class="ctl">
                     <button type="button" class="text" onClick=${() => setEditing(l.id)}>${t("aboutMe.edit")}</button>
-                    <button type="button" class="text" onClick=${() => remove(l)}>${t("aboutMe.delete")}</button>
+                    <button type="button" class="text danger" onClick=${() => remove(l)}>${t("aboutMe.delete")}</button>
                   </div>
                 </div>`,
           )}

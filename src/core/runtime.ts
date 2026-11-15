@@ -198,6 +198,9 @@ export class TurnSaid {
  */
 export type Replier = (conv: Conversation, handle: Record<string, string> | undefined, key: string) => { out: ReplySession; done?: () => void } | undefined;
 
+/** 开新对话的结果（BotRuntime.newConversation / 渠道的 /new） */
+export type NewConversation = { status: "started"; at: number } | { status: "already" | "off" } | { status: "failed"; error: string };
+
 /** 会话最近收到的那条消息的回复句柄（飞书回复要它） */
 const REPLY_TO = "reply-to:";
 
@@ -771,6 +774,9 @@ export class BotRuntime {
         }
       }
       if (signal.aborted) return await stoppedEarly();
+      // 新对话的第一句：交接便条还在后台写就等一会儿（最多 8 秒，期间照常「思考中」/「正在输入」）
+      if (!store.getAgentSession(convId)) await agent.seedReady?.(convId);
+      if (signal.aborted) return await stoppedEarly();
       const first = store.getAgentSession(convId) ? text : firstInput(agent, botId, convId, text, place);
       // 后台任务的结果发出去之后，下一条聊天消息带上那张便条：聊天代理知道发生了什么；
       // 关于我在这段开始之后变了（别的机器人刚记下的）：带上新的全文
@@ -970,6 +976,7 @@ export class BotRuntime {
       const halt = () => agent.stopTurn(convId);
       fl.abort.signal.addEventListener("abort", halt, { once: true });
       try {
+        if (!store.getAgentSession(convId)) await agent.seedReady?.(convId);
         const first = store.getAgentSession(convId) ? input : firstInput(agent, botId, convId, input, { channel: conv.channel, kind: conv.kind === "group" ? "group" : "dm" });
         const notes = [takeTaskNotes(store, convId), store.getAgentSession(convId) ? (agent.aboutMeUpdate?.(botId, convId) ?? "") : "", agent.collab?.chatNote(botId, convId) ?? ""].filter(Boolean).join("\n\n");
         r = await agent.runTurn(botId, { conversationId: convId, text: notes ? `${notes}\n\n${first}` : first, model: routed, onStep: (step) => void steps.set(step.id, step), observer: {} });
@@ -1078,6 +1085,39 @@ export class BotRuntime {
     }
   }
 
+  /**
+   * 开新对话（渠道里的 /new、应用里的新建按钮和 /new 共用）：代理没启用 → off；还没有代理会话（分隔线后没发过消息、从没聊过）→ already；
+   * 开新段本身出错 → failed；否则 started，at 是分隔线的位置（应用里画「已开始新对话」）。
+   */
+  private async startNew(botId: string, convId: string, convModel: string, botModel: string): Promise<NewConversation> {
+    const a = this.opts.agent;
+    if (!a?.available) return { status: "off" };
+    if (!this.opts.store.getAgentSession(convId)) return { status: "already" };
+    try {
+      const at = a.newSegment(botId, convId, await this.resolveModel(convModel, botModel).catch(() => ""));
+      return at === undefined ? { status: "already" } : { status: "started", at };
+    } catch (e) {
+      return { status: "failed", error: (e as Error).message.slice(0, 200) };
+    }
+  }
+
+  /**
+   * 应用里的「开始新对话」（新建按钮、加号菜单、手动输入 /new）：不发消息、不出回复，排在这个会话里还没处理完的消息后面
+   * （界面在回复进行中会先置灰按钮、把手动输入的 /new 排到回复结束后）。
+   */
+  async newConversation(botId: string, convId: string): Promise<NewConversation> {
+    const { store } = this.opts;
+    const run: Inflight = { botId, since: Date.now(), abort: new AbortController(), release: KeyedQueue.releaser() };
+    const done = this.enter(convId, run);
+    try {
+      await done.prior;
+      const conv = store.getConversation(convId);
+      return await this.startNew(botId, convId, conv?.model ?? "", store.getBot(botId)?.defaultModel ?? "");
+    } finally {
+      done.leave();
+    }
+  }
+
   /** 返回 null 表示不是已知命令，按普通消息处理。 */
   private switchBot(ev: InboundEvent, account: string, wanted: string | undefined): string {
     const { store } = this.opts;
@@ -1103,15 +1143,10 @@ export class BotRuntime {
         this.opts.agent?.resetConversation(convId);
         return t("runtime.resetDone");
       case "/new": {
-        const a = this.opts.agent;
-        if (!a?.available) return t("runtime.newAgentOnly");
-        if (!this.opts.store.getAgentSession(convId)) return t("runtime.alreadyNew");
-        try {
-          await a.newSegment(botId, convId, await this.resolveModel(convModel, botModel));
-        } catch (e) {
-          return t("runtime.newFailed", { error: (e as Error).message.slice(0, 200) });
-        }
-        return t("runtime.newDone");
+        // 后面的文字忽略；立即回复，交接便条在后台写（新对话的第一句最多等它 8 秒）
+        const r = await this.startNew(botId, convId, convModel, botModel);
+        if (r.status === "failed") return t("runtime.newFailed", { error: r.error });
+        return r.status === "started" ? t("runtime.newDone") : r.status === "already" ? t("runtime.alreadyNew") : t("runtime.newAgentOnly");
       }
       case "/status":
         return this.statusText(botId, convId, convModel, botModel);

@@ -67,6 +67,27 @@ export function withInstalls(list, installs = [], live = []) {
   return out;
 }
 
+/**
+ * 「已开始新对话」分隔线：用户主动开新对话的时刻（服务端存在换段记录里，刷新、重开后仍在原位置）按时间插进历史。
+ * 它前面没有消息的（对话清空过、或更早的消息没读进来）不画
+ */
+export function withDividers(list, times = []) {
+  if (!times?.length) return list;
+  const out = [...list];
+  for (const at of times) {
+    if (!out.some((x) => x.kind !== "divider" && x.at && x.at <= at)) continue;
+    const i = out.findIndex((x) => x.at > at);
+    out.splice(i < 0 ? out.length : i, 0, { kind: "divider", id: `d${at}`, at });
+  }
+  return out;
+}
+
+/** 已经是新对话：还没聊过，或最后一条（不算卡片）就是分隔线 */
+export const freshConversation = (list) => {
+  const last = (list || []).filter((x) => x.kind !== "prompt").at(-1);
+  return !last || last.kind === "divider";
+};
+
 /** 回复显示的全文：模型在回合中间说的话在前，按说的顺序，最后的回复接着（最后没再说话时回复就是中间说的最后一句，不重复） */
 export function shownText(it) {
   const before = it.interim || [];
@@ -248,9 +269,10 @@ export function WorkLine({ live, stopping, text, startedAt, workedMs, steps, cou
   useStore(appsStore);
   if (!live && !(ms >= 3000) && !steps?.length && !count) return null;
   const items = found.map((u) => ({ ...u, label: usedName(u, skills) })).filter((u) => u.label);
-  // 有一步在做时说那一步（模型在回合中间说过话也一样）；没有时出了字是"正在回复"。在用技能或应用的那一步说人话（「正在使用 Notion」），不说工具名
+  // 有一步在做时说那一步（模型在回合中间说过话也一样）；没有时出了字是"正在回复"。在用技能或应用的那一步说人话
+  // （「正在使用技能 · 名字」「正在使用 Notion · 搜索页面」），不说内部的调用工具名
   const busyUse = live && (steps || []).findLast((s) => s.status === "running")?.use;
-  const busyItem = busyUse && items.find((u) => u.kind === busyUse.kind && u.name === (busyUse.kind === "skill" ? busyUse.name : busyUse.app));
+  const busyItem = busyUse && items.find((u) => u.kind === busyUse.kind && (busyUse.kind === "skill" ? u.name === busyUse.name : u.name === busyUse.app && u.tool === (busyUse.tool || undefined)));
   const cur = live ? (busyItem ? usedLine({ ...busyItem, status: "running" }, busyItem.label) : currentStep(steps)) : "";
   // 按了停止：代理要重启进程，可能要几秒，先说清楚在停
   const long = ms >= 3000;
@@ -267,7 +289,7 @@ export function WorkLine({ live, stopping, text, startedAt, workedMs, steps, cou
   const name = (u) => (u.kind === "skill" && !HOST_SKILLS.has(u.name)
     ? html`<button type="button" class="text skill-link" title=${t("mySkills.activity.view")} onClick=${(e) => (e.stopPropagation(), openSkillDetail({ botId, name: u.name }))}>${u.label}</button>`
     : u.label);
-  const uses = live ? items.map((u) => ({ key: `${u.kind}:${u.name}`, status: u.status, text: withMark(usedLine(u, MARK), name(u)) })) : null;
+  const uses = live ? items.map((u) => ({ key: `${u.kind}:${u.name}:${u.tool || ""}`, status: u.status, text: withMark(usedLine(u, MARK), name(u)) })) : null;
   return html`<${ActivityLine} label=${label} phase=${phase} live=${live} steps=${steps} count=${count} load=${load} used=${live || !items.length ? "" : usedSummaryNodes(items, name)} uses=${uses} />`;
 }
 
@@ -388,6 +410,16 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
   const attachRef = useRef(null);
   // 处理中又发的消息（并进正在进行的回复）结束后重新读一次历史：存下的顺序是两条用户消息、一条回复
   const reloadAfter = useRef(false);
+  // 开始新对话（新建按钮、加号菜单、手动输入 /new）：正在请求；回复进行中手动输入的 /new 排到回复结束后
+  const [newBusy, setNewBusy] = useState(false);
+  const newQueued = useRef(false);
+  // 对话底部的轻提示（已经是新对话了、代理没有启用、没能开始新对话）：几秒后自己消失
+  const [hint, setHint] = useState(null);
+  useEffect(() => {
+    if (!hint) return;
+    const timer = setTimeout(() => setHint(null), hint.ms);
+    return () => clearTimeout(timer);
+  }, [hint]);
   // 这个会话的后台任务（胶囊挂在请求它的那条消息的回复下面）；任务结束时结果写进了历史，重新读一次
   const [tasks, setTasks] = useState([]);
   const taskGroups = useRef({});
@@ -458,7 +490,7 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
       setConvModel(bot.id, d.model || "");
       setCanOpen(!!d.canOpen);
       if (d.aboutMe) setAboutMe(d.aboutMe);
-      const list = withInstalls(toItems(d.messages || []), d.installs, d.live);
+      const list = withDividers(withInstalls(toItems(d.messages || []), d.installs, d.live), d.dividers);
       const reply = ended && list.findLast((x) => x.kind !== "prompt" && x.role !== "user");
       if (reply && reply.at >= ended.since) reply.workedMs = ended.ms;
       const cards = (d.pending || []).map((a) => ({ kind: "prompt", id: "p" + a.id, requestId: a.id, prompt: "" }));
@@ -667,9 +699,55 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
     }
   };
 
+  /**
+   * 开始新对话：不发「/new」、不出气泡和「思考中」。成功时对话末尾出现灰色分隔线「已开始新对话」并滚到底，输入框获得焦点，
+   * 欢迎示例收起；交接便条在后台写（服务端）。已经是新对话、代理没启用、开新对话本身出错时不加分隔线，底部轻提示。
+   */
+  const newConversation = async () => {
+    if (newBusy || generating || following.current) return;
+    history.clear();
+    setFindOpen(false);
+    setSamples([]);
+    consumeWelcome();
+    const focus = () => requestAnimationFrame(() => ta.current?.focus());
+    if (items !== null && freshConversation(items)) {
+      setHint({ text: t("chat.newConv.already"), ms: 2000 });
+      return focus();
+    }
+    setNewBusy(true);
+    try {
+      const r = await api(`/bots/${encodeURIComponent(bot.id)}/chat/new`, { method: "POST", body: {} });
+      if (!mounted.current) return;
+      if (r.status === "started") {
+        stick.current = true;
+        setUnseen(false);
+        setItems((l) => [...(l || []), { kind: "divider", id: `d${r.at}`, at: r.at, enter: true }]);
+      } else if (r.status === "already") setHint({ text: t("chat.newConv.already"), ms: 2000 });
+      else if (r.status === "off") setHint({ text: t("chat.newConv.agentOff"), ms: 5000 });
+      else setHint({ text: t("chat.newConv.failed", { error: r.error || t("common.error") }), ms: 5000 });
+    } catch (e) {
+      if (mounted.current) setHint({ text: t("chat.newConv.failed", { error: e.message }), ms: 5000 });
+    } finally {
+      if (mounted.current) setNewBusy(false);
+      focus();
+    }
+  };
+
   const send = async (raw) => {
     const msg = (raw ?? text).trim();
     if (msg) { history.clear(); setFindOpen(false); }
+    // 手动输入的 /new（后面的文字忽略）和新建按钮一样；回复进行中时排到回复结束后立即开始
+    if (/^\/new(\s|$)/i.test(msg)) {
+      if (raw === undefined) {
+        setText("");
+        requestAnimationFrame(() => autoGrow(ta.current));
+      }
+      if (generating || following.current) {
+        newQueued.current = true;
+        return;
+      }
+      return newConversation();
+    }
     if (msg && (generating || following.current) && !msg.startsWith("/") && raw === undefined) return steer(msg);
     // 正在回复时点「存成技能…」或发 /skill：排在这一轮后面，回复结束后再整理
     if (msg && (generating || following.current) && /^\/skill\b/i.test(msg)) {
@@ -688,7 +766,7 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
     stick.current = true;
     const liveId = uid();
     const isReset = /^\/reset\b/i.test(msg);
-    if (/^\/(new|reset)\b/i.test(msg)) setSamples([]);
+    if (isReset) setSamples([]);
     setItems((l) => [...(l || []), { kind: "msg", id: uid(), role: "user", text: msg, at: Date.now(), enter: true, turn: liveId }, { kind: "msg", id: liveId, role: "assistant", text: "", at: Date.now(), live: true, startedAt: Date.now(), turn: liveId }]);
     const finalText = await follow(liveId, liveId, (h, signal) => streamChat(bot.id, msg, h, signal));
     if (finalText === null) return;
@@ -792,14 +870,22 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
     }
     const coItems = (list) => (list || []).map((x, i) => html`<${CollabItem} key=${i} x=${x} onSignIn=${() => onOpenSettings("modelflare", "account")} onChangeModel=${changeModel} />`);
     let prev = null;
+    let afterDivider = false;
     const lastAi = (shownItems || []).findLast((x) => x.kind === "msg" && x.role === "assistant" && !x.live)?.id;
     for (const it of shownItems || []) {
+      // 「已开始新对话」：一条灰色分隔线，不另画时间；下一条消息不和分隔线前的连成一组
+      if (it.kind === "divider") {
+        out.push(html`<div class=${`conv-divider${it.enter ? " enter" : ""}`} role="separator" aria-label=${t("chat.newConv.divider")} key=${it.id}><span>${t("chat.newConv.divider")}</span></div>`);
+        afterDivider = true;
+        continue;
+      }
       if (it.at && (!prev?.at || new Date(it.at).toDateString() !== new Date(prev.at).toDateString() || it.at - prev.at > 15 * 60_000)) {
         out.push(html`<div class="time-sep" key=${"t" + it.id}>${fmtSep(it.at)}</div>`);
         prev = null;
       }
       const role = it.kind === "msg" ? it.role : "assistant";
-      const cont = prev && (prev.kind === "msg" ? prev.role : "assistant") === role;
+      const cont = prev && !afterDivider && (prev.kind === "msg" ? prev.role : "assistant") === role;
+      afterDivider = false;
       const cls = `msg-row ${role}${cont ? " cont" : ""}${it.enter ? " enter" : ""}${it.live ? " live" : ""}`;
       if (it.kind === "collab") {
         out.push(html`<div class="msg-row assistant collab-row" key=${it.id}><${CollabItem} x=${it.line} /></div>`);
@@ -857,6 +943,12 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
     skillQueued.current = "";
     void send(msg);
   }, [generating]);
+  // 回复进行中手动输入的 /new：回复结束（或停止）后立即开始新对话
+  useEffect(() => {
+    if (generating || following.current || !newQueued.current) return;
+    newQueued.current = false;
+    void newConversation();
+  }, [generating]);
   if (ctl) ctl.current = { send: (msg) => (generating || following.current || queued.current ? false : items === null ? ((queued.current = msg), true) : (void send(msg), true)) };
   useEffect(() => () => { if (ctl) ctl.current = null; }, []);
   useEffect(() => {
@@ -881,7 +973,7 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
       </button>
       <span class="grow"></span>
       <${IconButton} icon="search" iconSize="md" label=${t("search.findInChat")} onClick=${() => setFindOpen(true)} />
-      <${IconButton} icon="compose" iconSize="md" label=${t("chat.newConvCmd")} disabled=${generating} onClick=${() => send("/new")} />
+      <${IconButton} icon="compose" iconSize="md" label=${generating ? t("chat.newConv.busy") : t("chat.newConvCmd")} disabled=${generating} aria-busy=${newBusy || undefined} onClick=${newConversation} />
       <${IconButton} icon="panel" iconSize="md" label=${t("chat.infoPanel")} on=${infoOpen} aria-pressed=${infoOpen} onClick=${onToggleInfo} />
     </header>
     ${bot.origin === "catalog" && html`<${OfficialGuideNotice} installed busy=${generating || !!pending || !!cuBlocked} />`}
@@ -914,8 +1006,9 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
       </div>
     </div>
     ${toBottomBtn.mounted && html`<button type="button" class=${`to-bottom${toBottomBtn.leaving ? " leaving" : ""}`} aria-label=${t("chat.toBottom")} onClick=${toBottom}><${Icon} name="down" size="md" />${unseen && html`<span class="new"></span>`}</button>`}
+    ${hint && html`<div class="chat-hint" role="status" key=${hint.text}>${hint.text}</div>`}
     <div class="composer-dock">
-      <${Composer} bot=${bot} text=${text} setText=${setText} taRef=${ta} ctl=${composer} guide steer
+      <${Composer} bot=${bot} text=${text} setText=${setText} taRef=${ta} ctl=${composer} guide steer onNewConversation=${newConversation}
         placeholder=${t("chat.composer.placeholder", { name: bot.name })} label=${t("chat.composer.label")}
         generating=${generating} stopping=${stopping} sent=${sentOnce.current} onSend=${send} onStop=${stop}
         models=${models} modelsError=${modelsError} reloadModels=${reloadModels} defaultModel=${defaultModel} account=${account} onAccount=${onAccount}

@@ -4,6 +4,21 @@
 
 Aquí se recogen los cambios que notarás en la app. Para versiones anteriores, consulta las [versiones publicadas en GitHub](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.39 - 2026-11-15
+
+### Novedades
+
+- **Sabes qué decir en cuanto lo instalas:** al importar el ZIP de una habilidad o asignar una app a un bot en **Habilidades y apps**, el aviso añade un ejemplo **Prueba decir** con **Insertar en el mensaje** y **Copiar**.
+
+### Mejoras y correcciones
+
+- **Las conversaciones nuevas empiezan al instante:** el botón de conversación nueva, **Nueva conversación** en el menú + y escribir /new pasan de inmediato a una conversación nueva y dejan en el chat una línea «Se inició una conversación nueva» (sigue en su lugar al recargar o reiniciar). Ya no aparece una burbuja «/new» atascada en «Pensando». Dónde se quedaron se resume en segundo plano en una nota de traspaso, y el primer mensaje de la conversación nueva la espera como máximo 8 segundos. Mientras hay una respuesta en curso, el botón se ve en gris. En las apps de chat, /new también responde al instante.
+- **Tu nombre y tu foto en la zona de la cuenta:** al iniciar sesión en Modelflare, la esquina inferior izquierda y el menú de la cuenta muestran tu apodo y tu foto de perfil (si no hay apodo, tu nombre de usuario y luego tu correo; si no hay foto, la primera letra del nombre), en lugar de «Cuenta Modelflare». Al reiniciar, se ve enseguida el último nombre.
+- **El proceso muestra qué herramienta se usó:** cada herramienta de una app tiene su propia línea, como «Usando Notion · Buscar páginas», que al terminar la respuesta se resume en «Usado: Notion · Buscar páginas, Notion · Leer página».
+- **Una lista de habilidades más clara:** **Apps y habilidades › Habilidades** ahora muestra tarjetas. Las fotos de los autores empiezan con sus iniciales, aparecen con un fundido al cargar y se guardan en tu dispositivo para mostrarse al instante la próxima vez. **GitHub ↗** y **Copiar instrucción de instalación** siempre están a la vista y ya no estrechan el título.
+- **En la configuración se ve qué se puede tocar:** las acciones de Configuración y de la configuración del bot son pequeños botones en forma de píldora, con Eliminar, Quitar y Cerrar sesión en rojo. Una fila con un solo «Ver» se puede tocar completa, y cada fila tiene como máximo dos botones; el resto va en «⋯».
+- **Selectores y pequeños arreglos:** el selector de **Proveedor** en la página **Usar tu propia clave de API** y el selector de Vista previa mantienen la flecha en el borde derecho y se abren desde cualquier punto de la fila. Una habilidad instalada que aún no está activa ahora dice «Activa desde tu próximo mensaje». En los bots integrados que aún no usaste, el «⋯» de la barra lateral ya no tapa el punto de «nuevo».
+
 ## 0.1.38 - 2026-11-15
 
 ### Novedades

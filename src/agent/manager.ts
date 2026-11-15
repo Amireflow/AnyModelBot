@@ -201,6 +201,11 @@ export class AgentManager {
   /** DSH session → 进行中的原地压缩；插件回报、超时、会话被重置或换段、代理进程退出时结束 */
   private compactDone = new Map<string, { botId: string; conv: string; resolve: (v: unknown) => void }>();
   private judgedAt = new Map<string, number>();
+  /**
+   * 用户开新对话后在后台写的交接便条：会话 → 这次的进度。写好时还没被新对话的第一句取走就换掉兜底原文；
+   * dropped：第一句等了 8 秒没等到（或这段对话又被清空），之后写好的不再补进
+   */
+  private seedJobs = new Map<string, { done: Promise<void>; settled: boolean; dropped: boolean }>();
   private reviewTimers = new Map<string, NodeJS.Timeout>();
   /** 会话 → 用户在生成确认里换了模型、代理要按新模型文档重写请求：重写后的那一次免确认 */
   private mediaGrants = new Map<string, { kind: string; model: string; at: number }>();
@@ -428,10 +433,11 @@ export class AgentManager {
     return this.track(botId, { ...input, text: "" }, (i) => this.followInner(botId, i));
   }
 
-  /** 过程区「正在使用 / 已使用」要的两样：应用的 key、技能是不是装了还没生效 */
+  /** 过程区「正在使用 / 已使用」要的：应用的 key、工具的显示名称、技能是不是装了还没生效 */
   private usesFor(botId: string) {
     return {
       appKey: (selector: string) => this.o.apps?.keyOf(selector),
+      toolTitle: (app: string, tool: string) => this.o.apps?.toolTitle(app, tool),
       skillPending: (name: string) => this.hosts.get(botId)?.skillPending(name) ?? false,
     };
   }
@@ -680,11 +686,59 @@ export class AgentManager {
     return v;
   }
 
-  /** /new：主动开新段（保留记忆，生成交接便条）。 */
-  async newSegment(botId: string, conversationId: string, model: string): Promise<void> {
+  /**
+   * /new、新建按钮：用户主动开新对话（保留记忆）。立刻换段，不等模型：先存旧对话最后 6 条原文（最多 4000 字）当兜底便条，
+   * 同时在后台把最近 40 条写成交接便条，写好后替换兜底；写失败（模型不可用、额度不足、网络错误）不提示，继续用兜底。
+   * 返回分隔线的时刻（归档记录的 ended_at）；已经是新对话（还没有代理会话）时返回 undefined。
+   */
+  newSegment(botId: string, conversationId: string, model: string): number | undefined {
     const sessionId = this.o.store.getAgentSession(conversationId);
-    if (!sessionId) return;
-    await this.switchSegment(botId, conversationId, sessionId, model, "manual");
+    if (!sessionId) return undefined;
+    const conv = conversationId;
+    const lines = this.transcript(conv);
+    const fallback = recentTranscript(lines.slice(-6), 4000).slice(0, 4000);
+    const at = Date.now();
+    const segment = this.o.store.archiveSegment(conv, sessionId, "manual", fallback, at);
+    if (this.o.store.getAgentSession(conv) === sessionId) this.o.store.clearAgentSession(conv);
+    this.o.store.setKV(`seed:${conv}`, fallback);
+    this.judgedAt.delete(sessionId);
+    this.note(conv, "switch", "manual");
+    // 旧段上还没回报的压缩不用再等
+    this.endCompaction((c) => c.conv === conv);
+    const previous = this.seedJobs.get(conv);
+    if (previous) previous.dropped = true;
+    this.seedJobs.delete(conv);
+    if (!this.o.complete || !lines.length) return at;
+    const job = { done: Promise.resolve(), settled: false, dropped: false };
+    job.done = (async () => {
+      try {
+        const handoff = (await this.o.complete!(botId, this.utilityModel(botId, model), HANDOFF_SYSTEM, recentTranscript(lines))).trim().slice(0, 4000);
+        if (!handoff || job.dropped) return;
+        this.o.store.setSegmentHandoff(segment, handoff);
+        this.o.store.setKV(`seed:${conv}`, handoff);
+      } catch (e) {
+        log.warn("handoff failed, keeping the raw tail", { message: (e as Error).message.slice(0, 200) });
+      }
+    })().finally(() => {
+      job.settled = true;
+      if (this.seedJobs.get(conv) === job) this.seedJobs.delete(conv);
+    });
+    this.seedJobs.set(conv, job);
+    return at;
+  }
+
+  /**
+   * 新对话的第一句交给代理之前调用：交接便条还在后台写时最多等 waitMs（8 秒，期间照常「思考中」）；
+   * 超时就用兜底原文，之后写好的便条不再补进。第一句之后（便条已取走）不再等。
+   */
+  async seedReady(conversationId: string, waitMs = 8000): Promise<void> {
+    const job = this.seedJobs.get(conversationId);
+    if (!job || job.settled) return;
+    await withTimeout(job.done, waitMs, undefined);
+    if (!job.settled) {
+      job.dropped = true;
+      this.seedJobs.delete(conversationId);
+    }
   }
 
   /** 机器人自己的记忆和本群记忆（原来的团队记忆搬进了关于我，不再从这里读） */
@@ -1468,6 +1522,10 @@ export class AgentManager {
     this.endCompaction((c) => c.conv === conversationId);
     this.o.store.clearAgentSession(conversationId);
     this.o.store.setKV(`seed:${conversationId}`, "");
+    // 后台还在写的交接便条：对话清空了，写好也不再补进
+    const job = this.seedJobs.get(conversationId);
+    if (job) job.dropped = true;
+    this.seedJobs.delete(conversationId);
     this.mediaGrants.delete(conversationId);
     for (const r of this.approvals.pendingChat(conversationId)) this.approvals.cancel(r.id, "reset");
   }

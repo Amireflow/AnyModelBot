@@ -4,6 +4,21 @@
 
 Aqui estão as mudanças que você vai notar no app. Para versões mais antigas, veja as [versões no GitHub](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.39 - 2026-11-15
+
+### Novidades
+
+- **Já dá para saber o que dizer:** ao importar o ZIP de uma habilidade ou atribuir um app a um bot em **Habilidades e apps**, o aviso traz um exemplo **Experimente dizer** com **Inserir na mensagem** e **Copiar**.
+
+### Melhorias e correções
+
+- **Conversas novas começam na hora:** o botão de nova conversa, **Nova conversa** no menu + e digitar /new passam na hora para uma conversa nova e deixam no chat uma linha «Nova conversa iniciada» (que continua no lugar ao recarregar ou reiniciar). Não aparece mais um balão «/new» travado em «Pensando». Onde vocês pararam é resumido em segundo plano numa nota de transição, e a primeira mensagem da conversa nova espera por ela no máximo 8 segundos. Enquanto uma resposta está em andamento, o botão fica cinza. Nos apps de chat, /new também responde na hora.
+- **Seu nome e sua foto na área da conta:** depois de entrar na Modelflare, o canto inferior esquerdo e o menu da conta mostram seu apelido e sua foto de perfil (sem apelido, seu nome de usuário e depois seu e-mail; sem foto, a primeira letra do nome), em vez de «Conta Modelflare». Ao reiniciar, o último nome aparece na hora.
+- **O processo mostra qual ferramenta foi usada:** cada ferramenta de app ganha a própria linha, como «Usando Notion · Buscar páginas», que no fim da resposta vira «Usado: Notion · Buscar páginas, Notion · Ler página».
+- **Uma lista de habilidades mais clara:** **Apps e habilidades › Habilidades** agora mostra cartões. As fotos dos autores começam com as iniciais, aparecem suavemente ao carregar e ficam salvas no seu dispositivo, então aparecem na hora da próxima vez. **GitHub ↗** e **Copiar instrução de instalação** ficam sempre visíveis e não apertam mais o título.
+- **Nas configurações dá para ver o que é clicável:** as ações nas Configurações e nas configurações do bot viraram pequenos botões em forma de pílula, com Excluir, Remover e Sair em vermelho. Uma linha com um único «Ver» pode ser clicada inteira, e cada linha tem no máximo dois botões; o resto fica em «⋯».
+- **Seletores e pequenos ajustes:** o seletor de **Provedor** na página **Usar sua própria chave de API** e o seletor da Pré-visualização mantêm a seta na borda direita e abrem de qualquer ponto da linha. Uma habilidade instalada que ainda não está ativa agora diz «Ativa a partir da sua próxima mensagem». Nos bots embutidos que você ainda não usou, o «⋯» da barra lateral não cobre mais o ponto de «novo».
+
 ## 0.1.38 - 2026-11-15
 
 ### Novidades

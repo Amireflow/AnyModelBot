@@ -9,6 +9,7 @@ export default {
   logFileSub: "按大小轮转，保留最近 4 个文件",
   logFileOff: "未启用",
   test: "测试",
+  testing: "测试中…",
   /** {model} 是模型 id */
   model: "模型 {model}",
   none: "（无）",
@@ -139,6 +140,7 @@ export default {
     name: "重启代理进程",
     sub: "回复一直转圈时用：结束代理进程并清掉重试等待，下一条消息重新启动",
     button: "重启",
+    restarting: "重启中…",
     done: "代理进程已重启",
     notRunning: "代理进程还没有启动，下一条消息时启动",
   },

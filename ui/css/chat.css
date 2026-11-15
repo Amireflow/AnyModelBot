@@ -161,6 +161,18 @@ button.act-head:active { background: var(--pill-hover); }
 
 .time-sep { align-self: center; margin: var(--space-8) 0 0; font-size: var(--fs-xs); color: var(--muted); }
 .time-sep + .msg-row { margin-top: var(--space-4); }
+/* 「已开始新对话」：用户主动开新对话的位置，一条灰色细线中间一行小字（刷新、重开后仍在原位置） */
+.conv-divider { display: flex; align-items: center; gap: var(--space-3); margin: var(--space-8) 0 var(--space-2); font-size: var(--fs-xs); color: var(--muted); }
+.conv-divider::before, .conv-divider::after { content: ""; flex: 1; height: var(--hairline); background: var(--line); }
+.conv-divider.enter { animation: fade-in var(--dur-base) var(--ease-out); }
+.conv-divider + .msg-row, .conv-divider + .time-sep { margin-top: var(--space-4); }
+/* 对话底部的轻提示（已经是新对话了 / 代理没有启用 / 没能开始新对话）：输入框上方一颗深色胶囊，几秒后消失 */
+.chat-hint {
+  position: absolute; z-index: var(--z-float); left: 50%; bottom: calc(var(--dock-pb) + var(--composer-h) + var(--space-6)); translate: -50% 0;
+  max-width: min(480px, calc(100% - 2 * var(--page-gutter))); padding: var(--space-1-5) var(--ctl-px-md); border-radius: var(--r-ctl);
+  background: var(--primary); color: var(--on-primary); font-size: var(--fs-sm); line-height: var(--lh-normal); text-align: center; overflow-wrap: anywhere;
+  box-shadow: var(--shadow-float); pointer-events: none; animation: fade-in var(--dur-base) var(--ease-out);
+}
 
 /* markdown：回复是正文，标题和段落有呼吸感 */
 .md > :first-child { margin-top: 0; }

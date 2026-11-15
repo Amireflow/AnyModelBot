@@ -49,6 +49,15 @@ export const RELEASE = {
   days: 30,
   /** 各版本的一句话亮点（可选），没有就显示"AnyModelBot {version} 已发布" */
   highlights: {
+    "0.1.39": {
+      "zh": "新建对话立刻切换，设置里能点的一眼看得出",
+      "en": "Instant new conversations and clearer buttons in settings",
+      "ja": "新しい会話がすぐ始まり、設定のボタンも見やすく",
+      "ko": "새 대화가 바로 시작되고 설정 버튼이 더 잘 보여요",
+      "ru": "Новый разговор начинается сразу, кнопки в настройках заметнее",
+      "es": "Conversaciones nuevas al instante y botones más claros en la configuración",
+      "pt": "Conversas novas na hora e botões mais claros nas configurações"
+    },
     "0.1.38": {
       "zh": "修复模型列表里的「auto/…」模型",
       "en": "Fixes \"auto/…\" models in the model list",

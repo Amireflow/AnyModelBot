@@ -11,6 +11,7 @@ import { saveConfigFile } from "../../config.js";
 import { GUIDE_STEPS, guideComplete, deriveGuide, isGuideChannel, isGuideStep, mergeGuide, normalizeGuide, type GuideState } from "../../guide.js";
 import { lang, t } from "../../i18n/index.js";
 import { HttpError, readJson, send, type Route, type WebContext } from "../http.js";
+import { SkillAvatars } from "../skill-avatars.js";
 
 const log = logger("web");
 
@@ -19,7 +20,25 @@ export function systemRoutes(ctx: WebContext): Route {
   const cfg = app.config;
   /** /guide 在账户信息还没读到时补读账户的时间（离线时限流） */
   let guideRefreshAt = 0;
+  // 技能库作者头像：读到过的存在本机，过期后后台更新（web/skill-avatars.ts）
+  const avatars = new SkillAvatars({
+    dir: path.join(cfg.dataDir, "cache", "skill-avatars"),
+    authors: () => {
+      try {
+        return Object.keys(JSON.parse(fs.readFileSync(path.join(findAppRoot(), "ui", "data", "skill-library.json"), "utf8")).authors ?? {});
+      } catch {
+        return [];
+      }
+    },
+    fetchImpl: () => app.desktop?.fetch ?? fetch,
+  });
   return async (req, res, url, seg, p, m) => {
+    if (seg[0] === "skill-avatars" && seg.length === 2 && m === "GET") {
+      const hit = await avatars.get(decodeURIComponent(seg[1]));
+      if (!hit) return void res.writeHead(404, { "cache-control": "no-store" }).end();
+      res.writeHead(200, { "content-type": hit.type, "cache-control": "private, max-age=3600", "x-content-type-options": "nosniff" });
+      return void res.end(hit.data);
+    }
     if (p === "/status" && m === "GET") {
       const mp = app.magpie;
       return send(res, 200, {
