@@ -1,4 +1,5 @@
 import type { Lang } from "../i18n/locales";
+import { COMMUNITY } from "./community";
 // 顶部公告条（components/SiteBanner.astro）的内容：发版下载提示 + 宣传 / 公告。改这一个文件就行，页面里不写死。
 //
 // - 同时有效的条目轮播：6 秒一条，鼠标悬停 / 键盘聚焦 / 标签页在后台时暂停，系统开了"减少动态效果"就不自动轮播；
@@ -175,6 +176,20 @@ export const ANNOUNCEMENTS: Announcement[] = [
     ru: { tag: "Бесплатное приложение", text: "Моделей с одним ключом: {modelCount}", cta: { label: "Цены", href: "/pricing" } },
     es: { tag: "App gratis", text: "Una sola clave para {modelCount} modelos", cta: { label: "Precios", href: "/pricing" } },
     pt: { tag: "App grátis", text: "Uma só chave para {modelCount} modelos", cta: { label: "Preços", href: "/pricing" } },
+  },
+  // 社群开通（链接在 data/community.ts）：中文站主按钮去 QQ 群，其他语言去 Discord；次要链接都是 Telegram。只挂一个月
+  {
+    id: "promo-community-2026-11",
+    kind: "promo",
+    start: "2026-11-15",
+    end: "2026-12-15",
+    zh: { tag: "社群", text: "官方 QQ 群开通了，用法和想法都能来聊", cta: { label: "加入 QQ 群", href: COMMUNITY.qq.url }, link: { label: "Telegram", href: COMMUNITY.telegram.url } },
+    en: { tag: "Community", text: "Come chat with us on Discord or Telegram", cta: { label: "Join Discord", href: COMMUNITY.discord.url }, link: { label: "Telegram", href: COMMUNITY.telegram.url } },
+    ja: { tag: "コミュニティ", text: "Discord と Telegram で気軽に話しましょう", cta: { label: "Discord に参加", href: COMMUNITY.discord.url }, link: { label: "Telegram", href: COMMUNITY.telegram.url } },
+    ko: { tag: "커뮤니티", text: "Discord와 Telegram에서 함께 이야기해요", cta: { label: "Discord 참여", href: COMMUNITY.discord.url }, link: { label: "Telegram", href: COMMUNITY.telegram.url } },
+    ru: { tag: "Сообщество", text: "Общайтесь с нами в Discord и Telegram", cta: { label: "Открыть Discord", href: COMMUNITY.discord.url }, link: { label: "Telegram", href: COMMUNITY.telegram.url } },
+    es: { tag: "Comunidad", text: "Charla con nosotros en Discord o Telegram", cta: { label: "Unirme a Discord", href: COMMUNITY.discord.url }, link: { label: "Telegram", href: COMMUNITY.telegram.url } },
+    pt: { tag: "Comunidade", text: "Converse com a gente no Discord ou no Telegram", cta: { label: "Entrar no Discord", href: COMMUNITY.discord.url }, link: { label: "Telegram", href: COMMUNITY.telegram.url } },
   },
   // 公告示例（维护通知）：到点自动出现、过期自动消失，复制后改 id、时间和文案即可
   // {

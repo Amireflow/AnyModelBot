@@ -15,6 +15,7 @@ export default {
   copyReport: "Copiar diagnóstico",
   copied: "Diagnóstico copiado (sin claves)",
   note: "El diagnóstico copiado incluye el estado de arriba, los resultados de las pruebas más recientes y los registros. Las claves de API, los tokens y otros secretos se reemplazan por ***, así que puedes enviarlo directamente al soporte.",
+  community: "¿Sigue sin funcionar? Pregunta en la comunidad",
   secs: "{s} s",
   restarts: { one: "Se reinició {count} vez", many: "Se reinició {count} veces", other: "Se reinició {count} veces" },
   lastExit: "Última salida: code={code}{signal}",

@@ -194,6 +194,8 @@ button.need-head:hover, button.need-head:hover .need-who b { color: var(--fg); }
   user-select: text; -webkit-user-select: text;
 }
 .ts-note { margin-top: var(--space-2); font-size: var(--fs-xs); color: var(--muted); line-height: var(--lh-normal); }
+/* 故障排查最底下："还没解决？到社群里问问" + 社群按钮（components/community.js） */
+.ts-community { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 
 /* 机器人设置：身份是带标签的输入框（参考 Codex 的编辑页） */
 .set-field { display: grid; gap: var(--space-2); margin-bottom: var(--space-5); }

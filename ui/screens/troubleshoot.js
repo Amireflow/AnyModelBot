@@ -6,6 +6,7 @@ import { api } from "../lib/api.js";
 import { failed, toast } from "../lib/store.js";
 import { PWSH_INSTALL_URL, PWSH_WINGET, installPwsh, pwshInstalling, pwshProgress, recheckPwsh, setPwshMode } from "../lib/pwsh.js";
 import { t } from "../lib/i18n.js";
+import { CommunityLinks } from "../components/community.js";
 
 // 状态 → [文字, 圆点颜色]。文字跟着界面语言，渲染时再取（写成函数）
 const GATEWAY = () => ({
@@ -287,5 +288,6 @@ export function TroubleshootPane({ bots, desktop }) {
     </div>
     <pre class="ts-log" ref=${logRef} tabindex="0" aria-label=${t("troubleshoot.logs.title")}>${logs ? logs.lines.join("\n") || t("troubleshoot.logs.empty") : t("common.loading")}</pre>
     <p class="ts-note">${t("troubleshoot.note")}</p>
+    <p class="ts-note ts-community"><span>${t("troubleshoot.community")}</span><${CommunityLinks} /></p>
   `;
 }

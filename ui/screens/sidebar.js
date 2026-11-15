@@ -26,6 +26,7 @@ import { catalogSeen, locallyRemoved, tr } from "../lib/catalog.js";
 import { addSection, defaultLayout, deleteSection, keyOfBot, keyOfEntry, keyOfGroup, loadSideLayout, markSideLayoutPruned, moveItem, moveSection, place, prune, renameSection, saveSideLayout, sectionOf, sideFold, sideLayout, sideLayoutLoaded, sideLayoutPruned, toggleSideFold } from "../lib/sections.js";
 import { resumeAccountLogin } from "../lib/account-login.js";
 import { AccountLogin } from "./onboarding.js";
+import { CommunityLinks } from "../components/community.js";
 import { previewText } from "../lib/errors.js";
 import { appsStore } from "../lib/apps.js";
 import { ScheduledButton } from "./scheduled.js";
@@ -146,6 +147,9 @@ export function AccountButton({ account, onSettings, update, onUpdateChanged }) 
           <span class="menu-icon"><${Icon} name="link" size="md" /></span><span class="menu-label">${t("apps.menu")}</span>${appsAttention && html`<span class="dot warn" title=${t("apps.attention")}></span>`}</button>
         <a role="menuitem" href="https://github.com/modelflare-ai/AnyModelBot/issues/new/choose" target="_blank" rel="noopener noreferrer" onClick=${() => setOpen(false)}>
           <span class="menu-icon"><${Icon} name="chat" size="md" /></span><span class="menu-label">${t("firstUse.feedback")}</span><${Icon} name="ext" size="xs" class="menu-trail" /></a>
+        <div class="account-community" role="group" aria-label=${t("firstUse.community")}>
+          <span class="menu-icon"><${Icon} name="chats" size="md" /></span><span class="menu-label">${t("firstUse.community")}</span>
+          <${CommunityLinks} icons role="menuitem" onPick=${() => setOpen(false)} /></div>
         <button type="button" role="menuitem" disabled=${check === "checking" || updating || updateWorking || (ready && update.busy)} title=${ready && update.busy ? t("updates.busy") : ""} onClick=${checkUpdate}>
           <span class="menu-icon"><${Icon} name="refresh" size="md" /></span><span class="menu-label" role="status">${checkLabel}${ready && update.busy && html`<small class="update-disabled-reason">${t("updates.busy")}</small>`}</span>${update?.available && html`<span class="dot new"></span>`}</button>
       </div>

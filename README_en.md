@@ -42,6 +42,9 @@
 [![Modelflare][modelflare-shield]][modelflare-link]
 [![X][x-shield]][x-link]
 
+[![Discord][discord-shield]][discord-link]
+[![Telegram][telegram-shield]][telegram-link]
+
 </div>
 
 <p align="center">
@@ -401,6 +404,7 @@ Full licenses and notices: [THIRD_PARTY_NOTICES_en.md](./THIRD_PARTY_NOTICES_en.
 
 - **Questions and ideas:** [GitHub Discussions](https://github.com/modelflare-ai/AnyModelBot/discussions)
 - **Bugs and feature requests:** [GitHub Issues](https://github.com/modelflare-ai/AnyModelBot/issues)
+- **Chat with the community:** [Discord](https://discord.gg/umBN6wX3zJ) · [Telegram](https://t.me/+Tx6Payfzxqk2ZGVl)
 - **Email:** [support@anymodel.bot](mailto:support@anymodel.bot)
 - **News from Modelflare:** [@modelflare_dev on X](https://x.com/modelflare_dev)
 
@@ -434,6 +438,9 @@ AnyModelBot is released under the [MIT License](./LICENSE). Bundled third-party 
 [pricing-shield]: https://img.shields.io/badge/pricing-pay--as--you--go-d7ff00?style=flat-square&labelColor=161a00
 [modelflare-shield]: https://img.shields.io/badge/Modelflare-modelflare.dev-d7ff00?style=flat-square&labelColor=161a00
 [x-shield]: https://img.shields.io/badge/X-@modelflare__dev-d7ff00?style=flat-square&labelColor=161a00&logo=x&logoColor=d7ff00
+[qq-shield]: https://img.shields.io/badge/QQ-1132903119-d7ff00?style=flat-square&labelColor=161a00&logo=qq&logoColor=d7ff00
+[telegram-shield]: https://img.shields.io/badge/Telegram-chat-d7ff00?style=flat-square&labelColor=161a00&logo=telegram&logoColor=d7ff00
+[discord-shield]: https://img.shields.io/badge/Discord-chat-d7ff00?style=flat-square&labelColor=161a00&logo=discord&logoColor=d7ff00
 [win-badge]: https://img.shields.io/badge/Windows-161a00?style=for-the-badge&logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iI2Q3ZmYwMCI+PHJlY3QgeD0iMiIgeT0iMyIgd2lkdGg9IjkuNSIgaGVpZ2h0PSI4LjUiLz48cmVjdCB4PSIxMi41IiB5PSIzIiB3aWR0aD0iOS41IiBoZWlnaHQ9IjguNSIvPjxyZWN0IHg9IjIiIHk9IjEyLjUiIHdpZHRoPSI5LjUiIGhlaWdodD0iOC41Ii8+PHJlY3QgeD0iMTIuNSIgeT0iMTIuNSIgd2lkdGg9IjkuNSIgaGVpZ2h0PSI4LjUiLz48L3N2Zz4=
 [mac-badge]: https://img.shields.io/badge/macOS-161a00?style=for-the-badge&logo=apple&logoColor=d7ff00
 [linux-badge]: https://img.shields.io/badge/Linux-161a00?style=for-the-badge&logo=linux&logoColor=d7ff00
@@ -445,3 +452,6 @@ AnyModelBot is released under the [MIT License](./LICENSE). Bundled third-party 
 [pricing-link]: https://modelflare.dev/pricing?utm_source=anymodelbot&utm_campaign=amb_readme
 [modelflare-link]: https://modelflare.dev/?utm_source=anymodelbot&utm_campaign=amb_readme
 [x-link]: https://x.com/modelflare_dev
+[qq-link]: https://qm.qq.com/q/yHN9KrvlGa
+[telegram-link]: https://t.me/+Tx6Payfzxqk2ZGVl
+[discord-link]: https://discord.gg/umBN6wX3zJ

@@ -2,9 +2,12 @@
 import EyesMark from "./EyesMark.astro";
 import Icon from "./Icon.astro";
 import DownloadButton from "./DownloadButton.astro";
+import Community from "./Community.astro";
+import CommunityQr from "./CommunityQr.astro";
 import { dict, href, READY_LANGS, LOCALES, switchHref, type Lang } from "../i18n";
 import { GITHUB_URL } from "../lib/site";
 import { docsUrl } from "../lib/docs";
+import { communityFor, QQ_GROUP } from "../data/community";
 interface Props { lang: Lang; path: string }
 const { lang, path } = Astro.props;
 const t = dict(lang);
@@ -27,6 +30,9 @@ const themes = [
   { pref: "system", icon: "monitor", label: t.nav.themeSystem },
 ] as const;
 const partners = { href: href(lang, "/partners"), label: t.nav.partners, current: path === "/partners" };
+// 社群（data/community.ts）：GitHub 右边一个图标菜单，列出各个群（QQ 后面是群号，中文站底下再接二维码）；手机抽屉里是一排胶囊。样式在 styles/community.css
+const cm = t.footer.community;
+const community = communityFor(lang);
 ---
 <header class="nav" data-nav>
   <div class="container nav__bar">
@@ -44,6 +50,18 @@ const partners = { href: href(lang, "/partners"), label: t.nav.partners, current
       <a class="nav__util nav__partners hide-md" href={partners.href} aria-current={partners.current ? "page" : undefined}>{partners.label}</a>
       <div class="nav__utils hide-md">
         <a class="nav__util nav__util--icon" href={GITHUB_URL} target="_blank" rel="noopener" aria-label={t.nav.github} data-tip={t.nav.github} data-track="github_click" data-track-location="nav"><Icon name="github" size={16} /></a>
+        <div class="nav__menu">
+          <button class="nav__util nav__util--icon" type="button" aria-haspopup="menu" aria-expanded="false" aria-label={cm.title} data-tip={cm.title} data-menu-toggle><Icon name="users" size={16} /></button>
+          <div class="menu cm-menu" role="menu" aria-label={cm.title} hidden>
+            {community.map((l) => (
+              <a role="menuitem" href={l.url} target="_blank" rel="noopener" style={`--brand:${l.color}`} data-track="community_click" data-track-channel={l.id} data-track-location="nav">
+                <Icon name={l.id} size={16} class="menu__ico" /><span class="menu__label">{l.name}</span>
+                {l.id === "qq" ? <span class="cm-menu__meta mono">{QQ_GROUP}</span> : <Icon name="external" size={14} class="cm-menu__meta" />}
+              </a>
+            ))}
+            {community.some((l) => l.id === "qq") && <CommunityQr lang={lang} size={88} menu />}
+          </div>
+        </div>
         <div class="nav__menu">
           <button class="nav__util nav__util--icon" type="button" aria-haspopup="menu" aria-expanded="false" aria-label={t.nav.langLabel} data-tip={t.nav.langLabel} data-menu-toggle><Icon name="globe" size={16} /></button>
           <div class="menu" role="menu" aria-label={t.nav.langLabel} hidden>
@@ -98,6 +116,10 @@ const partners = { href: href(lang, "/partners"), label: t.nav.partners, current
         <button type="button" class="chip" data-theme-set="dark">{t.nav.themeDark}</button>
         <button type="button" class="chip" data-theme-set="system">{t.nav.themeSystem}</button>
       </div>
+    </div>
+    <div class="drawer__community">
+      <span class="drawer__community-title">{cm.title}</span>
+      <Community lang={lang} location="drawer" />
     </div>
     <div class="drawer__actions">
       <a class="btn btn--secondary" href={GITHUB_URL} target="_blank" rel="noopener" data-track="github_click" data-track-location="drawer"><Icon name="github" />{t.nav.github}</a>

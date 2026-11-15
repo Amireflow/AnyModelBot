@@ -15,6 +15,7 @@ export default {
   copyReport: "Copy diagnostics",
   copied: "Diagnostics copied (keys removed)",
   note: "Copied diagnostics include the status above, the latest test results, and logs. API keys, tokens, and other secrets are replaced with ***, so you can send it straight to support.",
+  community: "Still stuck? Ask in the community",
   secs: "{s}s",
   restarts: { one: "Restarted once", other: "Restarted {count} times" },
   lastExit: "Last exit code={code}{signal}",

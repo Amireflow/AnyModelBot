@@ -468,6 +468,13 @@ export default {
       sub: "Status do gateway e do processo do agente, testes de modelo e de agente, logs recentes e cópia do diagnóstico",
       keys: "log logs teste agente travado carregando diagnóstico diagnostico reiniciar lento comandos test agent stuck spinning hang diagnostics restart PowerShell pwsh slow commands",
     },
+    community: {
+      name: "Comunidade",
+      sub: "Tire dúvidas, envie feedback e troque dicas com outros usuários",
+      keys: "comunidade chat grupo discord telegram community",
+      copyQq: "Copiar o número do grupo do QQ",
+      qq: "Grupo do QQ",
+    },
     links: {
       sub: "Site e documentação",
       docs: "Documentação ↗",

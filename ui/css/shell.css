@@ -36,6 +36,8 @@
 .app > .main { grid-area: 1 / 2; }
 .app > .panel { grid-area: 1 / 3; }
 .app.with-panel { --panel-track: var(--panel-col); }
+/* 面板开着时换宽度（切到「预览」、切回概览）不做动画（main.js 在那一帧加上 .width-snap） */
+.app.width-snap { transition: none; }
 /* 放着工作台的右侧面板（专业 Bot，screens/work-panel.js）更宽，和对话大约对半：默认 --work-w，拖过的宽度是 --work-w-user，和普通面板分开记。
    上限再让出侧栏和主区的最小宽度：主区不被挤到 --main-w-min 以下（侧栏收起时这一项跟着变宽） */
 .app.panel-wide { --panel-col: clamp(var(--work-w-min), var(--work-w-user, var(--work-w)), min(var(--work-w-max), var(--work-w-cap), 100vw - var(--side-col) - var(--main-w-min))); }
@@ -469,6 +471,17 @@ a.text { display: inline-flex; align-items: center; text-decoration: none; }
 .account-menu hr { border: 0; height: var(--space-1-5); margin: 0; }   /* 分组之间留一段空，不画线（和菜单的 li.sep 一样） */
 .account-menu .danger { color: var(--red); }
 .account-menu .danger .menu-icon { color: var(--red); }
+/* 账号菜单里的社群一行（components/community.js）：和上面的行同样的高度、内边距；整行不是菜单项，右边一排品牌小圆钮才是 */
+.account-community { display: flex; align-items: center; gap: var(--space-2-5); min-height: var(--ctl-lg); padding: var(--space-1) var(--item-px); color: var(--fg); font-size: var(--fs-sm); line-height: var(--lh-snug); }
+.account-community .community-links { margin-inline-start: auto; margin-inline-end: calc(-1 * var(--space-1)); }
+
+/* 社群链接（components/community.js）：品牌标志平时跟着文字颜色，指到 / 聚焦时换成品牌色 --brand，小圆钮再透一点品牌色的底 */
+.brand-ic { flex: none; display: block; width: calc(var(--ic-sm) * 1px); height: calc(var(--ic-sm) * 1px); transition: color var(--t-fast); }
+.community-links { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+.community-icon { display: grid; place-items: center; width: var(--ctl-sm); height: var(--ctl-sm); border-radius: 50%; color: var(--fg-2); text-decoration: none; transition: background var(--t-fast), color var(--t-fast); }
+.community-icon:is(:hover, :focus-visible) { color: var(--brand); background: color-mix(in srgb, var(--brand) 14%, transparent); }
+.community-btn { gap: var(--space-1-5); text-decoration: none; }
+.community-btn:is(:hover, :focus-visible) .brand-ic { color: var(--brand); }
 .account-menu > .danger:is(:hover, :focus-visible):not(:disabled) { background: var(--red-soft); }
 .account-menu > .danger:is(:hover, :focus-visible):not(:disabled) .menu-icon { color: var(--red); }
 /* 切换 Key 后的提示（第 19 项）：主内容顶部一行，只有关闭按钮 */

@@ -468,6 +468,13 @@ export default {
       sub: "模型网关与代理进程的状态、测试模型、测试代理、最近日志、复制诊断信息",
       keys: "日志 log 测试 test 代理 agent 卡住 转圈 诊断 diagnostics 重启 PowerShell pwsh 命令慢",
     },
+    community: {
+      name: "社群",
+      sub: "提问、反馈，和其他用户交流用法",
+      keys: "社群 交流群 QQ群 Telegram Discord community chat",
+      copyQq: "复制 QQ 群号",
+      qq: "QQ 群",
+    },
     links: {
       sub: "官网与文档",
       docs: "文档 ↗",

@@ -468,6 +468,13 @@ export default {
       sub: "Gateway and agent process status, model and agent tests, recent logs, and copying diagnostics",
       keys: "log logs test agent stuck spinning hang diagnostics restart PowerShell pwsh slow commands",
     },
+    community: {
+      name: "Community",
+      sub: "Ask questions, share feedback and swap tips with other users",
+      keys: "community chat group discord telegram",
+      copyQq: "Copy QQ group number",
+      qq: "QQ group",
+    },
     links: {
       sub: "Website and docs",
       docs: "Docs ↗",
