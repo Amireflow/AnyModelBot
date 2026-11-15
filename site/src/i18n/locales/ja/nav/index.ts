@@ -8,6 +8,7 @@ export default {
   models: "モデル",
   pricing: "料金",
   docs: "ドキュメント",
+  partners: "パートナー",
   skip: "本文へ移動",
   home: "AnyModelBot ホーム",
   menu: "メニュー",

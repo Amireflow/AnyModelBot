@@ -7,6 +7,7 @@ export default {
   "models": "Models",
   "pricing": "Pricing",
   "docs": "Docs",
+  "partners": "Partners",
   "skip": "Skip to main content",
   "home": "AnyModelBot home",
   "menu": "Menu",

@@ -334,6 +334,11 @@
     .nav__tools { gap: var(--space-2); }
     .nav__burger { display: inline-flex; }
   }
+  /* 桌面宽度但一排放不下（长语言）：client.ts 打上 is-cramped，同样收进汉堡菜单 */
+  .nav.is-cramped .nav__bar { grid-template-columns: 1fr auto; }
+  .nav.is-cramped .nav__links, .nav.is-cramped .nav__tools .hide-md { display: none; }
+  .nav.is-cramped .nav__tools { gap: var(--space-2); }
+  .nav.is-cramped .nav__burger { display: inline-flex; }
   @media (max-width: 767px) {
     :root { --nav-h: 56px; }
   }

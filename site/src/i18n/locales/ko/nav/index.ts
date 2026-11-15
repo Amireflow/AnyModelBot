@@ -7,6 +7,7 @@ export default {
   "models": "모델",
   "pricing": "요금",
   "docs": "문서",
+  "partners": "파트너",
   "skip": "본문으로 건너뛰기",
   "home": "AnyModelBot 홈",
   "menu": "메뉴",

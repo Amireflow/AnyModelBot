@@ -8,6 +8,7 @@ export default {
   models: "Модели",
   pricing: "Цены",
   docs: "Документация",
+  partners: "Партнёрам",
   skip: "Перейти к содержимому",
   home: "Главная AnyModelBot",
   menu: "Меню",

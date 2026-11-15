@@ -7,6 +7,7 @@ export default {
   "models": "模型",
   "pricing": "价格",
   "docs": "文档",
+  "partners": "合作伙伴",
   "skip": "跳到主要内容",
   "home": "AnyModelBot 首页",
   "menu": "菜单",

@@ -8,6 +8,7 @@ export default {
   "models": "Modelos",
   "pricing": "Precios",
   "docs": "Documentación",
+  "partners": "Socios",
   "skip": "Ir al contenido principal",
   "home": "Inicio de AnyModelBot",
   "menu": "Menú",

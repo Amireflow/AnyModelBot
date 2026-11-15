@@ -159,6 +159,21 @@ const nav = document.querySelector("[data-nav]");
 if (nav) {
   const onScroll = () => nav.classList.toggle("is-scrolled", scrollY > 12);
   addEventListener("scroll", onScroll, { passive: true }); onScroll();
+
+  // 俄语、西语这类文案长的语言，在窄一点的桌面宽度上一排放不下，右侧的下载按钮会被挤出屏幕。
+  // 放不下就打上 is-cramped，和 1023px 以下一样收进汉堡菜单（样式见 components.css）。
+  // 先摘掉类名按完整布局量一次再决定，同一帧里完成，不会闪
+  const bar = nav.querySelector<HTMLElement>(".nav__bar");
+  const tools = nav.querySelector<HTMLElement>(".nav__tools");
+  if (bar && tools) {
+    const fit = () => {
+      nav.classList.remove("is-cramped");
+      nav.classList.toggle("is-cramped", tools.getBoundingClientRect().right > bar.getBoundingClientRect().right + 1);
+    };
+    fit();
+    document.fonts?.ready.then(fit);
+    addEventListener("resize", fit, { passive: true });
+  }
 }
 
 // —— 导航链接：底色跟着悬停 / 焦点滑动，平时停在当前章节（首页滚动跟随）或当前页上 ——
