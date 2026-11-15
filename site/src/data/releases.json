@@ -1,30 +1,30 @@
 {
-  "version": "0.1.38",
-  "publishedAt": "2026-11-15",
+  "version": "0.1.40",
+  "publishedAt": "2026-11-16",
   "platforms": {
     "win-x64": {
-      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.38/anymodel-bot-0.1.38-win-x64.exe",
-      "sha256": "f28775023f98fb46c735a6e1528bf585a2b01a79e4273abe322b8235e0169f7b",
-      "sizeMB": 187.7
+      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.40/anymodel-bot-0.1.40-win-x64.exe",
+      "sha256": "02cd435ec9f850793ec89f303565edd5e075a2d88e7421a6e32ddec4f3c74014",
+      "sizeMB": 187.9
     },
     "mac-arm64": {
-      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.38/anymodel-bot-0.1.38-mac-arm64.dmg",
-      "sha256": "7fe426ce85c6d46b6698a0bdc2ad2ab442c39edca4f0d1a09c4ffe8aba5d92d1",
-      "sizeMB": 217.8
+      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.40/anymodel-bot-0.1.40-mac-arm64.dmg",
+      "sha256": "f70e634b5bdc9481dd6746d6cf58e61cc5e8fee7b8bb11e764d55a12ca53bbff",
+      "sizeMB": 218.0
     },
     "mac-x64": {
-      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.38/anymodel-bot-0.1.38-mac-x64.dmg",
-      "sha256": "5178d42d374ee50b37cea6bb4c07e8a48edbf2ec9a06d0ac48c65e0ca80c22bd",
-      "sizeMB": 225.8
+      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.40/anymodel-bot-0.1.40-mac-x64.dmg",
+      "sha256": "12f561f905ca1f15be5b28d1f76a983388dcb517283c4dbce75fba22f5d801a2",
+      "sizeMB": 226.1
     },
     "linux-x64": {
-      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.38/anymodel-bot-0.1.38-linux-x86_64.AppImage",
-      "sha256": "4b66601aee1484900770ca3557af04fe46a74d10a64ad41ad3b6f05d5d2ba6fa",
-      "sizeMB": 203.3
+      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.40/anymodel-bot-0.1.40-linux-x86_64.AppImage",
+      "sha256": "f082363107335af14dba7e3eef3543458562a5b07d1c38edb3952eb0ea93167d",
+      "sizeMB": 203.5
     },
     "docker": {
-      "image": "anymodel-bot",
-      "command": "git clone https://github.com/modelflare-ai/AnyModelBot.git && cd AnyModelBot && git submodule update --init --depth 1 vendor/magpie && docker build -t anymodel-bot . && docker run -d --name amb -p 3600:3600 -v amb-data:/data anymodel-bot"
+      "image": "ghcr.io/modelflare-ai/anymodel-bot:latest",
+      "command": "docker run -d --name amb -p 3600:3600 -v amb-data:/data ghcr.io/modelflare-ai/anymodel-bot:latest"
     }
   }
 }
