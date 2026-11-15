@@ -2,10 +2,6 @@ import type { Dict } from "../../../zh";
 export default {
   main: "Основная навигация",
   bots: "Боты",
-  catalog: "Обзор",
-  features: "Возможности",
-  data: "Данные",
-  models: "Модели",
   pricing: "Цены",
   docs: "Документация",
   partners: "Партнёрам",

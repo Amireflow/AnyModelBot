@@ -2,10 +2,6 @@ import type { Dict } from "../../../zh";
 export default {
   main: "メインナビゲーション",
   bots: "ボット",
-  catalog: "見つける",
-  features: "機能",
-  data: "データ",
-  models: "モデル",
   pricing: "料金",
   docs: "ドキュメント",
   partners: "パートナー",

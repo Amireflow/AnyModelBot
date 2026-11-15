@@ -9,18 +9,17 @@ interface Props { lang: Lang; path: string }
 const { lang, path } = Astro.props;
 const t = dict(lang);
 const home = href(lang, "/");
-// 通栏导航（样式见 components.css）：左 logo、中间链接、右侧工具，左右边缘和正文容器对齐。
-// 链接前四项是首页的章节（顺序同首页），价格是独立页；文档是外链，合作伙伴排在最后；下载由右侧按钮负责。
+// 通栏导航（样式见 components.css）：左边 logo，后面紧跟产品链接；右边是合作伙伴、三个图标按钮和下载。
+// 导航只放独立页面，不放首页章节的锚点：锚点在别的页面上一点就跳回首页，看着像本页的链接却换了页（用户 2026-11-15 指出）。
+// 首页的功能、模型、数据往下滚就能看到；完整模型价格在 /pricing，数据去向在 /security，页脚都有入口。
+// 产品链接三项：机器人（/bots，现成 Bot 目录）、价格、文档（外链）；下载由右侧按钮负责。
+// 合作伙伴是写给推广者的，不属于产品，所以不排在产品链接里，单独放在右侧最前面；抽屉里也和产品链接分开。
 // 右侧是三个同尺寸的图标按钮（GitHub、语言、外观；悬停出提示）和一颗下载按钮，平台菜单留给首页和下载页。
 // 语言和外观都是下拉菜单，当前项打勾：语言用各自的本名，不随页面语言翻译
-const anchor = (id: string) => (path === "/" ? `#${id}` : `${home}#${id}`);
 const links = [
-  { href: anchor("bots"), label: t.nav.bots },
-  { href: href(lang, "/bots"), label: t.nav.catalog, current: path === "/bots" },
-  { href: anchor("features"), label: t.nav.features },
-  { href: anchor("models"), label: t.nav.models },
-  { href: anchor("data"), label: t.nav.data },
-  { href: href(lang, "/pricing"), label: t.nav.pricing, current: path === "/pricing" },
+  { href: href(lang, "/bots"), label: t.nav.bots, current: path === "/bots", external: false },
+  { href: href(lang, "/pricing"), label: t.nav.pricing, current: path === "/pricing", external: false },
+  { href: docsUrl(lang), label: t.nav.docs, current: false, external: true },
 ];
 const themes = [
   { pref: "light", icon: "sun", label: t.nav.themeLight },
@@ -37,11 +36,12 @@ const partners = { href: href(lang, "/partners"), label: t.nav.partners, current
     </a>
     <nav class="nav__links" aria-label={t.nav.main} data-nav-links>
       <span class="nav__pill" aria-hidden="true"></span>
-      {links.map((l) => <a class="nav__link" href={l.href} aria-current={l.current ? "page" : undefined}>{l.label}</a>)}
-      <a class="nav__link" href={docsUrl(lang)} target="_blank" rel="noopener">{t.nav.docs}<Icon name="external" size={13} class="nav__ext" /></a>
-      <a class="nav__link" href={partners.href} aria-current={partners.current ? "page" : undefined}>{partners.label}</a>
+      {links.map((l) => l.external
+        ? <a class="nav__link" href={l.href} target="_blank" rel="noopener">{l.label}<Icon name="external" size={13} class="nav__ext" /></a>
+        : <a class="nav__link" href={l.href} aria-current={l.current ? "page" : undefined}>{l.label}</a>)}
     </nav>
     <div class="nav__tools">
+      <a class="nav__util nav__partners hide-md" href={partners.href} aria-current={partners.current ? "page" : undefined}>{partners.label}</a>
       <div class="nav__utils hide-md">
         <a class="nav__util nav__util--icon" href={GITHUB_URL} target="_blank" rel="noopener" aria-label={t.nav.github} data-tip={t.nav.github} data-track="github_click" data-track-location="nav"><Icon name="github" size={16} /></a>
         <div class="nav__menu">
@@ -77,21 +77,15 @@ const partners = { href: href(lang, "/partners"), label: t.nav.partners, current
   </div>
   <nav class="container drawer__links" aria-label={t.nav.menu}>
     {links.map((l, i) => (
-      <a href={l.href} aria-current={l.current ? "page" : undefined} style={`--i:${i}`} data-close-dialog>
+      <a href={l.href} target={l.external ? "_blank" : undefined} rel={l.external ? "noopener" : undefined} aria-current={l.current ? "page" : undefined} data-close-dialog={l.external ? undefined : true} style={`--i:${i}`}>
         <span class="drawer__num">{String(i + 1).padStart(2, "0")}</span>
         <span class="drawer__label">{l.label}</span>
-        <Icon name="arrow" size={18} class="drawer__go" />
+        <Icon name={l.external ? "external" : "arrow"} size={18} class="drawer__go" />
       </a>
     ))}
-    <a href={docsUrl(lang)} target="_blank" rel="noopener" style={`--i:${links.length}`}>
-      <span class="drawer__num">{String(links.length + 1).padStart(2, "0")}</span>
-      <span class="drawer__label">{t.nav.docs}</span>
-      <Icon name="external" size={18} class="drawer__go" />
-    </a>
-    <a href={partners.href} aria-current={partners.current ? "page" : undefined} style={`--i:${links.length + 1}`} data-close-dialog>
-      <span class="drawer__num">{String(links.length + 2).padStart(2, "0")}</span>
+    <a class="drawer__aside" href={partners.href} aria-current={partners.current ? "page" : undefined} style={`--i:${links.length}`} data-close-dialog>
       <span class="drawer__label">{partners.label}</span>
-      <Icon name="arrow" size={18} class="drawer__go" />
+      <Icon name="arrow" size={16} class="drawer__go" />
     </a>
   </nav>
   <div class="container drawer__foot">

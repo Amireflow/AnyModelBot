@@ -176,12 +176,12 @@ if (nav) {
   }
 }
 
-// —— 导航链接：底色跟着悬停 / 焦点滑动，平时停在当前章节（首页滚动跟随）或当前页上 ——
+// —— 导航链接：底色跟着悬停 / 焦点滑动，平时停在当前页上 ——
 const navLinks = document.querySelector<HTMLElement>("[data-nav-links]");
 const navPill = navLinks?.querySelector<HTMLElement>(".nav__pill");
 if (navLinks && navPill) {
   const items = $$<HTMLAnchorElement>(".nav__link", navLinks);
-  let active: HTMLElement | null = items.find((a) => a.getAttribute("aria-current") === "page") ?? null;
+  const active = items.find((a) => a.getAttribute("aria-current") === "page") ?? null;
   let hot: HTMLElement | null = null;
   const place = () => {
     items.forEach((a) => a.classList.toggle("is-hot", a === hot));
@@ -199,25 +199,6 @@ if (navLinks && navPill) {
   navLinks.addEventListener("pointerleave", () => { hot = null; place(); });
   navLinks.addEventListener("focusin", (e) => { const a = (e.target as Element).closest<HTMLElement>(".nav__link"); if (a) { hot = a; place(); } });
   navLinks.addEventListener("focusout", (e) => { if (!navLinks.contains(e.relatedTarget as Node | null)) { hot = null; place(); } });
-
-  // 首页的章节锚点：视口中间一条窄带碰到哪一章，就标哪一章
-  const spy = items
-    .filter((a) => a.getAttribute("href")?.startsWith("#"))
-    .map((a) => ({ a, sec: document.getElementById(a.hash.slice(1)) }))
-    .filter((p): p is { a: HTMLAnchorElement; sec: HTMLElement } => !!p.sec);
-  if (spy.length && "IntersectionObserver" in window) {
-    const seen = new Set<Element>();
-    const io = new IntersectionObserver((es) => {
-      es.forEach((e) => (e.isIntersecting ? seen.add(e.target) : seen.delete(e.target)));
-      const next = spy.find((p) => seen.has(p.sec))?.a ?? null;
-      if (next === active) return;
-      active?.classList.remove("is-active");
-      active = next;
-      active?.classList.add("is-active");
-      place();
-    }, { rootMargin: "-40% 0px -55% 0px" });
-    spy.forEach((p) => io.observe(p.sec));
-  }
   place();
   // 字体加载完、窗口尺寸变了，链接宽度会变，重新量一次
   document.fonts?.ready.then(place);
