@@ -1,26 +1,26 @@
 {
-  "version": "0.1.36",
+  "version": "0.1.37",
   "publishedAt": "2026-11-15",
   "platforms": {
     "win-x64": {
-      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.36/anymodel-bot-0.1.36-win-x64.exe",
-      "sha256": "200f9faa4a5dafbf565f52199fe9814ba9afa47f9acd9b4efb369348269c3ec2",
-      "sizeMB": 187.6
+      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.37/anymodel-bot-0.1.37-win-x64.exe",
+      "sha256": "53ecc393ff5070c119885391a6550619f5f02df2e165f769451a7edc16193279",
+      "sizeMB": 187.7
     },
     "mac-arm64": {
-      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.36/anymodel-bot-0.1.36-mac-arm64.dmg",
-      "sha256": "7894267aac6b71028b812d1eda4fa1e08544d4c25204544e9442ec025546871b",
-      "sizeMB": 217.7
+      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.37/anymodel-bot-0.1.37-mac-arm64.dmg",
+      "sha256": "cfcf52a79a41a2679952e588ed4548c58551e215c318143047d61e3d4b0c7bca",
+      "sizeMB": 217.8
     },
     "mac-x64": {
-      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.36/anymodel-bot-0.1.36-mac-x64.dmg",
-      "sha256": "2dd10b823f53648e781cc455f793b9c48a44a4e1e5f67fffdd109d6df84cdb1b",
-      "sizeMB": 225.7
+      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.37/anymodel-bot-0.1.37-mac-x64.dmg",
+      "sha256": "05239b23a7bd6d1f9221b4b74abcf3d3b3d234a1f00952591be5bfea362af3e9",
+      "sizeMB": 225.8
     },
     "linux-x64": {
-      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.36/anymodel-bot-0.1.36-linux-x86_64.AppImage",
-      "sha256": "7ad46d39c87f45bdfd35fe19ce8e63d638a33e4a7cf4260267489455cfe68cf5",
-      "sizeMB": 203.2
+      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.37/anymodel-bot-0.1.37-linux-x86_64.AppImage",
+      "sha256": "b792efa15b4141fe1ef140e76960df2cf3b92fd9d0cb9a94eb46310f5bc608d8",
+      "sizeMB": 203.3
     },
     "docker": {
       "image": "anymodel-bot",
