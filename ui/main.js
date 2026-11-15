@@ -19,6 +19,8 @@ import { BotAppScreen } from "./screens/bot-app.js";
 import { DiscoverScreen } from "./screens/discover.js";
 import { AppsScreen } from "./screens/apps.js";
 import { AppDialogHost } from "./components/app-dialogs.js";
+import { PairChatHost } from "./components/collab.js";
+import { setKnownBots } from "./lib/collab.js";
 import { appsStore, loadApps } from "./lib/apps.js";
 import { GroupScreen, GroupSheet } from "./screens/group.js";
 import { MessageSearchScreen, ConversationHistoryScreen } from "./screens/message-search.js";
@@ -293,6 +295,8 @@ function App() {
   }, [account]);
 
   const bots = botsData ? botsData.bots : null;
+  // 灰色小字、两人对话、别的机器人署名的审批卡片要画头像和名字
+  useEffect(() => setKnownBots(bots || []), [bots]);
   const appReturn = useRef(null);
   const wanted = route.botId || lastBot;
   const bot = bots && (bots.find((b) => b.id === wanted) || bots[0]);
@@ -731,13 +735,14 @@ function App() {
       resources=${shownPanel.resources}
       onSelectResource=${(active) => setResourcePanels((all) => ({ ...all, [shownPanel.key]: { ...all[shownPanel.key], active } }))}
       onRemoveResource=${(id) => setResourcePanels((all) => ({ ...all, [shownPanel.key]: removeResource(all[shownPanel.key], id) }))}
-      onOpenBotSettings=${() => shownPanel.bot && openBotSettings(shownPanel.bot.id)} onOpenChat=${panelToChat} onOpenConnections=${(row) => openSettings("connections", row || "")} />`}
+      onOpenBotSettings=${() => shownPanel.bot && openBotSettings(shownPanel.bot.id)} onOpenChat=${panelToChat} onOpenConnections=${(row) => openSettings("connections", row || "")} onOpenSettings=${(tab) => openSettings(tab)} />`}
     <${CoachMark} bot=${!searchOpen && ["chat", "app"].includes(view) ? bot : null} view=${searchOpen ? "search" : view} infoOpen=${panelKind === "chat" && !!panel} busy=${Object.values(working).some(Boolean)} blocked=${!!guideStop} onConnections=${(channel) => openSettings("connections", `add-channel-${channel}`)} />
     <${ScheduledSync} /><${PermissionSync} /><${NewRuleHost} bots=${bots || []} /><${SkillDetailHost} />
     ${palette && html`<${Palette} commands=${commands} onClose=${() => setPalette(false)} />`}
     ${groupSheet && bots && html`<${GroupSheet} group=${groupSheet.group} bots=${bots} onClose=${() => setGroupSheet(null)}
       onSaved=${async (g) => { setGroupSheet(null); await reloadGroups(); openGroup(g.id); }} />`}
     <${WhatsNewHost} update=${update} onUpdateChanged=${reloadUpdate} />
+    <${PairChatHost} />
     <${AppDialogHost} bots=${bots || []} chatBot=${!searchOpen ? appChatTarget : null} onOpenSettings=${(tab) => openSettings(tab)} />
     <${DialogHost} />
   </div>`;

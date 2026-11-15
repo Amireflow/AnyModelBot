@@ -2,6 +2,8 @@
 export default {
   tabs: {
     general: "常规",
+    aboutMe: "关于我",
+    collab: "机器人协作",
     appearance: "外观",
     modelflare: "模型",
     computer: "电脑操作",

@@ -19,6 +19,8 @@ import { themeMode, setThemeMode } from "../lib/theme.js";
 import { prefs, setPrefs, resetAppearance, appearanceChanged, fontStack } from "../lib/prefs.js";
 import { canNotify, requestNotify } from "../lib/notify.js";
 import { TroubleshootPane } from "./troubleshoot.js";
+import { AboutMePane } from "../components/about-me.js";
+import { CollabPane } from "../components/collab.js";
 import { ConnectionSheets, connectionRows, useConnections } from "./connections.js";
 import { PwshHint } from "../components/pwsh-hint.js";
 import { OfficialKeyForm, officialName } from "../components/official-keys.js";
@@ -28,11 +30,14 @@ import { fmtTimeOfDay } from "../lib/format.js";
 
 /** [id, 标题的文案键, 图标]；标题渲染时再 t()（tabLabel） */
 export const TABS = [
+  // 关于我放在最前：和「关于」（版本信息）分开，不容易点错（PRD 讨论 2026-11-15）
+  ["aboutMe", "settings.tabs.aboutMe", "user"],
   ["general", "settings.tabs.general", "sliders"],
   ["appearance", "settings.tabs.appearance", "palette"],
   ["modelflare", "settings.tabs.modelflare", "spark"],
   ["computer", "settings.tabs.computer", "monitor"],
   ["connections", "settings.tabs.connections", "link"],
+  ["collab", "settings.tabs.collab", "chats"],
   ["privacy", "settings.tabs.privacy", "lock"],
   ["network", "settings.tabs.network", "globe"],
   ["data", "settings.tabs.data", "database"],
@@ -534,6 +539,11 @@ export function SettingsScreen({ tab, query: q, onQuery: setQ, onTab, focusRow, 
         sub: gw ? [t("settings.rows.diagnostics.gateway"), gatewayState(gw.state), gw.restarts && t("settings.rows.diagnostics.restarts", { count: gw.restarts }), gw.lastError].filter(Boolean).join(" · ") : "",
         keys: t("settings.rows.diagnostics.keys"),
         ctl: html`<button type="button" class="text" onClick=${() => onTab?.("troubleshoot")}>${t("settings.tabs.troubleshoot")}</button>` },
+      // 关于我、机器人协作是单独的面板，这两行只给搜索用
+      { tab: "aboutMe", id: "about-me", name: t("aboutMe.title"), sub: t("aboutMe.desc"), keys: t("aboutMe.keys"), searchOnly: true,
+        ctl: html`<button type="button" class="text" onClick=${() => { setQ(""); onTab?.("aboutMe"); }}>${t("common.open")}</button>` },
+      { tab: "collab", id: "collab", name: t("collab.title"), sub: t("collab.desc"), keys: t("collab.keys"), searchOnly: true,
+        ctl: html`<button type="button" class="text" onClick=${() => { setQ(""); onTab?.("collab"); }}>${t("common.open")}</button>` },
       // 故障排查页是单独的面板（troubleshoot.js），这一行只给搜索用：搜"日志""测试模型"时能找到入口
       { tab: "troubleshoot", id: "troubleshoot", name: t("settings.tabs.troubleshoot"), sub: t("settings.rows.troubleshoot.sub"), keys: t("settings.rows.troubleshoot.keys"),
         ctl: html`<button type="button" class="text" onClick=${() => { setQ(""); onTab?.("troubleshoot"); }}>${t("common.open")}</button>` },
@@ -554,7 +564,7 @@ export function SettingsScreen({ tab, query: q, onQuery: setQ, onTab, focusRow, 
     <div class="set-head"><h1 class="set-title">${title}</h1></div>
     <div class="set-body">
       ${!s && html`<div class="list"><div class="row"><${Skeleton} w="40%" /></div><div class="row"><${Skeleton} w="55%" /></div></div>`}
-      ${s && !shown.length && html`<p class="set-none">${t("settings.noMatch")}</p>`}
+      ${s && !shown.length && (needle || (tab !== "aboutMe" && tab !== "collab")) && html`<p class="set-none">${t("settings.noMatch")}</p>`}
       ${s && !needle && tab === "general" && html`<${PwshHint} />`}
       ${s && !needle && tab === "appearance" && html`<div class="set-part">${t("settings.groups.theme")}</div>
         <${ThemeCards} value=${mode} flash=${flash === "theme"} onChange=${(m) => { setThemeMode(m); saved(); }} />`}
@@ -562,7 +572,9 @@ export function SettingsScreen({ tab, query: q, onQuery: setQ, onTab, focusRow, 
         <${Row} id=${acctRow.id} name=${acctRow.name} sub=${acctRow.sub} title=${acctRow.sub} flash=${flash === acctRow.id}>${acctRow.ctl}<//>
         ${balRow && html`<${AccountBalance} account=${acct} refreshing=${balanceRefreshing} onRefresh=${refreshBalance} flash=${flash === balRow.id} />`}
       </div>`}
-      ${s && !needle && tab === "troubleshoot" ? html`<${TroubleshootPane} bots=${bots} desktop=${desktop} />` : parts.map(({ label, note, rows: list }) => html`${label && html`<div class="set-part">${label}</div>`}${note && html`<p class="set-note">${note}</p>`}
+      ${s && !needle && tab === "aboutMe" && html`<${AboutMePane} />`}
+      ${s && !needle && tab === "collab" && html`<${CollabPane} onSignIn=${() => (managed ? setSheet("login") : onTab?.("modelflare"))} />`}
+      ${s && !needle && (tab === "aboutMe" || tab === "collab") ? "" : s && !needle && tab === "troubleshoot" ? html`<${TroubleshootPane} bots=${bots} desktop=${desktop} />` : parts.map(({ label, note, rows: list }) => html`${label && html`<div class="set-part">${label}</div>`}${note && html`<p class="set-note">${note}</p>`}
         <div class="list">${list.map((r) => r.custom || html`<${Row} key=${r.id} id=${r.id} name=${r.name} sub=${r.sub} title=${r.title || r.sub} flash=${flash === r.id || conn.fresh === r.id}>${r.ctl}<//>`)}</div>`)}
     </div>
     ${notices && html`<${NoticesSheet} onClose=${() => setNotices(false)} />`}

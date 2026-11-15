@@ -383,3 +383,43 @@ button.need-head:hover, button.need-head:hover .need-who b { color: var(--fg); }
 .settings:has(> .set-body > .page-empty) { display: flex; flex-direction: column; }
 .set-body:has(> .page-empty) { flex: 1 0 auto; display: flex; flex-direction: column; }
 }
+
+/* —— 设置 › 关于我（R3） —— */
+.aboutme { display: grid; gap: var(--heading-gap); }
+.aboutme > .set-note { margin: 0; }
+.aboutme-notice { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--card-pad); border-radius: var(--r-card-lg); background: var(--well); }
+.aboutme-notice .who { flex: 1; display: grid; gap: var(--space-1); }
+.aboutme-notice .name { font-weight: var(--fw-semibold); color: var(--fg); }
+.aboutme-notice .sub { font-size: var(--fs-xs); color: var(--fg-2); }
+.aboutme-empty { display: grid; justify-items: center; gap: var(--space-2); padding: var(--space-8) var(--space-5); border-radius: var(--r-card-lg); background: var(--well); text-align: center; }
+.aboutme-empty-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--r-card); background: var(--surface); color: var(--muted); }
+.aboutme-empty .name { font-weight: var(--fw-semibold); color: var(--fg); }
+.aboutme-empty .sub { max-width: 420px; font-size: var(--fs-sm); color: var(--fg-2); line-height: var(--lh-normal); }
+.aboutme-line .ctl { gap: var(--space-3); }
+.aboutme-line .sub { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
+.aboutme-lock { display: inline-flex; color: var(--muted); }
+.aboutme-edit { display: flex; align-items: center; gap: var(--space-2); width: 100%; }
+.aboutme-edit .field { flex: 1; min-width: 0; }
+.aboutme-add { justify-self: start; margin-top: calc(-1 * var(--space-1)); }
+.aboutme-history-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.aboutme-history-head .text { display: inline-flex; align-items: center; gap: var(--space-1); font: inherit; color: inherit; }
+
+/* —— 设置 › 机器人协作（R12） —— */
+.collab-pane { display: grid; gap: var(--heading-gap); }
+.collab-pane > .set-note { margin: 0; }
+.collab-lock { display: grid; justify-items: center; gap: var(--space-2); padding: var(--space-6) var(--space-5); border-radius: var(--r-card-lg); background: var(--well); text-align: center; color: var(--muted); }
+.collab-lock .name { font-weight: var(--fw-semibold); color: var(--fg); }
+.collab-lock .sub { font-size: var(--fs-sm); color: var(--fg-2); }
+.collab-warn { padding: var(--space-3) var(--card-pad); border-radius: var(--r-card); background: var(--amber-wash); font-size: var(--fs-sm); color: var(--fg); }
+.collab-pairs-head { display: flex; align-items: center; justify-content: space-between; }
+.collab-pair { width: 100%; text-align: left; border: 0; background: none; font: inherit; cursor: pointer; }
+.collab-pair-names { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.collab-pair-names .spinner { width: 11px; height: 11px; border-width: 1.5px; color: var(--muted); } /* 描边：转圈本身就是一道缺了口的圆边，跟着小字缩小 */
+.collab-empty { display: grid; justify-items: center; gap: var(--space-1); padding: var(--space-5); text-align: center; }
+.collab-empty .name { color: var(--fg-2); }
+.collab-empty .sub { font-size: var(--fs-xs); color: var(--muted); }
+.sub.tone-red { color: var(--red); }
+
+/* 记忆页签顶部：关于我的一行入口（R4） */
+.aboutme-entry { display: flex; align-items: center; gap: var(--space-2); width: 100%; margin-bottom: var(--space-2); padding: var(--space-2-5) var(--card-pad); border: 0; border-radius: var(--r-card); background: var(--well); font: inherit; font-size: var(--fs-sm); color: var(--fg); text-align: left; cursor: pointer; }
+.aboutme-entry .text { color: var(--fg-2); }

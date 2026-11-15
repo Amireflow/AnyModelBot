@@ -56,7 +56,7 @@ Conversas, memória, arquivos e chaves de API ficam no seu dispositivo. Os model
 
 Pronto para usar logo após a instalação: tarefas em segundo plano, regras agendadas e os itens que aguardam o seu OK já vêm integrados.
 
-**0.1.36:** Biblioteca com 155 habilidades instaláveis por link, salvar o que foi feito em Minhas habilidades para usar em vários bots ou agendar, e escolher habilidades e apps direto na conversa. [Histórico de alterações](./CHANGELOG_pt.md#0136---2026-11-15)
+**0.1.37:** Sobre mim, compartilhado por todos os seus bots para você contar as coisas sobre si uma vez só, e bots que trocam mensagens: diga «passa isso para B» e o resultado volta conferido. [Histórico de alterações](./CHANGELOG_pt.md#0137---2026-11-15)
 
 📥 [Baixar](#-baixar-e-executar) · 🌠 [Capturas de tela](#-capturas-de-tela) · 🌟 [Recursos](#-principais-recursos) · 🆚 [Comparação](#-anymodelbot-vs-grok-bot-openai-dots-e-claude-duet) · 🔐 [Privacidade](#-como-funciona-e-privacidade)
 
@@ -195,6 +195,7 @@ Um bot é mais do que uma janela de chat: ele tem uma persona, um modelo padrão
 - **Cartões de aprovação, sem surpresas.** Ações que gravam fora do espaço de trabalho param e aguardam a sua resposta.
 - **Aviso após reiniciar.** Uma mensagem que ainda estava em andamento quando o app foi fechado ou travou é sinalizada na conversa na próxima inicialização, para que você possa enviá-la de novo; nada é refeito por conta própria.
 - **Conversas em grupo.** Crie um grupo e adicione alguns bots. Responde quem você mencionar com @; sem @, continua o bot que respondeu por último. Os bots também podem mencionar outro membro com @ para passar a vez. Cada bot mantém seu próprio modelo, espaço de trabalho e memória, e os custos são contabilizados por bot.
+- **Bots que trocam mensagens.** No app, diga a um bot «passa isso para B»: B trabalha em segundo plano com o próprio modelo, permissões e orçamento e responde ao terminar, e o primeiro bot confere o resultado antes de contar para você. B pede aprovações na mesma conversa com o nome dele, e você pode ler a troca entre eles quando quiser. É preciso entrar na Modelflare, com os dois bots em modelos da Modelflare.
 - **Pesquise o histórico de conversas.** Pesquise pela barra lateral todas as mensagens salvas no seu dispositivo, filtre por bot, conversa, canal ou data e vá direto à mensagem original. `Ctrl/Cmd+Shift+F` abre a pesquisa global; `Ctrl/Cmd+F` pesquisa no chat atual. As pesquisas não chamam nenhum modelo. Antes de você digitar, a janela de pesquisa lista os chats recentes por data.
 - **Comandos de barra** como `/model` e `/reset` funcionam no app e em todos os canais de chat. Em um canal de chat, `/bot` troca para outro bot.
 
@@ -262,7 +263,7 @@ O runtime é construído sobre o [DeepSeek Harness](https://github.com/deepseek-
 
 ## 🧠 Memória e acesso de qualquer lugar
 
-- **Memória que permanece.** Cada bot, grupo e equipe tem sua própria memória, guardada em Markdown e mantida separada. Conteúdo que pareça senha ou chave não é salvo.
+- **Memória que permanece.** O que é sobre você fica em Sobre mim, compartilhado por todos os seus bots: diga uma vez e todos sabem, e dá para ver, editar ou desfazer nas Configurações. Os bots perguntam antes de salvar endereço, telefone ou e-mail. Cada bot e grupo também tem sua própria memória, guardada em Markdown e mantida separada. Conteúdo que pareça senha ou chave não é salvo.
 - **Chats longos continuam utilizáveis.** Um gestor de contexto compacta a conversa ou começa um novo trecho com um resumo de transição antes que a janela de contexto fique cheia.
 - **Contas compartilhadas por todos os bots.** Adicione as contas de chat do WeChat, Feishu, Telegram, Slack e Discord uma única vez em Configurações › Canais de chat. Todos os bots as compartilham, e cada canal pode ter várias contas com apelidos. Envie `/bot name` uma vez em um app de chat para falar com outro bot.
 - **Conectar apps.** O item Apps e habilidades no menu do avatar traz conectores para Feishu, Tencent Docs, DingTalk, Amap, Yuque, Notion, GitHub, Linear, Atlassian e Canva, e você pode adicionar conectores MCP personalizados (servidores remotos ou comandos locais). Conecte uma vez e todos os bots podem usar por padrão; restrinja por bot e por ferramenta. Ferramentas somente leitura rodam na hora, gravações perguntam antes, e exclusões ou qualquer envio para outras pessoas sempre perguntam.

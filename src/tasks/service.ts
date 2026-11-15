@@ -145,6 +145,21 @@ export interface TaskHost {
   removeSessions?(botId: string, taskId: string): boolean;
 }
 
+/**
+ * 机器人之间发消息（collab/service.ts）：B 名下处理别的机器人发来的事的任务（tasks.handoff_id）。
+ * 名额、预算、时间上限、审批、重启恢复照任务的来；结果不发给用户，交给协作服务（它让 A 核对后再回复用户）。
+ */
+export interface HandoffHooks {
+  /** 排着的 run 现在能不能开始（B 同时最多接 3 件、开始前再查登录和模型）；false = 先排着（协作服务自己会作废它） */
+  canStart(task: TaskRow, run: RunRow): boolean;
+  /** 开始处理（这件事的第一个 run，或重做、补充、继续之后的 run） */
+  started(task: TaskRow, runId: string): void;
+  /** 一个 run 结束了；halt：被时间上限（cap）、预算（budget）停下 */
+  ended(task: TaskRow, runId: string, outcome: RunOutcome, report: TaskReport | undefined, error: string, halt?: "cap" | "budget"): void;
+  /** B 的审批、提问有了新的或有了决定（两人对话里记灰字） */
+  approval(task: TaskRow, e: ApprovalEvent): void;
+}
+
 /** DSH 的一条通知（SDK 的 session.event / session.status / subagent.*） */
 export interface TaskNotification {
   method: string;
@@ -189,6 +204,8 @@ export interface TaskServiceOptions {
   botBudget?: (botId: string) => { limitUsd: number; remainUsd: number; at: number } | undefined;
   /** 「我的技能」：「让它做件事」可以用技能；技能删掉、关掉、改动后用它的规则自动暂停（skills/mine.ts） */
   mySkills?: MySkills;
+  /** 机器人之间发消息：别的机器人发来的事（协作服务接上） */
+  handoffs?: HandoffHooks;
 }
 
 /** 规则用的技能出了什么问题（暂停的原因，存进 rules.paused_reason） */
@@ -384,14 +401,14 @@ export class TaskService {
       if (!r.taskId) continue;
       if (!r.delivery && (r.outcome === "done" || r.outcome === "failed")) {
         const task = this.store.getTask(r.taskId);
-        if (task) this.deliver(task, r.id, r.outcome, r.report, r.error);
+        if (task && !task.handoffId) this.deliver(task, r.id, r.outcome, r.report, r.error);
       } else if (r.outcome === "needs_you" && r.report?.question) {
         const task = this.store.getTask(r.taskId);
         if (task && task.endReason !== "stopped" && this.store.latestRun(task.id)?.id === r.id) this.ask(task, r.id, r.report.question);
       } else if (r.outcome === "budget") {
         // 停在预算上、还没问出去就退出了：补问一次
         const task = this.store.getTask(r.taskId);
-        if (task && task.endReason !== "stopped" && this.store.latestRun(task.id)?.id === r.id) this.askBudget(task, r.id);
+        if (task && !task.handoffId && task.endReason !== "stopped" && this.store.latestRun(task.id)?.id === r.id) this.askBudget(task, r.id);
       }
     }
     for (const conv of new Set((this.o.approvals?.pendingAll() ?? []).filter((r) => r.taskId).map((r) => r.conversationId))) this.pushNext(conv);
@@ -530,6 +547,61 @@ export class TaskService {
     this.changed(id);
     this.pump();
     return { task };
+  }
+
+  /**
+   * 别的机器人发来的事（协作服务调用）：B 名下的一个任务，请求它的会话是你和 A 的主对话（B 的审批、提问出现在那里）。
+   * 用 B 的模型、权限、预算和记忆；ask = 只问不做（只读、所有审批自动拒绝）。第一条输入是协作服务写好的说明
+   */
+  createHandoff(o: { handoffId: string; botId: string; conversationId: string; title: string; brief: (folder: string, memory: string | undefined) => string; budgetUsd: number; capMs: number; ask: boolean }): { task?: TaskRow; error?: string } {
+    const bot = this.store.getBot(o.botId);
+    if (!bot || !this.store.getConversation(o.conversationId)) return { error: "conversation not found" };
+    const id = `t_${hex(6)}`;
+    const now = this.now();
+    const title = clip(oneLine(o.title), 40) || "handoff";
+    const folder = `tasks/${slugOf(title)}-${id.slice(2, 8)}`;
+    const st = this.o.host.settings(o.botId);
+    const task = this.store.insertTask({
+      id,
+      botId: o.botId,
+      conversationId: o.conversationId,
+      originMessageId: 0,
+      originRef: "",
+      title,
+      brief: "",
+      sessionId: `task-${id}`,
+      folder,
+      model: bot.defaultModel || this.o.defaultModel?.() || "",
+      permission: o.ask ? "readonly" : st.permission,
+      budgetUsd: o.budgetUsd,
+      anytime: true,
+      handoffId: o.handoffId,
+      capMs: o.capMs,
+      createdAt: now,
+      updatedAt: now,
+    });
+    this.addInput(task.id, "brief", o.brief(folder, st.memory.enabled ? this.o.host.memoryPrefix(o.botId, o.conversationId) : undefined), true);
+    this.enqueue(task, "launch");
+    log.info("handoff task created", { bot: o.botId, task: id, handoff: o.handoffId });
+    this.changed(id);
+    this.pump();
+    return { task };
+  }
+
+  /** 别的机器人发来的事再给一份花费额度（说「继续」时）；时长上限按 run 算，新的 run 重新计时 */
+  extendHandoff(taskId: string, addUsd: number): void {
+    const task = this.store.getTask(taskId);
+    if (!task) return;
+    this.store.updateTask(taskId, { budgetUsd: Math.max(task.budgetUsd, task.spentUsd) + addUsd, updatedAt: this.now() });
+  }
+
+  /** 给别的机器人发来的事加一条输入（重做、补充、继续）：同人的追加 */
+  async handoffInput(taskId: string, text: string): Promise<{ how?: "steered" | "sent" | "queued" | "resumed"; error?: string }> {
+    const task = this.store.getTask(taskId);
+    if (!task || !task.handoffId) return { error: "task not found" };
+    if (task.endReason === "stopped") return { error: "stopped" };
+    const input = this.addInput(task.id, "followup", text, true);
+    return { how: await this.wake(task, input, "followup") };
   }
 
   /**
@@ -689,12 +761,20 @@ export class TaskService {
     return true;
   }
 
+  /** 别的机器人发来的事：B 手上已有 3 件、登录或模型不满足时先排着（由协作服务决定，作废也由它来） */
+  private heldByHandoff(run: RunRow): boolean {
+    const hooks = this.o.handoffs;
+    if (!hooks || !run.taskId) return false;
+    const task = this.store.getTask(run.taskId);
+    return !!task?.handoffId && !hooks.canStart(task, run);
+  }
+
   /** 有空名额就开始排队的 run（人的唤醒在前，见 slots.ts）；后台工作暂停了、预算留给聊天的机器人不开始新的 */
   pump(): void {
     if (!this.started || this.closing) return;
     const queued = this.store
       .listRuns({ states: ["queued"] })
-      .filter((r) => (r.taskId || (r.ruleId && !this.skipStale(r))) && !this.dropped.has(r.botId) && !this.heldByPause(r) && !this.heldByReserve(r));
+      .filter((r) => (r.taskId || (r.ruleId && !this.skipStale(r))) && !this.dropped.has(r.botId) && !this.heldByPause(r) && !this.heldByReserve(r) && !this.heldByHandoff(r));
     if (!queued.length) return;
     // 等批准的 run 让出名额（DSH 那次调用照样等着，批了就接着做）
     const blocked = new Set((this.o.approvals?.pendingAll() ?? []).filter((a) => a.taskId && a.blocking && a.kind === "approval").map((a) => a.taskId));
@@ -722,11 +802,13 @@ export class TaskService {
     if (task.spentUsd >= task.budgetUsd) {
       this.store.updateRun(runId, { state: "ended", outcome: "budget", startedAt: now, endedAt: now, sessionId: task.sessionId });
       log.info("background task is over its budget; asking before it continues", { task: task.id, run: runId });
-      this.askBudget(task, runId);
+      if (task.handoffId) this.o.handoffs?.ended(task, runId, "budget", undefined, "", "budget");
+      else this.askBudget(task, runId);
       this.changed(task.id);
       return;
     }
     this.store.updateRun(runId, { state: "running", startedAt: now, sessionId: task.sessionId });
+    if (task.handoffId) this.o.handoffs?.started(task, runId);
     const l: Live = {
       runId,
       taskId: task.id,
@@ -980,7 +1062,7 @@ export class TaskService {
       log.warn("background task used its budget; stopping it and asking the user", { task: l.taskId, run: l.runId, spentUsd: Math.round((this.store.getTask(l.taskId)?.spentUsd ?? 0) * 10_000) / 10_000 });
       this.end(l, "budget");
     } else if (why === "cap") {
-      const error = tr("tasks.timeCap", { hours: Math.round((this.o.taskRunCapMs ?? TASK_RUN_CAP_MS) / 3600_000) || 1 });
+      const error = tr("tasks.timeCap", { hours: Math.round(this.capOf(this.store.getTask(l.taskId)) / 3600_000) || 1 });
       l.activity.end(error, now);
       log.warn("background task run hit its time cap; stopping it", { task: l.taskId, run: l.runId });
       this.end(l, "failed", undefined, error);
@@ -1056,13 +1138,17 @@ export class TaskService {
   checkCaps(now = this.now()): void {
     if (!this.started || this.closing) return;
     for (const [sid, h] of this.halted) if (now > h.until) this.halted.delete(sid);
-    const cap = this.o.taskRunCapMs ?? TASK_RUN_CAP_MS;
     for (const l of [...this.live.values()]) {
       if (l.ruleId || l.final || this.live.get(l.runId) !== l) continue;
       const run = this.store.getRun(l.runId);
       if (!run?.startedAt) continue;
-      if (now - run.startedAt - this.waitedMs(l.runId, now) >= cap) this.halt(l, "cap");
+      if (now - run.startedAt - this.waitedMs(l.runId, now) >= this.capOf(this.store.getTask(l.taskId))) this.halt(l, "cap");
     }
+  }
+
+  /** 一次运行最长多久：别的机器人发来的事按发起时的设置（30 分钟到 4 小时），其余的 4 小时 */
+  private capOf(task: TaskRow | undefined): number {
+    return (task?.capMs || 0) > 0 ? task!.capMs : (this.o.taskRunCapMs ?? TASK_RUN_CAP_MS);
   }
 
   /** 这个 run 里等人批准（或回答阻塞着的提问）一共等了多久 */
@@ -1180,12 +1266,21 @@ export class TaskService {
     const task = this.store.getTask(l.taskId);
     if (task && outcome === "done") this.store.updateTask(task.id, { endedAt: now, endReason: "done", updatedAt: now });
     else if (task) this.store.updateTask(task.id, { updatedAt: now });
-    if (task && (outcome === "done" || outcome === "failed")) this.deliver(task, l.runId, outcome, report, error);
+    if (task && !task.handoffId && (outcome === "done" || outcome === "failed")) this.deliver(task, l.runId, outcome, report, error);
     // 做完了还没回答的提问：有默认回答的就是按默认做了（结果里说了），作废、撤回；失败了也一样（重试时它会再问）
     if (task && (outcome === "done" || outcome === "failed")) this.withdrawQuestions(task, outcome === "done" ? "default" : "failed");
     // 报 needs_you 时已经问了（report）；这里只是兜底（同一个 run 同一个问题不会问两次）
     if (task && outcome === "needs_you" && report?.question) this.ask(task, l.runId, report.question);
-    if (task && outcome === "budget") this.askBudget(task, l.runId);
+    if (task && outcome === "budget" && !task.handoffId) this.askBudget(task, l.runId);
+    // 别的机器人发来的事：结果交给协作服务（B 回消息给 A，A 核对后回复用户）
+    if (task?.handoffId) {
+      const halt = l.halted === "cap" || l.halted === "budget" ? l.halted : undefined;
+      try {
+        this.o.handoffs?.ended(this.store.getTask(task.id) ?? task, l.runId, outcome, report, error, halt);
+      } catch (e) {
+        log.warn("handoff hook failed", { task: task.id, message: (e as Error).message.slice(0, 200) });
+      }
+    }
     log.info("background task run ended", { task: l.taskId, run: l.runId, outcome, ...(error ? { error } : {}) });
     this.changed(l.taskId);
     this.pump();
@@ -1309,6 +1404,7 @@ export class TaskService {
         text: `Asked the user. Keep working on what does not depend on the answer; if they answer, it arrives as a message at your next step. If you finish first, use "${question.default}", say so in your message, and report done.`,
       };
     if (state === "needs_you") return { text: "Recorded. End your turn now: the app asks the user, and their answer arrives as your next message." };
+    if (this.store.getTask(l.taskId)?.handoffId) return { text: "Recorded. End your turn now: the app sends your reply (summary and files) back to the bot that asked." };
     return { text: `Recorded. End your turn now: the app sends your message to the user${state === "done" && !message ? " (you gave no message, so the user only hears that the task is done)" : ""}.` };
   }
 
@@ -1376,7 +1472,7 @@ export class TaskService {
   private find(conversationId: string, ref: string): TaskRow | undefined {
     const r = ref.trim();
     if (!r) return undefined;
-    const list = this.store.listTasks({ conversationId, limit: 50 });
+    const list = this.store.listTasks({ conversationId, limit: 50, handoffs: false });
     return list.find((t) => t.id === r || t.sessionId === r) ?? list.find((t) => t.title.includes(r) || r.includes(t.title));
   }
 
@@ -1415,6 +1511,7 @@ export class TaskService {
     };
     a.create({ kind: "question", botId: task.botId, conversationId: task.conversationId, sessionId: task.sessionId, tool: "task_report", detail: q.question, reason: "", payload: JSON.stringify([item]), taskId: task.id, runId, blocking: false, ttlMs: 0 });
     log.info("background task asks the user", { task: task.id, run: runId, ...(q.default ? { keepsWorking: true } : {}) });
+    if (task.handoffId) return;
     const opts = q.options?.length ? `（${q.options.join(" / ")}）` : "";
     this.note(
       task.conversationId,
@@ -1440,6 +1537,13 @@ export class TaskService {
     if (!row.taskId) return;
     const task = this.store.getTask(row.taskId);
     if (!task) return;
+    if (task.handoffId) {
+      try {
+        this.o.handoffs?.approval(task, e);
+      } catch (err) {
+        log.warn("handoff approval hook failed", { task: task.id, message: (err as Error).message.slice(0, 200) });
+      }
+    }
     if (e.type === "decided" && row.kind === "question" && !row.blocking && row.status === "answered" && task.endReason !== "stopped") this.answered(task, row);
     // 有了决定（在桌面上回答了、批了，任务停了）：推给用户还没发出去的那条（排到早上、等微信窗口）不用再发了
     if (e.type === "decided") this.o.delivery?.withdraw(askId(row), tr(row.status === "answered" ? "tasks.withdrawAnswered" : "tasks.withdrawHandled"));
@@ -1687,7 +1791,7 @@ export class TaskService {
   attention(): AttentionItem[] {
     const out: AttentionItem[] = [];
     const since = this.now() - 7 * 86400_000;
-    const tasks = [...this.store.listTasks({ open: true, limit: 200 }), ...this.store.listTasks({ open: false, since, limit: 100 })];
+    const tasks = [...this.store.listTasks({ open: true, limit: 200, handoffs: false }), ...this.store.listTasks({ open: false, since, limit: 100, handoffs: false })];
     const asking = new Set((this.o.approvals?.pendingAll() ?? []).filter((a) => a.tool === BUDGET_TOOL).map((a) => a.taskId));
     for (const t of tasks) {
       const run = this.store.latestRun(t.id);
@@ -1796,7 +1900,7 @@ export class TaskService {
   list(o: { botId?: string; conversationId?: string; limit?: number; since?: number; group?: StageGroup[] } = {}): TaskView[] {
     const rank = { working: 0, needs: 1, ended: 2 } as const;
     return this.store
-      .listTasks({ botId: o.botId, conversationId: o.conversationId, limit: 200 })
+      .listTasks({ botId: o.botId, conversationId: o.conversationId, limit: 200, handoffs: false })
       .map((t) => this.view(t))
       .filter((v) => !o.group?.length || o.group.includes(v.stage.group))
       .filter((v) => !o.since || v.stage.group !== "ended" || v.updatedAt >= o.since)

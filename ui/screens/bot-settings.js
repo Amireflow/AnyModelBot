@@ -214,8 +214,8 @@ export function BotSettingsScreen({ bot, section, models, modelsError, reloadMod
           <${Row} id="memory-review" name=${t("botSettings.memory.review")} off=${!s.memory.enabled}>
             <${Switch} label=${t("botSettings.memory.reviewLabel")} value=${s.memory.review} disabled=${!s.memory.enabled} onChange=${(v) => put({ memory: { review: v } })} />
           <//>
-          <${Row} id="memory-team" name=${t("botSettings.memory.team")} sub=${t("botSettings.memory.teamSub")} off=${!s.memory.enabled}>
-            <${Switch} label=${t("botSettings.memory.teamLabel")} value=${s.memory.teamWrite} disabled=${!s.memory.enabled} onChange=${(v) => put({ memory: { teamWrite: v } })} />
+          <${Row} id="about-me" name=${t("aboutMe.botEntry")} sub=${s.memory.enabled ? t("aboutMe.botEntrySub") : t("aboutMe.memoryOff")} off=${!s.memory.enabled}>
+            <button type="button" class="text" onClick=${() => onOpenSettings?.("aboutMe")}>${t("aboutMe.open")} ›</button>
           <//>
         </div>
 

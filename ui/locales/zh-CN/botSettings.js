@@ -92,9 +92,6 @@ export default {
     name: "长期记忆",
     review: "回合结束后自动整理",
     reviewLabel: "自动整理记忆",
-    team: "允许写入团队记忆",
-    teamSub: "所有机器人共享",
-    teamLabel: "团队记忆",
   },
   context: {
     head: "上下文",

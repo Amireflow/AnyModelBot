@@ -4,6 +4,20 @@
 
 Aqui estão as mudanças que você vai notar no app. Para versões mais antigas, veja as [versões no GitHub](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.37 - 2026-11-15
+
+### Novidades
+
+- **Sobre mim:** a memória da equipe agora se chama Sobre mim e guarda o que todos os seus bots compartilham sobre você. Diga uma vez em qualquer conversa (por exemplo, «Eu sou a Melody») e todos os bots ficam sabendo; uma linha abaixo da resposta permite desfazer. Os bots perguntam antes de salvar endereço, telefone ou e-mail, não revertem as linhas que você editou e não adicionam de novo as que você apagou. Veja e edite em Configurações › Sobre mim, onde qualquer alteração dos últimos 30 dias pode ser desfeita. Sua memória da equipe antiga é movida automaticamente.
+- **Bots trocam mensagens:** no app, diga a um bot «passa isso para o Assistente de produto» e ele envia a tarefa, o contexto e os arquivos para esse bot. O outro bot trabalha em segundo plano com o próprio modelo, permissões e orçamento, pede sua aprovação na mesma conversa com o nome dele e responde ao terminar. O primeiro bot confere o resultado, pede para refazer se precisar e depois conta para você. Clique na linha cinza da conversa para ver a troca entre os dois. É preciso entrar na Modelflare, e os dois bots precisam usar modelos da Modelflare.
+- **Configurações de colaboração entre bots:** em Configurações › Colaboração entre bots dá para desligar, definir limites de gasto, tempo, pedidos por dia e vezes para refazer, e ver as conversas entre os bots e quanto custaram.
+
+### Melhorias e correções
+
+- **Configurações do bot e aba Memória:** o interruptor «Permitir gravar na memória da equipe» de cada bot virou um atalho para Sobre mim. A aba Memória mostra quantas linhas Sobre mim tem, e dá para ver ou excluir por ali.
+- **Revisão da memória:** o que é sobre você não vai mais para a memória de um bot só; quando há conflito, vale o Sobre mim.
+- **Em apps de mensagem:** quando um bot anota algo sobre você numa conversa privada no WeChat ou no Feishu, uma linha vem depois da resposta e responder «desfazer» reverte. Endereços, telefones e e-mails só são usados naquela conversa.
+
 ## 0.1.36 - 2026-11-15
 
 ### Novidades

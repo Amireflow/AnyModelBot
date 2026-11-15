@@ -33,6 +33,7 @@ export function tasksRoutes(ctx: WebContext): Route {
       else if (item.kind === "rule" && action === "continue") ok = !app.tasks.addRuleBudget(item.ruleId!).error;
       else if (action === "continue") ok = !(await app.tasks.addBudget(item.taskId!, undefined, "web")).error;
       else if (action === "retry") ok = !(await app.tasks.retry(item.taskId!)).error;
+      else if (action === "stop" && app.store.getTask(item.taskId!)?.handoffId) ok = app.collab.stopFromAttention(item.taskId!);
       else if (action === "stop") ok = await app.tasks.stopTask(item.taskId!, "web");
       if (!ok) throw new HttpError(409, tr("web.couldntComplete"));
       app.attention.kick();

@@ -92,9 +92,6 @@ export default {
     name: "Memória de longo prazo",
     review: "Organizar automaticamente após cada turno",
     reviewLabel: "Organizar a memória automaticamente",
-    team: "Permitir gravar na memória da equipe",
-    teamSub: "Compartilhada por todos os bots",
-    teamLabel: "Memória da equipe",
   },
   context: {
     head: "Contexto",

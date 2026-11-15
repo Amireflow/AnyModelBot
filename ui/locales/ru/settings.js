@@ -1,6 +1,8 @@
 export default {
   tabs: {
     general: "Основные",
+    aboutMe: "Обо мне",
+    collab: "Совместная работа ботов",
     appearance: "Оформление",
     modelflare: "Модели",
     computer: "Управление компьютером",

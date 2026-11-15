@@ -63,7 +63,7 @@ function useTabsWrap(tabs) {
  * tabs：panelTabs() 的结果；tab：当前标签（不在 tabs 里时用第一个）；onTab(id) 切换。
  * entry：目录 Bot 的条目（概览里的说明）；onHost(el)：工作台那块宿主挂上 / 卸下时调用（ref 回调）。
  */
-export function WorkPanel({ bot, entry, tabs, tab, onTab, leaving, onClose, expanded, onExpand, onOpenBotSettings, onOpenChat, onOpenConnections, onHost, resources, onSelectResource, onRemoveResource }) {
+export function WorkPanel({ bot, entry, tabs, tab, onTab, leaving, onClose, expanded, onExpand, onOpenBotSettings, onOpenChat, onOpenConnections, onOpenSettings, onHost, resources, onSelectResource, onRemoveResource }) {
   const cur = tabs.includes(tab) ? tab : tabs[0];
   const wrap = useTabsWrap(tabs);
   // 标签条的键盘：← → 换到相邻的标签（选中即切换），Home / End 到两头
@@ -93,6 +93,6 @@ export function WorkPanel({ bot, entry, tabs, tab, onTab, leaving, onClose, expa
     ${cur === "resources" && html`<div class="preview-pane" ...${pane("resources")}><${ResourcePreview} state=${resources} onSelect=${onSelectResource} onRemove=${onRemoveResource} /></div>`}
     ${cur === "overview" && html`<div class="panel-body" ...${pane("overview")}><${OverviewTab} bot=${bot} entry=${entry} onOpenChat=${onOpenChat} onOpenConnections=${onOpenConnections} /></div>`}
     ${cur === "tasks" && bot && html`<div class="panel-body" ...${pane("tasks")}><${TasksTab} bot=${bot} onOpenChat=${onOpenChat} /></div>`}
-    ${cur === "memory" && bot && html`<div class="panel-body" ...${pane("memory")}><${MemoryTab} bot=${bot} /></div>`}
+    ${cur === "memory" && bot && html`<div class="panel-body" ...${pane("memory")}><${MemoryTab} bot=${bot} onOpenAboutMe=${() => onOpenSettings?.("aboutMe")} /></div>`}
   </aside>`;
 }

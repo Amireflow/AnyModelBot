@@ -4,6 +4,19 @@
 
 This covers changes you'll notice in the app. For older versions, see the [GitHub releases](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.37 - 2026-11-15
+
+### New
+
+- **About me:** team memory is now About me, for things about you that all your bots share. Say it once in any chat (like "I'm Melody") and every bot knows; a one-line note under the reply lets you undo it. Bots ask before saving an address, phone number or email, never change back lines you edited yourself, and don't add back lines you deleted. View and edit it in Settings › About me, where every change from the last 30 days can be undone. Your old team memory moves over automatically.
+- **Bots can message each other:** in the app, tell a bot "hand this to Product Assistant" and it sends the task, background and files to that bot. The other bot works in the background with its own model, permissions and budget, asks for your approval in the same chat under its own name, and replies when done. The first bot checks the result, asks for a redo if needed, and then tells you. Click the gray line in the chat to see their conversation. Requires signing in to Modelflare, with both bots on Modelflare models.
+- **Bot collaboration settings:** turn it off or set limits for spend, time, daily requests and redos per request in Settings › Bot collaboration, and browse the conversations between bots and what they cost.
+
+### Improvements and fixes
+
+- **Bot settings and the Memory tab:** the per-bot "Allow writing to team memory" switch is replaced by an About me link. The Memory tab shows how many About me lines there are, where you can view or delete them.
+- **Memory review:** facts about you no longer go into a single bot's memory; About me wins when they conflict.
+
 ## 0.1.36 - 2026-11-15
 
 ### New

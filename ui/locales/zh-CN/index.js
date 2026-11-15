@@ -36,6 +36,8 @@ import botapp from "./botapp.js";
 import apps from "./apps.js";
 import skills from "./skills.js";
 import mySkills from "./mySkills.js";
+import aboutMe from "./aboutMe.js";
+import collab from "./collab.js";
 import skillItems from "./skillItems.json" with { type: "json" };
 
-export default { skills, mySkills, skillItems, templates, scheduled, welcome, apps, firstUse, updates, search, official, botapp, group, common, app, time, settings, account, pwsh, chat, info, markdown, notify, troubleshoot, onboarding, newBot, botSettings, sidebar, avatar, models, ui, guide, activity, perms, access, tasks, needs, rules };
+export default { aboutMe, collab, skills, mySkills, skillItems, templates, scheduled, welcome, apps, firstUse, updates, search, official, botapp, group, common, app, time, settings, account, pwsh, chat, info, markdown, notify, troubleshoot, onboarding, newBot, botSettings, sidebar, avatar, models, ui, guide, activity, perms, access, tasks, needs, rules };

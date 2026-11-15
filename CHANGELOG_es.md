@@ -4,6 +4,20 @@
 
 Aquí se recogen los cambios que notarás en la app. Para versiones anteriores, consulta las [versiones publicadas en GitHub](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.37 - 2026-11-15
+
+### Novedades
+
+- **Sobre mí:** la memoria del equipo ahora se llama Sobre mí y guarda lo que todos tus bots comparten sobre ti. Dilo una vez en cualquier chat (por ejemplo, «Soy Melody») y todos tus bots lo sabrán; una línea bajo la respuesta te permite deshacerlo. Los bots preguntan antes de guardar una dirección, un teléfono o un correo, no revierten las líneas que editaste y no vuelven a agregar las que borraste. Míralo y edítalo en Configuración › Sobre mí, donde puedes deshacer cualquier cambio de los últimos 30 días. Tu memoria del equipo anterior se mueve sola.
+- **Los bots se envían mensajes:** en la app, dile a un bot «pásale esto a Asistente de producto» y le enviará la tarea, el contexto y los archivos a ese bot. El otro bot trabaja en segundo plano con su propio modelo, permisos y presupuesto, te pide aprobación en el mismo chat con su nombre y responde al terminar. El primer bot revisa el resultado, pide que lo rehaga si hace falta y luego te avisa. Haz clic en la línea gris del chat para ver su conversación. Requiere iniciar sesión en Modelflare y que ambos bots usen modelos de Modelflare.
+- **Configuración de colaboración entre bots:** en Configuración › Colaboración entre bots puedes desactivarla, fijar límites de gasto, tiempo, solicitudes diarias y veces para rehacer, y ver las conversaciones entre bots y lo que costaron.
+
+### Mejoras y correcciones
+
+- **Configuración del bot y pestaña Memoria:** el interruptor «Permitir escribir en la memoria del equipo» de cada bot se reemplaza por un acceso a Sobre mí. La pestaña Memoria muestra cuántas líneas tiene Sobre mí, y desde ahí puedes verlas o borrarlas.
+- **Revisión de memoria:** lo que tiene que ver contigo ya no se guarda en la memoria de un solo bot; si hay conflicto, manda Sobre mí.
+- **En las apps de mensajería:** cuando un bot anota algo sobre ti en un chat privado de WeChat o Feishu, se agrega una línea después de la respuesta y responder «deshacer» lo revierte. Las direcciones, teléfonos y correos solo se usan en ese chat.
+
 ## 0.1.36 - 2026-11-15
 
 ### Novedades

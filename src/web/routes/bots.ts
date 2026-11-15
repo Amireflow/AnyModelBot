@@ -6,6 +6,7 @@ import { skillsApi } from "../skills.js";
 import { SseReply } from "../sse-reply.js";
 import { normalizeSettings } from "../../agent/settings.js";
 import { scopeLabel } from "../../agent/memory.js";
+import { publicChange, publicLine, publicProposal } from "./about-me.js";
 import { t } from "../../i18n/index.js";
 import { HttpError, readJson, send, publicBot, publicMessage, CollectReply, webEvent, consoleConvId, publicApproval, accountCall, isLoopback, type Route, type WebContext } from "../http.js";
 
@@ -126,8 +127,9 @@ export function botsRoutes(ctx: WebContext, previews = new FilePreviews()): Rout
         return send(res, 200, { settings: next.settings });
       }
       if (sub === "memory" && m === "GET") {
+        // 原来的团队记忆搬进了关于我：记忆页签顶部一行入口，关于我的句子标来源「关于我」，只看和删（删除同关于我页）
+        const st = app.agent.settings(id);
         const scopes = [
-          { kind: "team" as const, id: "" },
           { kind: "bot" as const, id },
           ...app.store
             .listConversations(id)
@@ -142,14 +144,23 @@ export function botsRoutes(ctx: WebContext, previews = new FilePreviews()): Rout
             entries: app.agent.memory.entries(s).map((e) => ({ text: e.text, meta: e.meta })),
             topics: app.agent.memory.topics(s).map((t) => ({ name: t, entries: app.agent.memory.entries(s, t).map((e) => ({ text: e.text, meta: e.meta })) })),
           })),
-          journal: app.agent.memory.journalTail(30).filter((j) => j.scope === "team" || j.scope.includes(id)),
+          aboutMe: { reads: st.memory.enabled, count: app.agent.aboutMe.lines().length, lines: st.memory.enabled ? app.agent.aboutMe.lines().map(publicLine) : [] },
+          journal: app.agent.memory.journalTail(30).filter((j) => j.scope.includes(id)),
           steward: app.agent.stewardLog.filter((l) => l.conversationId.startsWith(id + ":")).slice(-20),
         });
       }
       if (sub === "memory/forget" && m === "POST") {
         const b = await readJson(req);
         const kind = String(b.kind ?? "bot");
-        const scope = kind === "team" ? { kind: "team" as const, id: "" } : kind === "group" ? { kind: "group" as const, id: String(b.id ?? "") } : { kind: "bot" as const, id };
+        if (kind === "me") {
+          try {
+            app.agent.aboutMe.userDelete(String(b.id ?? ""));
+            return send(res, 200, { ok: true });
+          } catch (e) {
+            throw new HttpError(404, t("aboutMe.missing"));
+          }
+        }
+        const scope = kind === "group" ? { kind: "group" as const, id: String(b.id ?? "") } : { kind: "bot" as const, id };
         if (scope.kind === "group" && !scope.id.startsWith(id + ":")) throw new HttpError(400, t("web.groupNotOwned"));
         try {
           const text = app.agent.memory.forget(scope, String(b.match ?? ""), { topic: b.topic ? String(b.topic) : undefined, by: "web" });
@@ -176,6 +187,13 @@ export function botsRoutes(ctx: WebContext, previews = new FilePreviews()): Rout
             ...app.skillDrafts.list([consoleConvId(id)]).map((c) => ({ id: c.id, at: c.createdAt, kind: "skill_draft" })),
           ],
           live: turns.map((t) => t.snapshot()),
+          // 关于我：这个对话里机器人记下、改了、删了的提示行，和确认卡、建议卡（按时间挂在那一轮的回复下面）
+          aboutMe: (() => {
+            const r = app.agent.aboutMe.forConversation(consoleConvId(id));
+            return { changes: r.changes.map(publicChange), proposals: r.proposals.map(publicProposal) };
+          })(),
+          // 机器人之间发消息：这个对话里的灰色小字（已发消息给 / 收到…的消息）和按钮（去登录、去换模型）
+          collab: app.collab.chatView(consoleConvId(id)),
           // 桌面版：交付的文件用系统程序打开；网页里在新标签页打开
           canOpen: !!app.desktop?.openPath,
         });

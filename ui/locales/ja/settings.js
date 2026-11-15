@@ -1,6 +1,8 @@
 export default {
   "tabs": {
     "general": "一般",
+    "aboutMe": "わたしについて",
+    "collab": "ボット連携",
     "appearance": "外観",
     "modelflare": "モデル",
     "computer": "コンピューター操作",

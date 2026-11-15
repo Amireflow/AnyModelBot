@@ -12,7 +12,8 @@
 //     its turn and waits),
 //   - refuses every tool call once the host has stopped the task.
 // Chat sessions get task_start / task_message / task_list, rule_create / rule_update and background_pause (pause or
-// resume all of the bot's background work); subagents get none of them.
+// resume all of the bot's background work); subagents get none of them, and neither tasks nor subagents get amb-collab's
+// message_bot / bot_request (a request another bot sent is handled in a task session, so it is never passed on again).
 //
 // Rule sessions (`rule-<rule>-<run>`, one fresh session per run of a standing rule, 3d) are decorated from the host's
 // answer to /dsh/task-config (the host owns the mode): the denied tools (observe denies everything that acts), the rule
@@ -34,7 +35,7 @@ export const inject = ['tools']
 
 /** Shared with amb-control: control-channel ops this plugin answers. */
 export const HANDLERS = Symbol.for('amb.control.handlers')
-export const CHAT_TOOLS = ['task_start', 'task_message', 'task_list', 'rule_create', 'rule_update', 'background_pause']
+export const CHAT_TOOLS = ['task_start', 'task_message', 'task_list', 'rule_create', 'rule_update', 'background_pause', 'message_bot', 'bot_request']
 /** Tools a task session never gets (filtered to registered names before tools.restrict). */
 export const TASK_DENY = ['present', 'ask_user_question', ...CHAT_TOOLS]
 /** Shared with amb-permission: sessionId → DSH permission preset for rule sessions (and their subagents). */

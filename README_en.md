@@ -56,7 +56,7 @@ Conversations, memory, files, and API keys stay on your device. Models can come 
 
 Ready to use after install: background tasks, scheduled rules, and items waiting for your OK are built in.
 
-**0.1.36:** A skill library with 155 skills you can install by link, saving what a bot did as My skills to reuse on several bots or schedule, and picking skills and apps right in the chat. [Changelog](./CHANGELOG_en.md#0136---2026-11-15)
+**0.1.37:** About me, shared by all your bots so you say things about yourself once, and bots that message each other: say "hand this to B" and the result comes back checked. [Changelog](./CHANGELOG_en.md#0137---2026-11-15)
 
 📥 [Download](#-download-and-run) · 🌠 [Screenshots](#-screenshots) · 🌟 [Features](#-key-features) · 🆚 [Compare](#-anymodelbot-vs-grok-bot-openai-dots-and-claude-duet) · 🔐 [Privacy](#-how-it-works--privacy)
 
@@ -195,6 +195,7 @@ A bot is more than a chat window: it has a persona, a default model, its own wor
 - **Approval cards, not surprises.** Actions that write outside the workspace stop and wait for your answer.
 - **Told after a restart.** A message still in progress when the app quit or crashed is flagged in its conversation at the next start, so you can send it again; nothing is redone on its own.
 - **Group chats.** Create a group and add a few bots. Whoever you @ answers; with no @, the bot that answered last carries on. Bots can also @ another member to hand off. Each bot keeps its own model, workspace and memory, and costs are tracked per bot.
+- **Bots that message each other.** In the app, tell a bot "hand this to B": B works in the background with its own model, permissions and budget and replies when done, and the first bot checks the result before telling you. B asks for approvals in the same chat under its own name, and you can read their conversation any time. Requires signing in to Modelflare, with both bots on Modelflare models.
 - **Search chat history.** Search all messages saved on your device from the sidebar, filter by bot, conversation, channel or date, and jump to the original message. `Ctrl/Cmd+Shift+F` opens global search; `Ctrl/Cmd+F` searches the current chat. Searches do not call a model. Before you type, the search dialog lists recent chats by date.
 - **Slash commands** such as `/model` and `/reset` work in the app and in every chat channel. In a chat channel, `/bot` switches to another bot.
 
@@ -262,7 +263,7 @@ The runtime is built on [DeepSeek Harness](https://github.com/deepseek-ai/deepse
 
 ## 🧠 Memory, and reachable from anywhere
 
-- **Memory that carries over.** Each bot, group, and team has its own memory, kept as Markdown and kept separate. Content that looks like passwords or keys isn't saved.
+- **Memory that carries over.** Things about you live in About me, shared by all your bots: say it once and every bot knows, and you can view, edit or undo it in Settings. Bots ask before saving an address, phone number or email. Each bot and group also has its own memory, kept as Markdown and kept separate. Content that looks like passwords or keys isn't saved.
 - **Long chats stay usable.** A context steward compacts or starts a fresh segment with a hand-off summary before the window fills up.
 - **Accounts shared by all bots.** Add WeChat, Feishu, Telegram, Slack and Discord chat accounts once under Settings › Chat channels. Every bot shares them, and each channel can have several accounts with aliases. Send `/bot name` once in a chat app to talk to a different bot.
 - **Connect apps.** Apps & skills in the avatar menu comes with connectors for Feishu, Tencent Docs, DingTalk, Amap, Yuque, Notion, GitHub, Linear, Atlassian and Canva, and you can add custom MCP connectors (remote servers or local commands). Connect once and every bot can use it by default; narrow it per bot and per tool. Read-only tools run right away, writes ask you first, and deletes or anything sent to other people always ask.

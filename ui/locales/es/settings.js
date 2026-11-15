@@ -2,6 +2,8 @@
 export default {
   tabs: {
     general: "General",
+    aboutMe: "Sobre mí",
+    collab: "Colaboración entre bots",
     appearance: "Apariencia",
     modelflare: "Modelos",
     computer: "Uso de la computadora",

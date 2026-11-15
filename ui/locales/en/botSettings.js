@@ -92,9 +92,6 @@ export default {
     name: "Long-term memory",
     review: "Tidy up automatically after each turn",
     reviewLabel: "Auto-tidy memory",
-    team: "Allow writing to team memory",
-    teamSub: "Shared by all bots",
-    teamLabel: "Team memory",
   },
   context: {
     head: "Context",

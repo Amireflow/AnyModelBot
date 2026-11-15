@@ -6,6 +6,10 @@ export default {
     "h3": "E tem mais.",
     "items": [
       {
+        "title": "Bots que trocam mensagens",
+        "body": "Diga «passa isso para B»: B trabalha em segundo plano com o próprio modelo e orçamento, e o primeiro bot confere o resultado antes de contar para você. Conte algo sobre você uma vez e todos os bots ficam sabendo."
+      },
+      {
         "title": "Agende com uma frase",
         "body": "Gerencie as regras de todos os bots em Agendado: desfazer, horários mensais e recuperação em até doze horas. O computador e o aplicativo devem estar ligados."
       },

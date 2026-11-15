@@ -6,6 +6,10 @@ export default {
     "h3": "And there's more.",
     "items": [
       {
+        "title": "Bots that message each other",
+        "body": "Say \"hand this to B\": B works in the background with its own model and budget, and the first bot checks the result before telling you. Tell any bot something about yourself once and every bot knows."
+      },
+      {
         "title": "Schedule it in a sentence",
         "body": "Manage every bot’s rules on Scheduled, with undo, monthly schedules and catch-up within up to twelve hours. Your computer and the app must be on."
       },

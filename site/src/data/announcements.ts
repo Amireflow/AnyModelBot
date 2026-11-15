@@ -49,6 +49,15 @@ export const RELEASE = {
   days: 30,
   /** 各版本的一句话亮点（可选），没有就显示"AnyModelBot {version} 已发布" */
   highlights: {
+    "0.1.37": {
+      "zh": "关于我，和机器人之间发消息",
+      "en": "About me and bots that message each other",
+      "ja": "「わたしについて」とボット同士のメッセージ",
+      "ko": "내 정보와 봇끼리 메시지 보내기",
+      "ru": "«Обо мне» и переписка ботов",
+      "es": "Sobre mí y bots que se envían mensajes",
+      "pt": "Sobre mim e bots que trocam mensagens"
+    },
     "0.1.36": {
       "zh": "技能库，把做成的事存成技能",
       "en": "Skill library and saving work as skills",

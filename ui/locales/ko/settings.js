@@ -1,6 +1,8 @@
 export default {
   "tabs": {
     "general": "일반",
+    "aboutMe": "내 정보",
+    "collab": "봇 협업",
     "appearance": "화면 설정",
     "modelflare": "모델",
     "computer": "컴퓨터 사용",

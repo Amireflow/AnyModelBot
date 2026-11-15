@@ -6,6 +6,10 @@ export default {
     "h3": "Y hay más.",
     "items": [
       {
+        "title": "Bots que se envían mensajes",
+        "body": "Di «pásale esto a B»: B trabaja en segundo plano con su propio modelo y presupuesto, y el primer bot revisa el resultado antes de avisarte. Cuenta algo sobre ti una vez y todos tus bots lo sabrán."
+      },
+      {
         "title": "Programa con una frase",
         "body": "Gestiona las reglas de todos los bots en Programado: deshacer, horarios mensuales y recuperación de hasta doce horas. El ordenador y la aplicación deben estar encendidos."
       },

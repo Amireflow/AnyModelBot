@@ -65,6 +65,7 @@ import { UserSkills } from "./skills/service.js";
 import { SkillInstalls } from "./skills/installs.js";
 import { SkillDrafts } from "./skills/drafts.js";
 import { skillState } from "./skills/display.js";
+import { CollabService } from "./collab/service.js";
 import { TaskService } from "./tasks/service.js";
 import { RuleEvents } from "./tasks/rule-events.js";
 import { lockDataDir, type DataDirLock } from "./store/lock.js";
@@ -201,6 +202,8 @@ export class App {
   readonly access: AccessControl;
   /** 后台任务：自己的会话和文件夹，结果经出站队列回到请求它的会话；规则（3d）也由它跑（定时器是 tasks.scheduler） */
   readonly tasks: TaskService;
+  /** 机器人之间发消息（collab/service.ts） */
+  readonly collab: CollabService;
   /** 事件触发的规则的入口：以后用户配置的 workload（事件源）在这里把事件交进来（见 tasks/rule-events.ts） */
   readonly ruleEvents: RuleEvents;
   /** "需要你"：所有机器人里在等人的事（侧栏、托盘角标、系统通知） */
@@ -352,6 +355,7 @@ export class App {
         },
         endpoint: (model) => this.compactEndpoint(model),
       },
+      defaultModel: () => this.config.llm.defaultModel,
       // 后台小任务（管家判定/交接/记忆整理）直接走 magpie，不经代理子进程
       complete: (botId, model, system, user) =>
         this.models.streamChat(
@@ -415,8 +419,31 @@ export class App {
         return c && b && this.store.getBot(botId)?.settings.budget.enabled ? { ...b, at: c.at } : undefined;
       },
       mySkills: this.userSkills.mine,
+      // 别的机器人发来的事：结果交给协作服务（下面建好后接上）
+      handoffs: {
+        canStart: (task, run) => this.collab?.hooks.canStart(task, run) ?? true,
+        started: (task, runId) => this.collab?.hooks.started(task, runId),
+        ended: (task, runId, outcome, report, error, halt) => this.collab?.hooks.ended(task, runId, outcome, report, error, halt),
+        approval: (task, e) => this.collab?.hooks.approval(task, e),
+      },
     });
     this.agent.tasks = this.tasks;
+    this.collab = new CollabService({
+      store: this.store,
+      tasks: this.tasks,
+      signedIn: () => !!this.account?.signedIn,
+      // Modelflare 的模型：经内置网关、不是自己 API Key 接入的官方模型；外部端点（没有内置网关）都不算
+      modelflareModel: (m) => !!this.magpie && !!m && !officialOf(m),
+      defaultModel: () => this.config.llm.defaultModel,
+      workspace: (botId) => path.join(config.dataDir, "workspaces", botId),
+      settings: (botId) => this.agent.settings(botId),
+      slots: (botId) => this.agent.settings(botId).taskSlots,
+      turn: (botId, conv, input, keep) => this.runtime.collabTurn(botId, conv, input, keep),
+      timeZone: () => this.delivery.timeZone,
+      onChange: () => this.attention.kick(),
+    });
+    this.agent.collab = this.collab;
+    this.agent.collabOn = () => !!this.account?.signedIn && this.collab.settings().enabled;
     // 「我的技能」改了：用它的规则按情况暂停；在哪些机器人上打开变了、版本变了的，空闲后换新的代理进程
     this.userSkills.mine.onChange = (e) => {
       try {
@@ -605,7 +632,11 @@ export class App {
           if (!r.ok) throw new Error(r.message);
           this.store.deleteKV("connection.setup");
         },
-        disconnect: () => this.disconnectModelflare(),
+        // 退出登录（或授权在别处被撤销）：机器人之间进行中的事停下，重新登录后不自动继续
+        disconnect: async () => {
+          this.collab?.signedOut();
+          await this.disconnectModelflare();
+        },
         setBotKey: async (botId, key) => {
           if (!this.magpie) throw new Error(t("app.external_mode"));
           const baseUrl = modelflareBaseUrl(this.config.modelflare.line);
@@ -708,6 +739,8 @@ export class App {
   /** 删除机器人时一并删掉它的预算 Key */
   async deleteBot(botId: string, opts: { keepData?: boolean } = {}): Promise<void> {
     const bot = this.store.getBot(botId);
+    // 机器人之间发消息：和它有关的进行中的事停下（被删的是 B 时 A 告诉你），两人对话一起删除
+    this.collab.botDeleted(botId);
     this.tasks.dropBot(botId);
     // 渠道账号是全局的，不跟着机器人停：之后它们的消息交给别的机器人（core/routes.ts）
     await this.agent.stopBot(botId);
@@ -809,6 +842,7 @@ export class App {
     // 后台任务：上次没跑完的记为中断、带着恢复说明接着做（渠道已经上线，结果能发出去）；估算花费用的价格目录先读起来
     if (this.agent.available) {
       this.tasks.start();
+      this.collab.start();
       void this.modelInfo().catch(() => undefined);
     }
     if (!this.opts.noWeb) this.web = await startWebServer(this);
@@ -892,6 +926,7 @@ export class App {
     this.runtime.shutdown();
     // 后台任务不再开始新的 run；跑着的留在库里，下次启动时恢复
     this.tasks.stop();
+    this.collab.stop();
     this.attention.stop();
     this.offPwsh?.();
     this.updates.stop();
