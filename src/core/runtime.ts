@@ -15,7 +15,7 @@ import { promptButtons, promptText, questionsOf } from "../agent/approvals.js";
 import { segmentInput, type ChatPlace } from "../agent/prompts/index.js";
 import { clearInflight, markInflight, takeNotice } from "./recovery.js";
 import { pwshProbe, pwshStatusLine } from "../tools/pwsh/index.js";
-import { isBotProviderModel } from "../providers/modelflare.js";
+import { isBotProviderModel, isGatewayGroupModel } from "../providers/modelflare.js";
 import type { ApprovalRow, Conversation } from "../store/db.js";
 import type { AccessControl } from "./access.js";
 import { takeTaskNotes } from "./task-notes.js";
@@ -258,7 +258,8 @@ export class BotRuntime {
   async listModels(force = false): Promise<string[]> {
     if (!force && this.modelCache && Date.now() - this.modelCache.at < 30_000) return this.modelCache.list;
     // 机器人预算 Key 的 provider 列出同一批模型，只展示共用连接的那份
-    const list = (await this.opts.models.listModels()).filter((m) => !isBotProviderModel(m));
+    // 内置网关自己合成的组（auto/<模型名>）也不列：选了它会把 auto/… 原样发给 Modelflare
+    const list = (await this.opts.models.listModels()).filter((m) => !isBotProviderModel(m) && !isGatewayGroupModel(m));
     this.modelCache = { at: Date.now(), list };
     return list;
   }

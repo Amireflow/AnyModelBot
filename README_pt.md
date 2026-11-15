@@ -56,7 +56,7 @@ Conversas, memória, arquivos e chaves de API ficam no seu dispositivo. Os model
 
 Pronto para usar logo após a instalação: tarefas em segundo plano, regras agendadas e os itens que aguardam o seu OK já vêm integrados.
 
-**0.1.37:** Sobre mim, compartilhado por todos os seus bots para você contar as coisas sobre si uma vez só, e bots que trocam mensagens: diga «passa isso para B» e o resultado volta conferido. [Histórico de alterações](./CHANGELOG_pt.md#0137---2026-11-15)
+**0.1.38:** Corrige os modelos «auto/…» que apareciam na lista e faziam as requisições falharem. A 0.1.37 trouxe o Sobre mim, compartilhado por todos os seus bots, e bots que trocam mensagens. [Histórico de alterações](./CHANGELOG_pt.md#0138---2026-11-15)
 
 📥 [Baixar](#-baixar-e-executar) · 🌠 [Capturas de tela](#-capturas-de-tela) · 🌟 [Recursos](#-principais-recursos) · 🆚 [Comparação](#-anymodelbot-vs-grok-bot-openai-dots-e-claude-duet) · 🔐 [Privacidade](#-como-funciona-e-privacidade)
 

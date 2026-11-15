@@ -49,6 +49,15 @@ export const RELEASE = {
   days: 30,
   /** 各版本的一句话亮点（可选），没有就显示"AnyModelBot {version} 已发布" */
   highlights: {
+    "0.1.38": {
+      "zh": "修复模型列表里的「auto/…」模型",
+      "en": "Fixes \"auto/…\" models in the model list",
+      "ja": "モデル一覧の「auto/…」を修正",
+      "ko": "모델 목록의 \"auto/…\" 모델 수정",
+      "ru": "Исправлены модели «auto/…» в списке",
+      "es": "Corrige los modelos «auto/…» de la lista",
+      "pt": "Corrige os modelos «auto/…» da lista"
+    },
     "0.1.37": {
       "zh": "关于我，和机器人之间发消息",
       "en": "About me and bots that message each other",

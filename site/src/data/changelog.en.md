@@ -4,6 +4,16 @@
 
 This covers changes you'll notice in the app. For older versions, see the [GitHub releases](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.38 - 2026-11-15
+
+### New
+
+- **Switches back to the real model:** a model you picked earlier that was really "auto/…" (the global default, a bot's default or a model switched in a chat) changes to the matching real model at startup, or back to the default if there is none.
+
+### Improvements and fixes
+
+- **No more "auto/…" models in the model list:** when a model was offered by more than one source (for example a bot with its own budget, or an official API key added alongside Modelflare), the list gained an entry that looked like the original but was really "auto/model-name", and picking it made requests fail with an unknown model. It is no longer listed or sent.
+
 ## 0.1.37 - 2026-11-15
 
 ### New

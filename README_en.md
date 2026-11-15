@@ -56,7 +56,7 @@ Conversations, memory, files, and API keys stay on your device. Models can come 
 
 Ready to use after install: background tasks, scheduled rules, and items waiting for your OK are built in.
 
-**0.1.37:** About me, shared by all your bots so you say things about yourself once, and bots that message each other: say "hand this to B" and the result comes back checked. [Changelog](./CHANGELOG_en.md#0137---2026-11-15)
+**0.1.38:** Fixes "auto/…" models that showed up in the model list and made requests fail. 0.1.37 brought About me, shared by all your bots, and bots that message each other. [Changelog](./CHANGELOG_en.md#0138---2026-11-15)
 
 📥 [Download](#-download-and-run) · 🌠 [Screenshots](#-screenshots) · 🌟 [Features](#-key-features) · 🆚 [Compare](#-anymodelbot-vs-grok-bot-openai-dots-and-claude-duet) · 🔐 [Privacy](#-how-it-works--privacy)
 

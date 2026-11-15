@@ -933,6 +933,10 @@ export class Store {
     const rows = (botId ? this.db.prepare(sql).all(botId) : this.db.prepare(sql).all()) as Row[];
     return rows.map((r) => ({ ...this.toConv(r), messageCount: Number(r.n), lastMessage: r.last == null ? "" : String(r.last).slice(0, 120) }));
   }
+  /** 选了内置网关合成的组（auto/<模型名>、group/…）的会话：启动时换回真实的模型 id */
+  conversationsOnGroupModels(): Array<{ id: string; model: string }> {
+    return (this.db.prepare("SELECT id, model FROM conversations WHERE model LIKE 'auto/%' OR model LIKE 'group/%'").all() as Row[]).map((r) => ({ id: String(r.id), model: String(r.model) }));
+  }
   setConversationModel(id: string, model: string): void {
     this.db.prepare("UPDATE conversations SET model = ?, updated_at = ? WHERE id = ?").run(model, Date.now(), id);
   }

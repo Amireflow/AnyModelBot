@@ -39,6 +39,8 @@ import {
   MODELFLARE_PROVIDER,
   bareModel,
   botProviderId,
+  isGatewayGroupModel,
+  resolveGroupModel,
   modelflareBaseUrl,
   modelflareIssuer,
   routeModel,
@@ -558,6 +560,12 @@ export class App {
    */
   routeModel(botId: string, model: string): string {
     if (!this.magpie) return model;
+    // 以前选进来的内置网关合成组（auto/<模型名>）：换回真实的模型 id 再发，不把 auto/… 发给上游
+    if (isGatewayGroupModel(model)) {
+      const real = resolveGroupModel(model, this.gatewayModels());
+      if (real) model = real;
+      else log.warn("a gateway group model has no matching model; sending it unchanged", { model });
+    }
     if (officialOf(model)) return model.trim();
     const name = bareModel(model.trim());
     const own = botProviderId(botId);
@@ -565,6 +573,55 @@ export class App {
     if (shared) return routeModel(name, shared);
     const other = this.magpie.officialProviderIds().find((id) => this.magpie!.modelPicks(id).includes(name));
     return other ? `${other}/${name}` : routeModel(model, MODELFLARE_PROVIDER);
+  }
+
+  /** 内置网关里真实可用的对话模型（Modelflare 的和官方 API 的，同步读 providers.json）：把 auto/<模型名> 换回真实 id 用 */
+  private gatewayModels(): string[] {
+    const m = this.magpie;
+    if (!m) return [];
+    const shared = m.modelflareProviderId;
+    return [...(shared ? m.modelPicks(shared) : []), ...m.officialProviderIds().flatMap((id) => m.modelPicks(id).map((x) => `${id}/${x}`))];
+  }
+
+  /**
+   * 以前选进来的内置网关合成组（auto/<模型名>）：全局默认、机器人的默认模型和后台小任务模型、会话里的模型、进行中的任务，
+   * 换回模型列表里对应的真实 id（找不到就清空，改回跟随默认）。启动时和每小时同步模型时做；没有就什么都不改。
+   */
+  private async fixGroupModels(): Promise<void> {
+    const store = this.store;
+    const stored = [
+      this.config.llm.defaultModel,
+      ...store.listBots().flatMap((b) => [b.defaultModel, b.settings.utilityModel]),
+      ...store.conversationsOnGroupModels().map((c) => c.model),
+      ...store.listTasks({ open: true, limit: 500 }).map((t) => t.model),
+    ];
+    if (!stored.some((x) => x && isGatewayGroupModel(x))) return;
+    const list = await this.runtime.listModels(true).catch(() => [] as string[]);
+    if (!list.length) return;
+    const fix = (m: string) => (m && isGatewayGroupModel(m) ? resolveGroupModel(m, list) : m);
+    const changed: string[] = [];
+    if (isGatewayGroupModel(this.config.llm.defaultModel)) {
+      changed.push(this.config.llm.defaultModel);
+      this.setDefaultModel(fix(this.config.llm.defaultModel));
+    }
+    for (const b of store.listBots()) {
+      const dm = fix(b.defaultModel);
+      const um = fix(b.settings.utilityModel);
+      if (dm === b.defaultModel && um === b.settings.utilityModel) continue;
+      changed.push(b.defaultModel, b.settings.utilityModel);
+      store.updateBot(b.id, { defaultModel: dm, settings: { ...b.settings, utilityModel: um } });
+    }
+    for (const c of store.conversationsOnGroupModels()) {
+      changed.push(c.model);
+      store.setConversationModel(c.id, fix(c.model));
+    }
+    for (const t of store.listTasks({ open: true, limit: 500 })) {
+      if (!isGatewayGroupModel(t.model)) continue;
+      changed.push(t.model);
+      store.updateTask(t.id, { model: fix(t.model) });
+    }
+    const n = changed.filter((x) => x && isGatewayGroupModel(x)).length;
+    if (n) log.info("replaced gateway group models with real model ids", { count: n, models: [...new Set(changed.filter((x) => x && isGatewayGroupModel(x)))] });
   }
 
   /**
@@ -848,8 +905,8 @@ export class App {
     if (!this.opts.noWeb) this.web = await startWebServer(this);
     if (this.magpie) {
       // 启动时和之后每小时核对一次启用的模型（新上架的加入，下架的移出）
-      void this.syncModelPicks();
-      this.picksTimer = setInterval(() => void this.syncModelPicks(), 3600_000);
+      void this.syncModelPicks().then(() => this.fixGroupModels()).catch((e) => log.warn("fixing gateway group models failed", { message: (e as Error).message }));
+      this.picksTimer = setInterval(() => void this.syncModelPicks().then(() => this.fixGroupModels()).catch(() => undefined), 3600_000);
       this.picksTimer.unref();
     }
     // Windows：选代理用的 PowerShell（系统里能用的 7 → 应用内置的 → 5.1），没有 7 时在后台自动装内置的；
