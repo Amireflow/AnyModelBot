@@ -1,25 +1,25 @@
 {
-  "version": "0.1.37",
+  "version": "0.1.38",
   "publishedAt": "2026-11-15",
   "platforms": {
     "win-x64": {
-      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.37/anymodel-bot-0.1.37-win-x64.exe",
-      "sha256": "53ecc393ff5070c119885391a6550619f5f02df2e165f769451a7edc16193279",
+      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.38/anymodel-bot-0.1.38-win-x64.exe",
+      "sha256": "f28775023f98fb46c735a6e1528bf585a2b01a79e4273abe322b8235e0169f7b",
       "sizeMB": 187.7
     },
     "mac-arm64": {
-      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.37/anymodel-bot-0.1.37-mac-arm64.dmg",
-      "sha256": "cfcf52a79a41a2679952e588ed4548c58551e215c318143047d61e3d4b0c7bca",
+      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.38/anymodel-bot-0.1.38-mac-arm64.dmg",
+      "sha256": "7fe426ce85c6d46b6698a0bdc2ad2ab442c39edca4f0d1a09c4ffe8aba5d92d1",
       "sizeMB": 217.8
     },
     "mac-x64": {
-      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.37/anymodel-bot-0.1.37-mac-x64.dmg",
-      "sha256": "05239b23a7bd6d1f9221b4b74abcf3d3b3d234a1f00952591be5bfea362af3e9",
+      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.38/anymodel-bot-0.1.38-mac-x64.dmg",
+      "sha256": "5178d42d374ee50b37cea6bb4c07e8a48edbf2ec9a06d0ac48c65e0ca80c22bd",
       "sizeMB": 225.8
     },
     "linux-x64": {
-      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.37/anymodel-bot-0.1.37-linux-x86_64.AppImage",
-      "sha256": "b792efa15b4141fe1ef140e76960df2cf3b92fd9d0cb9a94eb46310f5bc608d8",
+      "url": "https://github.com/modelflare-ai/AnyModelBot/releases/download/v0.1.38/anymodel-bot-0.1.38-linux-x86_64.AppImage",
+      "sha256": "4b66601aee1484900770ca3557af04fe46a74d10a64ad41ad3b6f05d5d2ba6fa",
       "sizeMB": 203.3
     },
     "docker": {
