@@ -389,13 +389,13 @@ export function Popover({ anchor, trigger, onClose, class: cls = "", width = 280
 }
 
 /**
- * 菜单：items = [{ label, icon, note, onSelect, danger, disabled, cur, sub, title }] | { sep: true } | { group: "…" }。title：悬停提示（置灰时说明原因）
- * sub：点了打开下一层（右边一个箭头，代替勾）。
+ * 菜单：items = [{ label, icon, note, onSelect, danger, disabled, cur, sub, title, kbd }] | { sep: true } | { group: "…" } | { custom: 节点 }。title：悬停提示（置灰时说明原因）
+ * sub：点了打开下一层（右边一个箭头，代替勾）。custom：自己画的一行（缩放条、搜索框），不参与键盘选择，点里面不收起菜单。
  * 键盘：↑↓ 选择，Enter 执行，Esc 关闭。
  */
 export function Menu({ anchor, items, onClose, width = 240, prefer, align, label, class: cls = "" }) {
   const hasIcons = items.some((it) => it.icon);
-  const pickable = items.map((it, i) => (it.sep || it.group || it.disabled ? -1 : i)).filter((i) => i >= 0);
+  const pickable = items.map((it, i) => (it.sep || it.group || it.custom || it.disabled ? -1 : i)).filter((i) => i >= 0);
   // 打开时指着当前项（有勾的那项），没有就指第一项；列表长时把它滚到看得见的地方
   const [sel, setSel] = useState(() => pickable.find((i) => items[i].cur) ?? pickable[0] ?? -1);
   const listRef = useRef(null);
@@ -405,6 +405,7 @@ export function Menu({ anchor, items, onClose, width = 240, prefer, align, label
     it.onSelect?.();
   };
   const onKey = (e) => {
+    if (e.target.closest?.("li.custom")) return;
     const k = pickable.indexOf(sel);
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -425,6 +426,8 @@ export function Menu({ anchor, items, onClose, width = 240, prefer, align, label
           ? html`<li class="sep" role="separator"></li>`
           : it.group
             ? html`<li class="group">${it.group}</li>`
+            : it.custom
+              ? html`<li class="custom" role="none">${it.custom}</li>`
             : html`<li role="menuitem" aria-disabled=${!!it.disabled} title=${it.title}
                 class=${[sel === i ? "sel" : "", it.danger ? "danger" : "", it.disabled ? "disabled" : "", it.cur ? "cur" : "", it.note ? "rich" : ""].join(" ")}
                 onPointerMove=${() => !it.disabled && setSel(i)} onClick=${() => !it.disabled && run(it)}>
@@ -528,6 +531,9 @@ export const Badge = ({ s }) => {
   return html`<span class=${`badge ${known ? STATE_KIND[s] : ""}`}>${known ? t(`ui.state.${s}`) : s}</span>`;
 };
 
+/** 开着的对话框，后开的在最后：叠着几个时（「用起来」上面开着连接应用）只有最上面那个管 Esc 和 Tab */
+const openSheets = [];
+
 /** 自绘确认框：焦点先在"取消"（安全选项），Esc 关闭，Tab 在框内循环 */
 /** sticky：点遮罩不关（扫码、填表进行到一半时，误点不该把流程丢掉）；Esc 和关闭钮照常 */
 export function Sheet({ title, onClose, children, wide, label, leaving, closable = true, sticky = false, framed = false, footer, class: cls = "" }) {
@@ -535,9 +541,12 @@ export function Sheet({ title, onClose, children, wide, label, leaving, closable
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const prev = document.activeElement;
+    const me = {};
+    openSheets.push(me);
     requestAnimationFrame(() => (ref.current?.querySelector("[data-autofocus]") || ref.current?.querySelector("input, textarea") || ref.current?.querySelector("button"))?.focus());
     const key = (e) => {
       if (e.isComposing || e.keyCode === 229) return;
+      if (openSheets.at(-1) !== me) return;
       if (e.key === "Escape") {
         // 对话框里开着下拉时，Esc 先关下拉（useDismiss）
         if (document.querySelector(".pop")) return;
@@ -559,6 +568,7 @@ export function Sheet({ title, onClose, children, wide, label, leaving, closable
     };
     document.addEventListener("keydown", key, true);
     return () => {
+      openSheets.splice(openSheets.indexOf(me), 1);
       document.removeEventListener("keydown", key, true);
       prev?.focus?.({ preventScroll: true });
     };

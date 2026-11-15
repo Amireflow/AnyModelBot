@@ -4,6 +4,19 @@
 
 Aquí se recogen los cambios que notarás en la app. Para versiones anteriores, consulta las [versiones publicadas en GitHub](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.40 - 2026-11-15
+
+### Novedades
+
+- **Biblioteca de tareas:** la página Programado añade 20 tareas listas para noticias, trabajo, aprendizaje, vida diaria y finanzas. Elige una, completa los campos, selecciona el bot y el destino y actívala; también puedes pedirlo en el chat. Las revisiones se pueden probar antes: el resultado solo aparece en el diálogo de prueba y el registro, sin enviarse a los canales de chat. El ordenador y la app deben estar encendidos.
+- **Vista previa de archivos:** el código incorpora números de línea, resaltado y ajuste de líneas; JSON permite formatear y plegar; CSV / TSV ofrece tablas, ordenación, búsqueda y selección de codificación. Markdown admite imágenes, listas de tareas, índice y texto fuente; las imágenes permiten ampliar y desplazar, y HTML alterna entre vista previa y código.
+
+### Mejoras y correcciones
+
+- **Controles y actualización de la vista previa:** las pestañas tienen iconos de tipo de archivo y menú contextual; «+» muestra los archivos entregados en la conversación. Puedes ampliar el panel a toda la ventana y conservar la vista, el zoom y el ajuste de líneas. La vista se actualiza al cambiar el archivo. En escritorio puedes guardar como, mostrar en la carpeta y abrir HTML en el navegador.
+- **Horarios y resultados:** se añaden recordatorios anuales y avisos unos días antes de fechas mensuales o anuales. Las revisiones de la biblioteca pueden enviar resúmenes de varias líneas, el costo de las pruebas cuenta en el mes y los horarios cron habituales se muestran de forma más clara.
+- **Web:** el menú de comunidad se abre al pasar el cursor o enfocarlo con el teclado. Se simplifica la sección de funciones de inicio y el historial solo muestra versiones publicadas.
+
 ## 0.1.39 - 2026-11-15
 
 ### Novedades

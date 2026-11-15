@@ -181,6 +181,30 @@ button.act-head:active { background: var(--pill-hover); }
 .md h1, .md h2, .md h3, .md h4 { margin: var(--space-5) 0 var(--space-2); font-size: var(--fs-xl); font-weight: var(--fw-semibold); line-height: var(--lh-normal); }
 .md h1 { font-size: var(--fs-2xl); letter-spacing: var(--tracking-tight); line-height: var(--lh-tight); }
 .md h4 { font-size: var(--fs-lg); }
+.md h5, .md h6 { margin: var(--space-4) 0 var(--space-2); font-size: var(--fs-md); font-weight: var(--fw-semibold); line-height: var(--lh-normal); }
+.md h6 { color: var(--fg-2); }
+/* 任务列表：只读的勾选框，落在列表符号的位置上 */
+.md li.task { list-style: none; }
+.md li.task > input { margin: 0 var(--space-2) 0 calc(-1 * var(--space-5)); vertical-align: -2px; accent-color: var(--accent); }   /* 微调：勾选框和文字基线对齐 */
+/* Markdown 图片（PRD R7、R8）：对话里最宽 360、最高 320，预览里不超过正文宽度；等比缩小不裁切。加载中是一块浅灰，失败是虚线占位 */
+.md .md-img { position: relative; display: block; width: fit-content; max-width: 100%; margin: var(--space-2) 0; border-radius: var(--r-card); overflow: hidden; cursor: zoom-in; }
+.md .md-img img { display: block; width: auto; height: auto; max-width: min(100%, 360px); max-height: 320px; }
+.md .md-img.doc img { max-width: 100%; max-height: none; }
+.md a .md-img, .md .md-img:is(span) { cursor: inherit; }
+.md .md-img.loading { width: min(100%, 360px); height: 120px; background: var(--well); }
+.md .md-img.doc.loading { width: 100%; height: 160px; }
+.md .md-img.loading img { position: absolute; inset: 0; opacity: 0; }
+.md-img-fail {
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-1); width: min(100%, 360px); margin: var(--space-2) 0; padding: var(--space-4) var(--space-3);
+  border: 1px dashed var(--line-2); border-radius: var(--r-card); color: var(--muted); font-size: var(--fs-sm); line-height: var(--lh-normal); text-align: center;   /* 描边：图片没加载出来时的占位，虚线表示"这里本该有一张图" */
+}
+.md-img-fail.doc { width: 100%; }
+.md-img-fail .ic { color: var(--faint); }
+.md-img-alt { color: var(--fg-2); font-weight: var(--fw-medium); overflow-wrap: anywhere; }
+.md-img-src { display: inline-flex; align-items: baseline; gap: var(--space-1); max-width: 100%; font-size: var(--fs-xs); }
+.md-img-src .v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.md-img-fail .link { color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.md-img-fail .link:hover { color: var(--fg); }
 .md ul, .md ol { padding-left: var(--space-6); }
 .md li + li { margin-top: var(--space-1); }
 .md blockquote { padding-left: var(--space-3); border-left: 3px solid var(--line); color: var(--fg-2); }   /* 描边：引文的排版记号（灰色、不圈住内容），不是提示框的色条 */

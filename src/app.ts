@@ -91,6 +91,13 @@ export interface DesktopHooks {
   openPath?(p: string): void;
   /** 在系统的文件管理器里显示一个文件（选中它） */
   showItemInFolder?(p: string): void;
+  /**
+   * 右侧预览的「另存为…」：弹出系统保存对话框（默认原文件名，默认位置是上次另存的文件夹，第一次是「下载」），
+   * 把磁盘上的原文件复制过去。取消返回 { canceled: true }；复制失败抛错
+   */
+  saveFileAs?(src: string, name: string): Promise<{ canceled: true } | { canceled?: false; path: string; folder: string }>;
+  /** 右侧预览 HTML 的「在浏览器中打开」：用系统默认浏览器打开本机网页（.html 的默认程序可能是编辑器） */
+  openFileInBrowser?(p: string): Promise<void>;
   openInBrowser(): void;
   /** 在系统浏览器里打开外部链接（Modelflare 登录、充值） */
   openExternal(url: string): void;
@@ -421,6 +428,12 @@ export class App {
         return c && b && this.store.getBot(botId)?.settings.budget.enabled ? { ...b, at: c.at } : undefined;
       },
       mySkills: this.userSkills.mine,
+      // 任务库：必需的应用连没连（没账号 = 没连；要用户处理凭证 = 要重新授权；其余算连着）
+      appState: (id) => {
+        const v = this.apps.view().apps.find((a) => a.key === id);
+        if (!v?.accounts.length) return "none";
+        return v.connected ? "connected" : (["needs-login", "key-rejected", "link-invalid", "expired"] as string[]).includes(v.state) ? "reauth" : "connected";
+      },
       // 别的机器人发来的事：结果交给协作服务（下面建好后接上）
       handoffs: {
         canStart: (task, run) => this.collab?.hooks.canStart(task, run) ?? true,

@@ -345,7 +345,8 @@ export interface TaskRow {
 }
 export type RunState = "queued" | "running" | "settling" | "ended";
 export type RunOutcome = "" | "done" | "needs_you" | "failed" | "budget" | "stopped" | "interrupted" | "skipped";
-export type RunCause = "launch" | "answer" | "followup" | "retry" | "continue" | "recover" | "schedule" | "catchup" | "manual" | "event";
+/** trial：任务库「先试一次」（规则关着时只读跑一次，结果不发到任何会话） */
+export type RunCause = "launch" | "answer" | "followup" | "retry" | "continue" | "recover" | "schedule" | "catchup" | "manual" | "event" | "trial";
 /** 一段工作（一次启动、回答、追加、重试、恢复）：占着名额直到结束 */
 export interface RunRow {
   id: string;
@@ -438,6 +439,10 @@ export interface RuleRow {
   undoneUntil?: number;
   /** 用「我的技能」做（skills/mine.ts）：技能名、建规则时的标题、已经回答过的「运行时再问」占位 */
   skill?: { name: string; title: string; asks: string[] };
+  /** 检查的结果样式：line 一句话（默认）；brief 简报（多行、列表和链接，最多 1500 字；只有任务库的任务用） */
+  resultStyle?: "line" | "brief";
+  /** 从任务库建的：任务 id、任务的 version、用起来时填的参数（判断重复、「已在用」计数） */
+  source?: { id: string; version: number; params: Record<string, unknown> };
 }
 
 type Row = Record<string, unknown>;
@@ -505,6 +510,7 @@ const RUN_COLS: Record<string, string> = {
 const INPUT_COLS: Record<string, string> = { runId: "run_id", messageId: "message_id", deliveredAt: "delivered_at", takenAt: "taken_at" };
 const RULE_COLS: Record<string, string> = {
   missedPolicy: "missed_policy", sourceGroupId: "source_group_id", requiresGroup: "requires_group", revision: "revision", undoneUntil: "undone_until", skill: "skill",
+  resultStyle: "result_style", source: "source",
   conversationId: "conversation_id",
   title: "title",
   instruction: "instruction",
@@ -676,6 +682,9 @@ const COLUMNS: Array<[string, string, string]> = [
   ["rules", "undone_until", "INTEGER NOT NULL DEFAULT 0"],
   // 「让它做件事」用「我的技能」（JSON：技能名、标题、回答过的占位）；空 = 不用
   ["rules", "skill", "TEXT NOT NULL DEFAULT ''"],
+  // 任务库（2026-11-15）：结果样式（line / brief）、来源（JSON：任务 id、version、参数）；空 = 手建的
+  ["rules", "result_style", "TEXT NOT NULL DEFAULT 'line'"],
+  ["rules", "source", "TEXT NOT NULL DEFAULT ''"],
   ["messages", "rule_source", "TEXT NOT NULL DEFAULT ''"],
   ["messages", "permission_wait", "INTEGER NOT NULL DEFAULT 0"],
   ["messages", "error_context", "TEXT NOT NULL DEFAULT ''"],
@@ -1077,6 +1086,21 @@ export class Store {
         AND json_valid(m.files) AND json_array_length(m.files) > 0) AS delivered
       FROM conversations c`).all() as Row[];
     return rows.map((r) => ({ botId: String(r.bot_id), successfulReply: !!r.replied, deliveredFile: !!r.delivered }));
+  }
+  /** 这些会话里交付过的文件和最近一次交付的时间（新→旧，按路径去重）：右侧预览的「+」菜单和空状态 */
+  deliveredFileTimes(conversationIds: string[]): Array<{ conversationId: string; path: string; at: number }> {
+    const out = new Map<string, { conversationId: string; path: string; at: number }>();
+    const q = this.db.prepare("SELECT files, created_at FROM messages WHERE conversation_id = ? AND files != '' ORDER BY id DESC");
+    for (const conversationId of conversationIds) {
+      for (const r of q.all(conversationId) as Row[]) {
+        for (const p of strings(r.files)) {
+          const at = Number(r.created_at) || 0;
+          const had = out.get(p);
+          if (!had || had.at < at) out.set(p, { conversationId, path: p, at });
+        }
+      }
+    }
+    return [...out.values()].sort((a, b) => b.at - a.at);
   }
   /** 这个会话里交付过的文件（真实路径，旧→新，去重） */
   deliveredFiles(conversationId: string): string[] {
@@ -1754,6 +1778,8 @@ export class Store {
       sourceGroupId: String(r.source_group_id ?? ""), requiresGroup: Number(r.requires_group) === 1,
       revision: Number(r.revision ?? 1), undoneUntil: Number(r.undone_until ?? 0),
       ...(parseJson<RuleRow["skill"]>(r.skill)?.name ? { skill: parseJson<RuleRow["skill"]>(r.skill) } : {}),
+      resultStyle: r.result_style === "brief" ? "brief" : "line",
+      ...(parseJson<RuleRow["source"]>(r.source)?.id ? { source: parseJson<RuleRow["source"]>(r.source) } : {}),
       id: String(r.id),
       botId: String(r.bot_id),
       conversationId: String(r.conversation_id),
@@ -1784,7 +1810,7 @@ export class Store {
          VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(r.id, r.botId, r.conversationId, r.title, r.instruction, r.message, r.kind, JSON.stringify(r.trigger), r.mode, r.folder, r.version ?? 1, r.nextRunAt, r.anytime ? 1 : 0, r.createdAt, r.updatedAt, r.runBudgetUsd ?? 0.1, r.monthBudgetUsd ?? 3);
-    this.updateRule(r.id, { missedPolicy: r.missedPolicy ?? "catchup", sourceGroupId: r.sourceGroupId ?? "", requiresGroup: !!r.requiresGroup, revision: r.revision ?? 1, undoneUntil: r.undoneUntil ?? 0, ...(r.skill ? { skill: r.skill } : {}) });
+    this.updateRule(r.id, { missedPolicy: r.missedPolicy ?? "catchup", sourceGroupId: r.sourceGroupId ?? "", requiresGroup: !!r.requiresGroup, revision: r.revision ?? 1, undoneUntil: r.undoneUntil ?? 0, ...(r.skill ? { skill: r.skill } : {}), resultStyle: r.resultStyle ?? "line", ...(r.source ? { source: r.source } : {}) });
     return this.getRule(r.id)!;
   }
   /** 规则从 since 起（按该跑的时间）花了多少：本月的花费 */

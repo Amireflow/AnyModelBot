@@ -104,9 +104,9 @@ function switchLanguage(e: MouseEvent) {
 document.addEventListener("click", switchLanguage);
 document.addEventListener("auxclick", (event) => { if (event.button === 1) switchLanguage(event); });
 
-// —— 菜单（下载平台、主题） ——
+// —— 菜单（下载平台、主题；社群是悬停展开，见下） ——
 function closeMenus(except?: Element) {
-  $$("[data-menu-toggle][aria-expanded='true']").forEach((b) => {
+  $$("[data-menu-toggle][aria-expanded='true'], [data-menu-hover][aria-expanded='true']").forEach((b) => {
     if (b === except) return;
     b.setAttribute("aria-expanded", "false");
     const m = b.parentElement?.querySelector<HTMLElement>(".menu"); if (m) m.hidden = true;
@@ -124,13 +124,31 @@ document.addEventListener("click", (e) => {
     if (open) (m.querySelector<HTMLElement>('[aria-checked="true"]') ?? m.querySelector<HTMLElement>("a,button"))?.focus();
     return;
   }
+  // 社群靠悬停开关。点文字或菜单里的复制按钮都不要收起。
+  if (t.closest(".nav__menu--hover")) return;
   if (!t.closest(".menu")) closeMenus();
   else if (t.closest(".menu a, .menu button")) setTimeout(() => closeMenus(), 0);
 });
+let skipHoverOpen = false;
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    const open = document.querySelector<HTMLElement>("[data-menu-toggle][aria-expanded='true']");
-    if (open) { closeMenus(); open.focus(); }
+    const open = document.querySelector<HTMLElement>("[data-menu-toggle][aria-expanded='true'], [data-menu-hover][aria-expanded='true']");
+    if (open) {
+      // 社群菜单收回后焦点回到文字上。focus 会同步触发 focusin，这一下不要又展开。
+      if (open.hasAttribute("data-menu-hover")) skipHoverOpen = true;
+      closeMenus();
+      open.focus();
+      skipHoverOpen = false;
+    }
+  }
+  const hoverBtn = (e.target as Element).closest?.<HTMLElement>("[data-menu-hover]");
+  if (hoverBtn && e.key === "ArrowDown") {
+    e.preventDefault();
+    const m = hoverBtn.parentElement!.querySelector<HTMLElement>(".menu")!;
+    closeMenus(hoverBtn);
+    hoverBtn.setAttribute("aria-expanded", "true"); m.hidden = false;
+    m.querySelector<HTMLElement>("a,button")?.focus();
+    return;
   }
   const menu = (e.target as Element).closest?.(".menu");
   if (menu && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
@@ -138,6 +156,21 @@ document.addEventListener("keydown", (e) => {
     const items = $$("a,button", menu), i = items.indexOf(e.target as HTMLElement);
     items[(i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
   }
+});
+
+// 社群：写成文字，指上去就展开，不用点。离开整块（含菜单）稍等再收，斜着移进去不会闪掉；键盘聚焦同样展开。
+$$("[data-menu-hover]").forEach((b) => {
+  const wrap = b.parentElement!;
+  const m = wrap.querySelector<HTMLElement>(".menu")!;
+  let timer = 0;
+  const show = () => { window.clearTimeout(timer); closeMenus(b); b.setAttribute("aria-expanded", "true"); m.hidden = false; };
+  const hide = () => { b.setAttribute("aria-expanded", "false"); m.hidden = true; };
+  // 键盘正在菜单里时不收。焦点只在文字按钮上时，鼠标离开仍然收起。
+  const hideSoon = () => { window.clearTimeout(timer); timer = window.setTimeout(() => { if (!m.contains(document.activeElement)) hide(); }, 150); };
+  wrap.addEventListener("pointerenter", show);
+  wrap.addEventListener("pointerleave", hideSoon);
+  wrap.addEventListener("focusin", () => { if (skipHoverOpen) return; show(); });
+  wrap.addEventListener("focusout", (e) => { if (!wrap.contains((e as FocusEvent).relatedTarget as Node | null)) hideSoon(); });
 });
 
 // —— 对话框 / 抽屉（原生 <dialog>：焦点陷阱与 Esc 自带） ——

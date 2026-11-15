@@ -55,7 +55,9 @@
   .cm-qr__copy:hover, .cm-qr__copy:focus-visible { color: var(--text); background: var(--hover); }
   .cm-qr__copy[data-state="copied"] { color: var(--ok); }
 
-  /* 导航的社群菜单：沿用 .nav .menu 的行；左边品牌标志（指到上色），右边群号或外链箭头；中文站底下再接一块二维码 */
+  /* 导航的社群菜单：沿用 .nav .menu 的行；左边品牌标志（指到上色），右边群号或外链箭头；中文站底下再接一块二维码。
+     按钮和菜单之间空 6px，用一条看不见的桥接上，鼠标斜着移进去不会断。桥比菜单稍宽，对齐按钮右边。 */
+  .nav__menu--hover::before { content: ""; position: absolute; z-index: 1; right: 0; top: 100%; width: 280px; height: 10px; }
   .nav .menu.cm-menu { min-width: 248px; }
   .cm-menu a .menu__ico { transition: color var(--dur-fast); }
   .cm-menu a:is(:hover, :focus-visible) .menu__ico { color: var(--brand); }

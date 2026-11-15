@@ -59,7 +59,7 @@ Conversas, memória, arquivos e chaves de API ficam no seu dispositivo. Os model
 
 Pronto para usar logo após a instalação: tarefas em segundo plano, regras agendadas e os itens que aguardam o seu OK já vêm integrados.
 
-**0.1.39:** Conversas novas começam na hora, sem travar em «Pensando»; a área da conta mostra seu nome e sua foto; o processo mostra qual ferramenta foi usada; e os botões da lista de habilidades e das configurações ficaram mais fáceis de ver. [Histórico de alterações](./CHANGELOG_pt.md#0139---2026-11-15)
+**0.1.40:** 20 tarefas prontas para testar antes de ativar; prévia com destaque de código, recolhimento de JSON, tabelas CSV, zoom de imagens e atualização quando os arquivos mudam; lembretes anuais e antecipados. [Registro de alterações](./CHANGELOG_pt.md#0140---2026-11-15)
 
 📥 [Baixar](#-baixar-e-executar) · 🌠 [Capturas de tela](#-capturas-de-tela) · 🌟 [Recursos](#-principais-recursos) · 🆚 [Comparação](#-anymodelbot-vs-grok-bot-openai-dots-e-claude-duet) · 🔐 [Privacidade](#-como-funciona-e-privacidade)
 

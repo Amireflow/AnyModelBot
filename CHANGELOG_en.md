@@ -4,6 +4,19 @@
 
 This covers changes you'll notice in the app. For older versions, see the [GitHub releases](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.40 - 2026-11-15
+
+### New
+
+- **Task library:** the Scheduled page adds 20 ready-made tasks for news, work, learning, daily life and finance. Pick one, fill in a few fields, choose a bot and destination, then turn it on; you can also ask a bot to create a library rule in chat. Check tasks can be tried once first, with results shown only in the trial dialog and run log, without sending them to chat channels. The computer and app must be running.
+- **Richer file previews:** code gains line numbers, syntax highlighting and wrapping; JSON supports formatting and folding; CSV/TSV supports tables, sorting, search and encoding selection. Markdown supports images, task lists, an outline and source view; images support zoom and pan; HTML switches between preview and source.
+
+### Improvements and fixes
+
+- **Preview controls and refresh:** tabs have file-type icons and context menus, and "+" lists files delivered in the chat. Expand the panel to fill the app, keep view, zoom and wrapping preferences, and refresh when files change. Desktop supports Save as, Show in folder and opening HTML in a browser.
+- **Rule schedules and results:** add yearly reminders and reminders a few days before monthly or yearly dates. Library checks can send multi-line briefs, trial costs count toward monthly usage, and common cron schedules are easier to read.
+- **Website:** the community text menu opens on hover or keyboard focus, the home feature section is simpler, and the changelog shows only published versions.
+
 ## 0.1.39 - 2026-11-15
 
 ### New

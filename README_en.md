@@ -59,7 +59,7 @@ Conversations, memory, files, and API keys stay on your device. Models can come 
 
 Ready to use after install: background tasks, scheduled rules, and items waiting for your OK are built in.
 
-**0.1.39:** New conversations start at once instead of hanging on "Thinking", the account area shows your name and picture, the process shows which tool was used, and the skills list and settings make buttons easier to spot. [Changelog](./CHANGELOG_en.md#0139---2026-11-15)
+**0.1.40:** 20 ready-made tasks with a trial before activation; file previews gain code highlighting, JSON folding, CSV tables, image zoom and refresh on file changes; yearly and advance reminders. [Changelog](./CHANGELOG_en.md#0140---2026-11-15)
 
 📥 [Download](#-download-and-run) · 🌠 [Screenshots](#-screenshots) · 🌟 [Features](#-key-features) · 🆚 [Compare](#-anymodelbot-vs-grok-bot-openai-dots-and-claude-duet) · 🔐 [Privacy](#-how-it-works--privacy)
 

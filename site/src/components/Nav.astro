@@ -12,12 +12,12 @@ interface Props { lang: Lang; path: string }
 const { lang, path } = Astro.props;
 const t = dict(lang);
 const home = href(lang, "/");
-// 通栏导航（样式见 components.css）：左边 logo，后面紧跟产品链接；右边是合作伙伴、三个图标按钮和下载。
+// 通栏导航（样式见 components.css）：左边 logo，后面紧跟产品链接；右边是合作伙伴、「加入社群」、图标按钮和下载。
 // 导航只放独立页面，不放首页章节的锚点：锚点在别的页面上一点就跳回首页，看着像本页的链接却换了页（用户 2026-11-15 指出）。
 // 首页的功能、模型、数据往下滚就能看到；完整模型价格在 /pricing，数据去向在 /security，页脚都有入口。
 // 产品链接三项：机器人（/bots，现成 Bot 目录）、价格、文档（外链）；下载由右侧按钮负责。
 // 合作伙伴是写给推广者的，不属于产品，所以不排在产品链接里，单独放在右侧最前面；抽屉里也和产品链接分开。
-// 右侧是三个同尺寸的图标按钮（GitHub、语言、外观；悬停出提示）和一颗下载按钮，平台菜单留给首页和下载页。
+// 右侧是「加入社群」（写成文字，指上去就展开）、GitHub / 语言 / 外观三个图标按钮（悬停出提示）和一颗下载按钮，平台菜单留给首页和下载页。
 // 语言和外观都是下拉菜单，当前项打勾：语言用各自的本名，不随页面语言翻译
 const links = [
   { href: href(lang, "/bots"), label: t.nav.bots, current: path === "/bots", external: false },
@@ -30,7 +30,7 @@ const themes = [
   { pref: "system", icon: "monitor", label: t.nav.themeSystem },
 ] as const;
 const partners = { href: href(lang, "/partners"), label: t.nav.partners, current: path === "/partners" };
-// 社群（data/community.ts）：GitHub 右边一个图标菜单，列出各个群（QQ 后面是群号，中文站底下再接二维码）；手机抽屉里是一排胶囊。样式在 styles/community.css
+// 社群（data/community.ts）：GitHub 右边写成「加入社群」，指上去就列出各个群（QQ 后面是群号，中文站底下再接二维码），不用点；手机抽屉里是一排胶囊。样式在 styles/community.css
 const cm = t.footer.community;
 const community = communityFor(lang);
 ---
@@ -50,8 +50,8 @@ const community = communityFor(lang);
       <a class="nav__util nav__partners hide-md" href={partners.href} aria-current={partners.current ? "page" : undefined}>{partners.label}</a>
       <div class="nav__utils hide-md">
         <a class="nav__util nav__util--icon" href={GITHUB_URL} target="_blank" rel="noopener" aria-label={t.nav.github} data-tip={t.nav.github} data-track="github_click" data-track-location="nav"><Icon name="github" size={16} /></a>
-        <div class="nav__menu">
-          <button class="nav__util nav__util--icon" type="button" aria-haspopup="menu" aria-expanded="false" aria-label={cm.title} data-tip={cm.title} data-menu-toggle><Icon name="users" size={16} /></button>
+        <div class="nav__menu nav__menu--hover">
+          <button class="nav__util" type="button" aria-haspopup="menu" aria-expanded="false" data-menu-hover>{cm.title}</button>
           <div class="menu cm-menu" role="menu" aria-label={cm.title} hidden>
             {community.map((l) => (
               <a role="menuitem" href={l.url} target="_blank" rel="noopener" style={`--brand:${l.color}`} data-track="community_click" data-track-channel={l.id} data-track-location="nav">

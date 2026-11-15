@@ -256,7 +256,7 @@ describe.skipIf(!runtime)("提示词约定", () => {
     const { task } = await loadPlugins();
     // 只有 present 和聊天的任务、规则工具是"注册了的"：ask_user_question 在这个假环境里没有，不能交给 restrict（它会抛错）
     // 机器人之间发消息的两个工具也去掉：别的机器人发来的事在任务会话里处理，不能再发给别人（只发一层）
-    expect(task.deny).toEqual([["present", "task_start", "task_message", "task_list", "rule_create", "rule_update", "background_pause", "message_bot", "bot_request"]]);
+    expect(task.deny).toEqual([["present", "task_start", "task_message", "task_list", "rule_create", "rule_update", "routine_library", "background_pause", "message_bot", "bot_request"]]);
     expect(task.sections).toHaveLength(1);
     expect(task.sections[0]).toMatchObject({ name: TASK_SECTION, order: TASK_SECTION_ORDER, interpolate: false });
     expect(TASK_SECTION_ORDER).toBeGreaterThan(BOT_SECTION_ORDER);
@@ -269,7 +269,7 @@ describe.skipIf(!runtime)("提示词约定", () => {
     expect(o.calls).toBe(1);
     // 只交注册了的：present、ask_user_question、聊天的任务和规则工具、生图、记忆的 remember / forget（recall 留着）
     expect(o.rule.deny).toHaveLength(1);
-    expect(new Set(o.rule.deny[0])).toEqual(new Set(["present", "ask_user_question", "task_start", "task_message", "task_list", "rule_create", "rule_update", "background_pause", "generate_image", "generate_video", "media_models", "media_docs", "remember", "forget"]));
+    expect(new Set(o.rule.deny[0])).toEqual(new Set(["present", "ask_user_question", "task_start", "task_message", "task_list", "rule_create", "rule_update", "routine_library", "background_pause", "generate_image", "generate_video", "media_models", "media_docs", "remember", "forget"]));
     expect(o.rule.sections).toHaveLength(1);
     expect(o.rule.sections[0]).toMatchObject({ name: TASK_SECTION, order: TASK_SECTION_ORDER, interpolate: false });
     expect(o.rule.sections[0].text()).toBe(ruleRules("observe"));
@@ -311,9 +311,11 @@ describe.skipIf(!runtime)("提示词约定", () => {
    * 0.1.23 的生图/视频恢复增加 request_id 定义，共 499 字符；当前基线 10,644，上限同步增加到 10,949。
    * 关于我（PRD 2026-11-15 R1–R4）：记忆说明写清「关于我」和自己的记忆怎么分、remember 加 replaces、scope 换成 me（提示词 1,158）；
    * 机器人之间发消息（R5–R12）：message_bot、bot_request 两个工具（约 1,000）。这两个是功能本身，之后 12,204，上限跟着调高到 12,550。
+   * 任务库（PRD 2026-11-15 R7）：机器人要知道任务库、能照任务建规则，routine_library（约 470）是功能本身；清单本身只在调用时给，
+   * 不进提示词。之后 12,676，上限跟着调高到 12,900。
    * 缩短了就调低；要调高，在提交说明里写清原因。
    */
-  const BUDGET = 12_550;
+  const BUDGET = 12_900;
   it("我们的提示词加工具定义不超过字符数上限", async () => {
     const prompt = agentPersona({ computerUse: true }).length + botPrompt({ name: "小蓝", persona: PERSONA, memory: true }).length;
     const tools = JSON.stringify(await ourTools()).length;
