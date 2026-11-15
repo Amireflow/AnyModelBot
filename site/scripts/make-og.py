@@ -140,7 +140,7 @@ def wechat_home():
     m = mark(480)
     im.alpha_composite(m, ((S - m.width) // 2, 122))
     d = ImageDraw.Draw(im)
-    d.text((S / 2, 660), "AI 机器人团队", font=font(CJK, 160, 800), fill=TEXT, anchor="ma")
+    d.text((S / 2, 676), "你的 AI 机器人团队", font=font(CJK, 124, 800), fill=TEXT, anchor="ma")
     d.text((S / 2, 940), "AnyModelBot", font=font(CJK, 96, 700), fill=LIME, anchor="ma")
     out = os.path.join(PUB, "og", "wechat-home.png")
     im.resize((600, 600), Image.LANCZOS).convert("RGB").save(out, optimize=True)
