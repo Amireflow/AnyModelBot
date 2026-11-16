@@ -84,8 +84,8 @@ Modellere ulaşmanın en kolay yolu **[Modelflare](https://modelflare.dev/?utm_s
 
 **AnyModelBot Modelflare'i nasıl kullanır**
 
-- **Bir kez oturum aç.** İlk açılış, Modelflare'de oturum açman (veya kaydolman) için tarayıcını açar. Uygulama sonra bu cihazı kendisi bağlar, kopyalanacak bir anahtar yoktur ve sen onaylayınca seni geri getirir. Henüz varsayılan modelin yoksa araç destekleyen düşük maliyetli bir model seçer. Docker'da veya bir sunucuda mı çalıştırıyorsun? Herhangi bir cihazdaki tarayıcıdan oturum aç, sonra düştüğün bağlantıyı uygulamaya yapıştır.
-- **Her model, tek seçici.** Modelflare modellerin kendiliğinden listelenir; her birinin yanında bağlam uzunluğu, yetenekler ve başvuru fiyatları durur.
+- **Bir kez oturum aç.** İlk açılış, Modelflare'de oturum açman (veya kaydolman) için tarayıcını açar. Uygulama sonra bu cihazı kendisi bağlar, kopyalanacak bir anahtar yoktur ve sen onaylayınca seni geri getirir. Henüz varsayılan modelin yoksa araç destekleyen düşük maliyetli bir model seçer. Docker'da veya bir sunucuda mı çalıştırıyorsun? Herhangi bir cihazdaki tarayıcıdan oturum aç, sonra aldığın bağlantıyı uygulamaya yapıştır.
+- **Her model, tek seçici.** Modelflare modellerin kendiliğinden listelenir; her birinin yanında bağlam uzunluğu, yetenekler ve liste fiyatları durur.
 - **Kullandığın kadar öde.** Bakiyen ve Bakiye yükle bağlantısı Ayarlar → Modeller içindedir (varsa kalan bot kredisi ve yüzdesiyle birlikte) ve düşük bakiye anımsatmaları ile günlük kullanım uygulamanın içinde görünür. Bir model seçmeden önce genel fiyat listesine bak ve resmi tarifelerle karşılaştır.
 - **Dürüst bir sınır.** Model istekleri Modelflare üzerinden seçtiğin sağlayıcıya gider ve Modelflare istek günlüklerini tutar. Neyin ne kadar tutulduğu [Güven Merkezi](https://modelflare.dev/trust?utm_source=anymodelbot&utm_campaign=amb_readme) içindedir. Geri kalan her şey cihazında kalır ([ayrıntılar](#-nasıl-çalışır-ve-gizlilik)).
 
@@ -93,9 +93,9 @@ Modellere ulaşmanın en kolay yolu **[Modelflare](https://modelflare.dev/?utm_s
 
 # 📥 Paketi indir ve çalıştır
 
-Platformunu seç. Her sürüm sayfası tüm kurucuları ve bir `SHA256SUMS` dosyasını listeler.
+Platformunu seç. Her sürüm sayfası tüm yükleyicileri ve bir `SHA256SUMS` dosyasını listeler.
 
-| Platform | Mimari | Kurucu | |
+| Platform | Mimari | Yükleyici | |
 | :--- | :--- | :--- | :--- |
 | ![Windows][win-badge] | x64 | `anymodel-bot-<version>-win-x64.exe` | [İndir][releases-link] |
 | ![Windows][win-badge] | arm64 | `anymodel-bot-<version>-win-arm64.exe` | [İndir][releases-link] |
@@ -105,7 +105,7 @@ Platformunu seç. Her sürüm sayfası tüm kurucuları ve bir `SHA256SUMS` dosy
 | ![Linux][linux-badge] | arm64 | `anymodel-bot-<version>-linux-arm64.AppImage` | [İndir][releases-link] |
 
 <p align="center">
-  <img src="docs/assets/download/install-windows.gif" alt="Windows'ta AnyModelBot kurulumu: kurucuyu çalıştır, uygulamayı aç ve Modelflare oturum açma ekranına gel" width="100%">
+  <img src="docs/assets/download/install-windows.gif" alt="Windows'ta AnyModelBot kurulumu: yükleyiciyi çalıştır, uygulamayı aç ve Modelflare oturum açma ekranına gel" width="100%">
 </p>
 
 **İlk açılış.** Windows bir güvenlik uyarısı gösterirse *Daha fazla bilgi → Yine de çalıştır*ı seç. macOS uygulaması Developer ID ile imzalıdır ve Apple tarafından noter onaylıdır: Uygulamalar'a sürükle, aç ve bir internet indirmesini onaylaman istenirse Aç'ı seç. Linux'ta AppImage'ı çalıştırılabilir işaretle (`chmod +x`) ve çalıştır. Pencereyi kapatmak AnyModelBot'u sistem tepsisine gizler; sistem tepsisi menüsünden veya Ayarlar'dan çık.
@@ -159,10 +159,10 @@ Bu ekran görüntüleri Basitleştirilmiş Çince arayüzü gösterir. Uygulama 
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/models-dark.webp">
-  <img src="docs/assets/screenshots/models-light.webp" alt="Model seçici: bağlam uzunluğu, yetenek etiketleri ve başvuru fiyatlarıyla aranabilir Modelflare model listesi" width="100%">
+  <img src="docs/assets/screenshots/models-light.webp" alt="Model seçici: bağlam uzunluğu, yetenek etiketleri ve liste fiyatlarıyla aranabilir Modelflare model listesi" width="100%">
 </picture>
 
-<p align="center"><i>Sohbet başına istediğin Modelflare modelini seç. Bağlam uzunluğu, yetenekler ve başvuru fiyatları her birinin yanında durur.</i></p>
+<p align="center"><i>Sohbet başına istediğin Modelflare modelini seç. Bağlam uzunluğu, yetenekler ve liste fiyatları her birinin yanında durur.</i></p>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/memory-dark.webp">
@@ -211,7 +211,7 @@ Bir bot bir sohbet penceresinden fazlasıdır: bir kişiliği, bir varsayılan m
 
 Bir kişilik yazmak istemezsen Keşfet'ten hazır bir bot kullan. Her birinin kendi görünümü vardır. Birini açmak bir örnek gösterir ve yalnızca ilk mesajını gönderince kurulur.
 
-Resmi botlar arayüzlerini, örneklerini, kişiliklerini ve becerilerini kurucuya koyar. İlk önizleme ve kurulum bot paketi indirmesi gerektirmez. Güncellemeler uygulama sürümleriyle gelir ve var olan proje verisini korur. Model çağrıları ve çevrimiçi araştırma yine bir ağ bağlantısı ister. Her bot bir masaüstü çalışma alanıdır: işin solda listelenir, içerik sağdadır, Yeni kısa bir yönlendirmeli form başlatır, üst çubuk tam sohbete geçer ve giriş kutusunda model seçici vardır.
+Resmi botlar arayüzlerini, örneklerini, kişiliklerini ve becerilerini yükleyiciye koyar. İlk önizleme ve kurulum bot paketi indirmesi gerektirmez. Güncellemeler uygulama sürümleriyle gelir ve var olan proje verisini korur. Model çağrıları ve çevrimiçi araştırma yine bir ağ bağlantısı ister. Her bot bir masaüstü çalışma alanıdır: işin solda listelenir, içerik sağdadır, Yeni kısa bir yönlendirmeli form başlatır, üst çubuk tam sohbete geçer ve giriş kutusunda model seçici vardır.
 
 - **Company Research:** Kaynaklı özetler ve PDF raporlarla, bilgisayarında şirket araştırması.
 - **PPT Master:** Belgeleri veya konuları düzenlenebilir slaytlara çevir ya da elindeki desteleri düzenle.
@@ -252,7 +252,7 @@ Ayrıntılar için [sitemizdeki botlar sayfasına](https://anymodel.bot/tr/bots)
 
 - **Bir kez oturum aç** ve Modelflare modellerin kendiliğinden görünür.
 - **Ya da kendi resmi API anahtarlarını getir.** OpenAI, Anthropic, Google Gemini, xAI, DeepSeek, Kimi, GLM, Qwen, MiniMax ve Mistral desteklenir. Anahtarlar cihazında kalır, model istekleri Modelflare'den geçmeden doğrudan sağlayıcıya gider ve sağlayıcı sana fatura keser. Görüntü ve video üretimi şimdilik yalnızca Modelflare üzerinden kullanılabilir.
-- **Her şey için tek seçici.** GPT, Claude, Gemini, Grok, DeepSeek, Kimi, GLM ve daha fazlası; her birinde bağlam uzunluğu, yetenek etiketleri ve bir başvuru fiyatı.
+- **Her şey için tek seçici.** GPT, Claude, Gemini, Grok, DeepSeek, Kimi, GLM ve daha fazlası; her birinde bağlam uzunluğu, yetenek etiketleri ve bir liste fiyatı.
 - **Sohbet başına değiştir** veya bot başına bir varsayılan ayarla. Belleği düzenlemek ve bağlam devri gibi arka plan işleri kendi ayrı modellerini kullanabilir.
 - **Üç API etki alanı.** `modelflare.dev`, `origin.modelflare.dev` veya `cf.modelflare.dev` seç ve yanıt sürelerini Ayarlar'da karşılaştır; AnyModelBot hiç kendiliğinden geçiş yapmaz.
 - **Kullandıkça öde.** Cüzdan bakiyesi, düşük bakiye anımsatmaları, günlük kullanım ve bot başına bütçe anahtarları yerleşiktir. AnyModelBot'un kendisinin abonelik ücreti yoktur.
@@ -262,7 +262,7 @@ Ayrıntılar için [sitemizdeki botlar sayfasına](https://anymodel.bot/tr/bots)
 </p>
 
 <p align="center">
-  <img src="docs/assets/features/model-switch.gif" alt="Model seçiciyi açmak, bir model aramak, bağlam uzunluğunu ve başvuru fiyatını okumak ve sohbeti ona geçirmek" width="100%">
+  <img src="docs/assets/features/model-switch.gif" alt="Model seçiciyi açmak, bir model aramak, bağlam uzunluğunu ve liste fiyatını okumak ve sohbeti ona geçirmek" width="100%">
 </p>
 
 ## 🧠 Bellek ve her yerden ulaşım
@@ -289,7 +289,7 @@ Ayrıntılar için [sitemizdeki botlar sayfasına](https://anymodel.bot/tr/bots)
 - **Sana hesap verir.** Varsayılan olarak bir bot yalnızca sahibine (QR kodunu tarayan WeChat hesabı; Feishu, Telegram, Slack ve Discord'da bağladıktan sonra ona ilk mesajı atan kişi, yani sen) ve izin verdiklerine yanıt verir. Başkası tek satırlık bir uyarı alır ve model çağrılmaz; onları bilgi panelinden veya sohbette `yes <code>` yanıtlayarak içeri alırsın.
 - **Yanıtlar kaybolmaz.** Bir yanıt gönderilmeden önce yerelde kaydedilir; ağ hataları yeniden denenir, gönderme yeniden başlatmadan sonra sürer ve WeChat'in 24 saatlik penceresi kapanmışsa yanıt bekler ve sonraki mesajınla gelir.
 - **Telemetri kapalı tutulur.** Paketlenmiş bilgisayar kullanımı sürücüsündeki telemetri kapatılır ve yerleşik ağ geçidi otomatik güncelleme kapalı çalışır.
-- **Uygulama içi güncellemeler.** 0.1.29'dan itibaren kurulu masaüstü uygulamaları Ayarlar → Genel → Güncellemeleri otomatik indir seçeneğini varsayılan olarak açar. Yeni sürümler arka planda iner ve hazır olunca Yeniden başlat ve güncelle sunar. Kurulum senin tıklamanı ve çalışan görev olmamasını ister; elle indirmek için ayarı kapat. 0.1.28 veya daha eskisinde olanlar 0.1.29 veya üstünü bir kez elle kurmalıdır. Docker ve kaynak kurulumları hâlâ elle güncellenir. 0.1.30'dan itibaren bir güncellemeden sonraki ilk açılış neyin değiştiğini gösterir, kenar çubuğundaki hesapının yanındaki güncelleme düğmesi güncellemeyi indirir ve hazır olunca kurmak için yeniden başlar ve değişiklik günlüğü her zaman Ayarlar → Hakkında içindedir.
+- **Uygulama içi güncellemeler.** 0.1.29'dan itibaren kurulu masaüstü uygulamaları Ayarlar → Genel → Güncellemeleri otomatik indir seçeneğini varsayılan olarak açar. Yeni sürümler arka planda iner ve hazır olunca Yeniden başlat ve güncelle sunar. Kurulum senin tıklamanı ve çalışan görev olmamasını ister; elle indirmek için ayarı kapat. 0.1.28 veya daha eskisinde olanlar 0.1.29 veya üstünü bir kez elle kurmalıdır. Docker ve kaynak kurulumları hâlâ elle güncellenir. 0.1.30'dan itibaren bir güncellemeden sonraki ilk açılış neyin değiştiğini gösterir, kenar çubuğundaki hesabının yanındaki güncelleme düğmesi güncellemeyi indirir ve hazır olunca kurmak için yeniden başlar ve değişiklik günlüğü her zaman Ayarlar → Hakkında içindedir.
 - **Açık, koyu veya sistemi izle.** Altı bot karakteri ve gözleri imlecini izler.
 - **Sistem tepsisi ve otomatik başlatma.** Pencereyi kapatınca sistem tepsisine gizlenir; otomatik başlatma macOS ve Windows'ta vardır.
 
@@ -311,7 +311,7 @@ Ayrıntılar için [sitemizdeki botlar sayfasına](https://anymodel.bot/tr/bots)
 | Modeller | GPT, Claude, Gemini, Grok ve daha fazlası (Modelflare veya resmi API üzerinden) | Ağırlıkla xAI'nin Grok modelleri | OpenAI'nin modelleri | Claude (Opus 5.5) |
 | Maliyet | Ücretsiz uygulama, modeller belirteç başına ücretlenir | Abonelik | ChatGPT Pro / Business Premium aboneliği | Claude Pro / Max aboneliği |
 | Nereden ulaşırsın | Masaüstü uygulaması (Windows, macOS, Linux), Docker, WeChat, Feishu, Telegram, Slack, Discord | Masaüstü uygulaması, iPhone | ChatGPT, Slack, Teams | iOS, Android, claude.ai |
-| Erişilebilirlik | Şimdi indir | Beta | Seçili pazarlar | Araştırma önizlemesi, ABD bekleme listesi |
+| Kullanılabilirlik | Şimdi indir | Beta | Seçili pazarlar | Araştırma önizlemesi, ABD bekleme listesi |
 
 AnyModelBot da arka planda çalışır: devrettiğin bir görev arka planda bitebilir ve sonucunu sohbet uygulamana gönderebilir; onayını veya yanıtını isteyen her şey kenar çubuğunda “Seni bekliyor” altında görünür. Bir botun attığı her adım görünür ve çalışma alanının dışındaki her şey önce sana sorar.
 
