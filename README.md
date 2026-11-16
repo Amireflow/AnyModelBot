@@ -47,6 +47,8 @@
 [![Telegram][telegram-shield]][telegram-link]
 [![Discord][discord-shield]][discord-link]
 
+[![As seen on Open Source Alternatives](https://www.opensourcealternatives.to/badge-osa.svg)](https://www.opensourcealternatives.to)
+
 </div>
 
 <p align="center">

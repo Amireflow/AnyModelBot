@@ -62,6 +62,11 @@ export const BADGES: Badge[] = [
 </a>`,
   },
   {
+    // 免费收录要求 GitHub README 和官网同时挂徽章，保留站方的图片地址与反链。
+    name: "Open Source Alternatives",
+    html: `<a href="https://www.opensourcealternatives.to" target="_blank" rel="noopener"><img src="https://www.opensourcealternatives.to/badge-osa.svg" alt="As seen on Open Source Alternatives" height="40"></a>`,
+  },
+  {
     // 站方的深色款（...-dark.png）在深色底上字几乎看不清，两个主题都用彩色款
     name: "Whatsthebigdata",
     html: `<a href="https://whatsthebigdata.com/ai-tools/" target="_blank" rel="noopener" title="Whatsthebigdata AI Tools Directory"><img src="https://whatsthebigdata.com/badges/featured-on-whatsthebigdata-color.png" alt="Featured on Whatsthebigdata" width="240" style="max-width:100%;height:auto"/></a>`,
