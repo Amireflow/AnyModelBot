@@ -42,7 +42,7 @@ describe("research charts", () => {
   });
   it("reads a leading percent sign and Turkish comma decimals", () => {
     const margin = chartsFrom([{ type: "table", head: ["Year", "Margin"], rows: [["2024", "%41,78"], ["2025", "%46,91"]] }], "tr");
-    expect(margin.lines[0].cells.map((cell) => cell.value)).toEqual([41.78, 46.91]);
+    expect(margin.lines[0].cells.map((cell: { value: number }) => cell.value)).toEqual([41.78, 46.91]);
     const revenue = chartsFrom([{ type: "table", head: ["Year", "Revenue"], rows: [["2024", "365,817"], ["2025", "416,161"]] }], "tr");
     expect(revenue.bars[0].cells[0].value).toBeCloseTo(365.817);
   });
