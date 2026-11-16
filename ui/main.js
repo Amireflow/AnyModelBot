@@ -44,6 +44,7 @@ import { prefs, setPrefs } from "./lib/prefs.js";
 import { trailingThrottle } from "./lib/throttle.js";
 import { usePresence } from "./design/motion.js";
 import { t, useLang, adoptServerLang, changeLang, getLangPref, LANG_NAMES, LANGS } from "./lib/i18n.js";
+import { fold } from "./lib/text-fold.js";
 
 // —— 路由：#/chat/<bot> · #/group/<群> · #/new · #/needs · #/settings/<tab>[/<row>] · #/bot/<bot>/settings[/<section>] ——
 /** @returns {{view: string, botId?: string, groupId?: string, conversationId?: string, messageId?: number, query?: string, tab?: string, row?: string, section?: string, catalogId?: string}} */
@@ -125,9 +126,9 @@ function Palette({ commands, onClose }) {
   const ref = useRef(null);
   const input = useRef(null);
   useEffect(() => input.current?.focus(), []);
-  const needle = q.trim().toLowerCase();
+  const needle = fold(q.trim());
   // searchOnly：只在搜的时候出现（任务库里的每条任务）
-  const hits = commands.filter((c) => (!needle ? !c.searchOnly : `${c.label} ${c.keys || ""}`.toLowerCase().includes(needle)));
+  const hits = commands.filter((c) => (!needle ? !c.searchOnly : fold(`${c.label} ${c.keys || ""}`).includes(needle)));
   const run = (c) => {
     onClose();
     c.run();

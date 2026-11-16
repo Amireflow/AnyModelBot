@@ -1,0 +1,23 @@
+import type { TranslatedCatalog } from "../../index.js";
+export default {
+  pricePerSecond: "{price}/sn ({res})",
+  pricePerImage: "{price}/görsel",
+  pricePerCall: "{price}/çağrı",
+  priceToken: "token başına ücret",
+  seconds: "{n} sn",
+  references: { one: "{count} referans", other: "{count} referans" },
+  summaryPrompt: "İstem: {prompt}",
+  summaryParams: "Ayarlar: {params}",
+  summaryPrice: "Tahmini fiyat: {price}",
+  confirmHeaderImage: "Görsel üret",
+  confirmHeaderVideo: "Video üret",
+  confirmQuestionImage: "Bu görsel {model} ile üretilsin mi?",
+  confirmQuestionVideo: "Bu video {model} ile üretilsin mi?",
+  confirmDetail: "{summary}{reason}\nBaşka bir model adı da yanıtlayabilirsin.",
+  reasonCost: "Tahmini maliyet yaklaşık ${amount}, ${limit} üzerinde",
+  reasonCostUnknown: "Bu çalıştırmanın maliyeti tahmin edilemiyor",
+  tagDefault: "varsayılan",
+  tagBotPick: "botun seçtiği",
+  cancel: "İptal",
+  cancelDesc: "Bu sefer üretme",
+} satisfies TranslatedCatalog["media"];

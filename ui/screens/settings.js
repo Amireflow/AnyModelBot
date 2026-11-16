@@ -29,6 +29,7 @@ import { PwshHint } from "../components/pwsh-hint.js";
 import { OfficialKeyForm, officialName } from "../components/official-keys.js";
 import { AccountLogin } from "./onboarding.js";
 import { t, has, useLang, getLangPref, onLangChange, changeLang, LANGS, LANG_NAMES } from "../lib/i18n.js";
+import { fold } from "../lib/text-fold.js";
 import { fmtTimeOfDay } from "../lib/format.js";
 
 /** [id, 标题的文案键, 图标]；标题渲染时再 t()（tabLabel） */
@@ -566,8 +567,8 @@ export function SettingsScreen({ tab, query: q, onQuery: setQ, onTab, focusRow, 
     ].filter(Boolean);
   }, [s, mf, mode, p, models, modelsError, cu, status, update, bots, acct, invite, unread, g, media, lang, langPref, conn.accounts, conn.channelAccounts, effort, official, leaving, balanceRefreshing]);
 
-  const needle = q.trim().toLowerCase();
-  const shown = needle ? rows.filter((r) => !r.custom && `${r.name} ${r.sub || ""} ${r.keys || ""}`.toLowerCase().includes(needle)) : rows.filter((r) => r.tab === tab && !r.searchOnly);
+  const needle = fold(q.trim());
+  const shown = needle ? rows.filter((r) => !r.custom && fold(`${r.name} ${r.sub || ""} ${r.keys || ""}`).includes(needle)) : rows.filter((r) => r.tab === tab && !r.searchOnly);
   // 搜索时按分页分段，平时按 group 分段
   const parts = needle ? TABS.map(([id, label]) => ({ label: tabLabel(label), rows: shown.filter((r) => r.tab === id) })).filter((x) => x.rows.length) : groupRows(shown);
   const acctRow = rows.find((r) => r.id === "account");

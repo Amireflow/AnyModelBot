@@ -1,8 +1,14 @@
 # 更新日志
 
-简体中文 | [English](./CHANGELOG_en.md) | [日本語](./CHANGELOG_ja.md) | [한국어](./CHANGELOG_ko.md) | [Русский](./CHANGELOG_ru.md) | [Español](./CHANGELOG_es.md) | [Português (Brasil)](./CHANGELOG_pt.md)
+简体中文 | [English](./CHANGELOG_en.md) | [日本語](./CHANGELOG_ja.md) | [한국어](./CHANGELOG_ko.md) | [Русский](./CHANGELOG_ru.md) | [Español](./CHANGELOG_es.md) | [Português (Brasil)](./CHANGELOG_pt.md) | [Türkçe](./CHANGELOG_tr.md)
 
 这里只写用户能感受到的变化。更早的版本见 [GitHub 发布页](https://github.com/modelflare-ai/AnyModelBot/releases)。
+
+## 0.1.41 - 2026-11-16
+
+### 新增
+
+- **土耳其语：** 界面、托盘菜单、机器人发出的系统消息、官网和文档都可以用土耳其语。在首次引导或「设置 → 通用 → 语言」里选「Türkçe」；系统语言是土耳其语时会自动用上。百分号写在数字前面，美股研究的图表也能认出这种写法。首页演示视频仍是英文录屏。
 
 ## 0.1.40 - 2026-11-15
 

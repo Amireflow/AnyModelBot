@@ -1,8 +1,14 @@
 # 変更履歴
 
-[简体中文](./CHANGELOG.md) | [English](./CHANGELOG_en.md) | 日本語 | [한국어](./CHANGELOG_ko.md) | [Русский](./CHANGELOG_ru.md) | [Español](./CHANGELOG_es.md) | [Português (Brasil)](./CHANGELOG_pt.md)
+[简体中文](./CHANGELOG.md) | [English](./CHANGELOG_en.md) | 日本語 | [한국어](./CHANGELOG_ko.md) | [Русский](./CHANGELOG_ru.md) | [Español](./CHANGELOG_es.md) | [Português (Brasil)](./CHANGELOG_pt.md) | [Türkçe](./CHANGELOG_tr.md)
 
 アプリを使っていて気付く変更をまとめています。以前のバージョンは [GitHub Releases](https://github.com/modelflare-ai/AnyModelBot/releases) をご覧ください。
+
+## 0.1.41 - 2026-11-16
+
+### 新機能
+
+- **トルコ語：** 画面、トレイメニュー、ボットのシステムメッセージ、ウェブサイト、ドキュメントがトルコ語に対応しました。初回案内か「設定 → 一般 → 言語」で「Türkçe」を選べます。システムの言語がトルコ語なら自動で使います。パーセント記号は数字の前に置き、米国株リサーチのグラフもその書き方を読みます。ホームページのデモ動画は引き続き英語版です。
 
 ## 0.1.40 - 2026-11-15
 

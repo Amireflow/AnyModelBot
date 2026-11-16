@@ -1,8 +1,14 @@
 # Changelog
 
-[简体中文](./CHANGELOG.md) | English | [日本語](./CHANGELOG_ja.md) | [한국어](./CHANGELOG_ko.md) | [Русский](./CHANGELOG_ru.md) | [Español](./CHANGELOG_es.md) | [Português (Brasil)](./CHANGELOG_pt.md)
+[简体中文](./CHANGELOG.md) | English | [日本語](./CHANGELOG_ja.md) | [한국어](./CHANGELOG_ko.md) | [Русский](./CHANGELOG_ru.md) | [Español](./CHANGELOG_es.md) | [Português (Brasil)](./CHANGELOG_pt.md) | [Türkçe](./CHANGELOG_tr.md)
 
 This covers changes you'll notice in the app. For older versions, see the [GitHub releases](https://github.com/modelflare-ai/AnyModelBot/releases).
+
+## 0.1.41 - 2026-11-16
+
+### New
+
+- **Turkish:** The interface, tray menu, system messages from bots, website and documentation are available in Turkish. Pick Türkçe during setup or in Settings → General → Language. If your system language is Turkish, the app uses it automatically. The percent sign comes before the number, and US Stock Research charts read that form. The homepage demo is still the English recording.
 
 ## 0.1.40 - 2026-11-15
 

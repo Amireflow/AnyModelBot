@@ -8,6 +8,7 @@ import { GroupAvatars } from "./group.js";
 import { api } from "../lib/api.js";
 import { fmtTime } from "../lib/format.js";
 import { t, useLang } from "../lib/i18n.js";
+import { fold } from "../lib/text-fold.js";
 
 function Select({ label, value, onChange, options }) {
   return html`<label class="search-filter"><span class="sr-only">${label}</span><select class="field" aria-label=${label} value=${value} onChange=${(e) => onChange(e.target.value)}>${options.map(([id, name]) => html`<option value=${id}>${name}</option>`)}</select></label>`;
@@ -63,9 +64,9 @@ export function MessageSearchScreen({ open, query, onQuery, bots = [], groups = 
   const dialog = useRef(null), input = useRef(null), scroller = useRef(null), savedTop = useRef(0), active = useRef(null);
   const needle = query.trim();
   const nameMatches = useMemo(() => needle ? [
-    ...bots.filter((b) => b.name.toLowerCase().includes(needle.toLowerCase())).map((b) => ({ id: b.id, name: b.name, kind: "bot", entry: b })),
-    ...groups.filter((g) => g.name.toLowerCase().includes(needle.toLowerCase())).map((g) => ({ id: g.id, name: g.name, kind: "group", entry: g })),
-    ...conversations.filter((c) => c.title.toLowerCase().includes(needle.toLowerCase())).map((c) => ({ id: c.id, name: `${c.title} · ${searchChannel(c.channel)}`, kind: "conversation", entry: c })),
+    ...bots.filter((b) => fold(b.name).includes(fold(needle))).map((b) => ({ id: b.id, name: b.name, kind: "bot", entry: b })),
+    ...groups.filter((g) => fold(g.name).includes(fold(needle))).map((g) => ({ id: g.id, name: g.name, kind: "group", entry: g })),
+    ...conversations.filter((c) => fold(c.title).includes(fold(needle))).map((c) => ({ id: c.id, name: `${c.title} · ${searchChannel(c.channel)}`, kind: "conversation", entry: c })),
   ] : [], [needle, bots, groups, conversations, lang]);
   const request = useMemo(() => {
     const p = new URLSearchParams({ q: needle });

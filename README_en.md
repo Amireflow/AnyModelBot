@@ -23,6 +23,7 @@
   <a href="./README_ru.md">Русский</a> |
   <a href="./README_es.md">Español</a> |
   <a href="./README_pt.md">Português (Brasil)</a> |
+  <a href="./README_tr.md">Türkçe</a> |
   <a href="https://modelflare.dev/?utm_source=anymodelbot&utm_campaign=amb_readme">Modelflare</a> |
   <a href="https://modelflare.dev/pricing?utm_source=anymodelbot&utm_campaign=amb_readme">Pricing</a> |
   <a href="./docs/development_en.md">Development</a> |

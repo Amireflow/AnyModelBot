@@ -80,15 +80,18 @@ export function parseEntries(md: string): Entry[] {
   return out;
 }
 
+/** İ 的默认小写是 i 加组合符，主题名和去重都认不出。先换成 I，再做不随区域变化的小写。 */
+const foldLetters = (s: string) => s.replace(/İ/g, "I").toLowerCase();
+
 export function validTopic(topic: string): string {
-  const s = topic.trim().toLowerCase().replace(/\s+/g, "-");
+  const s = foldLetters(topic.trim()).replace(/\s+/g, "-");
   if (!/^[\p{L}\p{N}_-]{1,40}$/u.test(s)) throw new MemoryError(msg("agent.memTopicInvalid", { topic }));
   if (s === "memory" || s === "index") throw new MemoryError(msg("agent.memTopicReserved", { topic }));
   return s;
 }
 
 function squash(s: string): string {
-  return s.toLowerCase().replace(/\s+/g, "");
+  return foldLetters(s).replace(/\s+/g, "");
 }
 
 function today(): string {

@@ -7,6 +7,7 @@ import { BotAvatar } from "../components/avatar.js";
 import { templateFlow } from "../lib/template-flow.js";
 import { tr } from "../lib/catalog.js";
 import { t, useLang } from "../lib/i18n.js";
+import { fold } from "../lib/text-fold.js";
 
 /** 目录多到一屏放不下才有搜索框 */
 const SEARCH_MIN = 12;
@@ -50,10 +51,10 @@ export function DiscoverScreen({ catalog, onOpen, onTemplates }) {
   const theme = useTheme();
   const [q, setQ] = useState("");
   const list = catalog || [];
-  const needle = q.trim().toLowerCase();
+  const needle = fold(q.trim());
   const hits = useMemo(() => {
     if (!needle) return list;
-    return list.filter((e) => [tr(e.name, lang), tr(e.summary, lang), ...e.skills.map((s) => s.name)].some((x) => String(x || "").toLowerCase().includes(needle)));
+    return list.filter((e) => [tr(e.name, lang), tr(e.summary, lang), ...e.skills.map((s) => s.name)].some((x) => fold(x).includes(needle)));
   }, [list, needle, lang]);
   const featured = needle ? [] : hits.filter((e) => e.featured);
   const rest = needle ? hits : hits.filter((e) => !e.featured);

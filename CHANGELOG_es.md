@@ -1,8 +1,14 @@
 # Registro de cambios
 
-[简体中文](./CHANGELOG.md) | [English](./CHANGELOG_en.md) | [日本語](./CHANGELOG_ja.md) | [한국어](./CHANGELOG_ko.md) | [Русский](./CHANGELOG_ru.md) | Español | [Português (Brasil)](./CHANGELOG_pt.md)
+[简体中文](./CHANGELOG.md) | [English](./CHANGELOG_en.md) | [日本語](./CHANGELOG_ja.md) | [한국어](./CHANGELOG_ko.md) | [Русский](./CHANGELOG_ru.md) | Español | [Português (Brasil)](./CHANGELOG_pt.md) | [Türkçe](./CHANGELOG_tr.md)
 
 Aquí se recogen los cambios que notarás en la app. Para versiones anteriores, consulta las [versiones publicadas en GitHub](https://github.com/modelflare-ai/AnyModelBot/releases).
+
+## 0.1.41 - 2026-11-16
+
+### Novedades
+
+- **Turco:** La interfaz, el menú de la bandeja, los mensajes del sistema de los bots, el sitio web y la documentación están en turco. Elige Türkçe durante el inicio o en Ajustes → General → Idioma. Si el idioma del sistema es turco, la app lo usa sola. El signo de porcentaje va delante del número, y los gráficos de investigación de acciones de EE. UU. leen esa forma. El video de demostración de la página de inicio sigue siendo la grabación en inglés.
 
 ## 0.1.40 - 2026-11-15
 

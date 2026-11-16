@@ -4,6 +4,7 @@ import { openGithub } from "./skill-library.js";
 import { api, uploadSkillZip } from "../lib/api.js";
 import { confirmSheet, failed, saved } from "../lib/store.js";
 import { t, has } from "../lib/i18n.js";
+import { fold } from "../lib/text-fold.js";
 import { fillChat, installedExample, loadBotSkills, readyToast, setBotSkills, useBotSkills } from "../lib/usage.js";
 import { CHIPS, LIST_FOLD_AT, LIST_SEARCH_AT, chipCounts, inChip, kindOf, matches, openSkillDetail, skillsFilter, sortSkills } from "../lib/my-skills.js";
 import { useLang } from "../lib/i18n.js";
@@ -125,7 +126,7 @@ export function Skills({ botId, botName = "", onBrowse }) {
   // —— 排序、搜索、筛选、折叠 ——
   const sorted = sortSkills(skills || [], lang);
   const searching = sorted.length > LIST_SEARCH_AT;
-  const needle = searching ? q.trim().toLowerCase() : "";
+  const needle = searching ? fold(q.trim()) : "";
   const counts = chipCounts(sorted, needle);
   // 选中的胶囊没了（数量为 0 不显示）：回到「全部」
   const cur = searching && chip !== "all" && counts[chip] > 0 ? chip : "all";

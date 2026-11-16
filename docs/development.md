@@ -1,6 +1,6 @@
 # 开发文档
 
-简体中文 | [English](./development_en.md) | [日本語](./development_ja.md) | [한국어](./development_ko.md) | [Русский](./development_ru.md) | [Español](./development_es.md) | [Português (Brasil)](./development_pt.md)
+简体中文 | [English](./development_en.md) | [日本語](./development_ja.md) | [한국어](./development_ko.md) | [Русский](./development_ru.md) | [Español](./development_es.md) | [Português (Brasil)](./development_pt.md) | [Türkçe](./development_tr.md)
 
 这份文档给想从源码运行、打包或参与开发的人看。普通用户直接从 [Releases](https://github.com/modelflare-ai/AnyModelBot/releases) 下载安装包即可，见 [README](../README.md#-下载与运行)。
 
@@ -81,7 +81,7 @@ npm run test:dsh-bundle  # 用 Electron 跑真实 DSH 集成测试，加载打�
 - 界面只监听 127.0.0.1，且每次启动生成随机访问令牌，其他本机程序无法直接调用管理接口。
 - 退出时先停渠道、再停 magpie；若上次被强杀残留 magpie 进程，下次启动会自动清理（Linux/macOS）。
 
-发布：在 `CHANGELOG.md`、`CHANGELOG_en.md`、`CHANGELOG_ja.md`、`CHANGELOG_ko.md`、`CHANGELOG_ru.md`、`CHANGELOG_es.md` 和 `CHANGELOG_pt.md` 写好这个版本的更新日志（用户能感受到的变化，不写网站和内部改动。官网英文页不显示提到微信、飞书的行），改 `package.json` 的版本号并提交，推送 `v<版本>` 标签。这个版本没写更新日志时，发布流程开始就会失败；写了就作为 GitHub Release 的说明，官网更新日志页也显示它。应用里的「更新了什么」弹窗读的也是它：`CHANGELOG*.md` 随安装包和 Docker 镜像打包（`src/changelog.ts`），还没安装的新版本在用户点开时从那个版本标签下读取。`.github/workflows/release.yml` 会在六种系统 / 架构上各自打包，并把安装包和 `SHA256SUMS` 发到 GitHub Release。签名与公证所需的仓库密钥见该文件开头的注释。同一个标签还会触发 `.github/workflows/docker.yml`，把 x64 + arm64 镜像发布到 `ghcr.io/modelflare-ai/anymodel-bot`（`<版本>` 和 `latest` 两个标签）。 标签发版时 macOS 包必须带 Developer ID 签名并完成公证，打包后会对 .app 和 DMG 里的 .app 做 `spctl` 等校验，不通过就失败。正式包关闭开发者工具；需要调试包时用 `npm run dist:debug`，或在手动运行 Release 时勾选 `debug_build`（文件名带 `-debug-`，标签上不允许，`scripts/check-build-flavor.mjs` 会核对打包结果）。
+发布：在 `CHANGELOG.md`、`CHANGELOG_en.md`、`CHANGELOG_ja.md`、`CHANGELOG_ko.md`、`CHANGELOG_ru.md`、`CHANGELOG_es.md`、`CHANGELOG_pt.md` 和 `CHANGELOG_tr.md` 写好这个版本的更新日志（用户能感受到的变化，不写网站和内部改动。官网英文页不显示提到微信、飞书的行），改 `package.json` 的版本号并提交，推送 `v<版本>` 标签。这个版本没写更新日志时，发布流程开始就会失败；写了就作为 GitHub Release 的说明，官网更新日志页也显示它。应用里的「更新了什么」弹窗读的也是它：`CHANGELOG*.md` 随安装包和 Docker 镜像打包（`src/changelog.ts`），还没安装的新版本在用户点开时从那个版本标签下读取。`.github/workflows/release.yml` 会在六种系统 / 架构上各自打包，并把安装包和 `SHA256SUMS` 发到 GitHub Release。签名与公证所需的仓库密钥见该文件开头的注释。同一个标签还会触发 `.github/workflows/docker.yml`，把 x64 + arm64 镜像发布到 `ghcr.io/modelflare-ai/anymodel-bot`（`<版本>` 和 `latest` 两个标签）。 标签发版时 macOS 包必须带 Developer ID 签名并完成公证，打包后会对 .app 和 DMG 里的 .app 做 `spctl` 等校验，不通过就失败。正式包关闭开发者工具；需要调试包时用 `npm run dist:debug`，或在手动运行 Release 时勾选 `debug_build`（文件名带 `-debug-`，标签上不允许，`scripts/check-build-flavor.mjs` 会核对打包结果）。
 
 每次发版必须同步官网、相关文档和各语言的 README。先运行 `npm --prefix site run sync` 同步官网内容；GitHub Release 和 Docker 发布后，按[官网部署说明](../site/README.md)更新线上官网，确认 `/download`、`/changelog` 和 `/bots` 的版本、下载链接与说明一致。只有线上官网也同步完成，才算本次发布完成。
 
