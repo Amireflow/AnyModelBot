@@ -51,6 +51,17 @@ export function badgeVariants({ name, html, dark, kind, noCopy }: Badge): BadgeV
 
 export const BADGES: Badge[] = [
   {
+    // clara.svg 是黑底白字，oscura.svg 是白底黑字。深色页脚用白底，浅色页脚用黑底。
+    // 两款都写在静态 HTML 里，校验不跑 JS。rel 只能是 noopener，不能加 nofollow、ugc、sponsored。
+    name: "Que IA Es",
+    html: `<a href="https://queia.es" target="_blank" rel="noopener" title="Destacado en Que IA Es — directorio de herramientas de IA">
+  <img src="https://queia.es/badge/queia-clara.svg" alt="Destacado en Que IA Es" width="240" height="60" loading="lazy" />
+</a>`,
+    dark: `<a href="https://queia.es" target="_blank" rel="noopener" title="Destacado en Que IA Es — directorio de herramientas de IA">
+  <img src="https://queia.es/badge/queia-oscura.svg" alt="Destacado en Que IA Es" width="240" height="60" loading="lazy" />
+</a>`,
+  },
+  {
     // 站方的深色款（...-dark.png）在深色底上字几乎看不清，两个主题都用彩色款
     name: "Whatsthebigdata",
     html: `<a href="https://whatsthebigdata.com/ai-tools/" target="_blank" rel="noopener" title="Whatsthebigdata AI Tools Directory"><img src="https://whatsthebigdata.com/badges/featured-on-whatsthebigdata-color.png" alt="Featured on Whatsthebigdata" width="240" style="max-width:100%;height:auto"/></a>`,
