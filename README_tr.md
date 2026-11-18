@@ -60,7 +60,7 @@ Sohbetler, bellek, dosyalar ve API anahtarları cihazında kalır. Modeller [Mod
 
 Kurulumdan sonra kullanıma hazır: arka plan görevleri, zamanlanmış kurallar ve onayını bekleyen öğeler yerleşiktir.
 
-**0.1.40:** etkinleştirmeden önce denenebilen 20 hazır görev; dosya önizlemesinde kod vurgusu, JSON katlama, CSV tabloları, görüntü yakınlaştırma ve dosya değişince yenileme; yıllık ve önceden anımsatıcılar. [Değişiklik günlüğü](./CHANGELOG_tr.md#0140---2026-11-15)
+**0.1.42:** sorunları ve önerileri doğrudan uygulamadan gönder: Modelflare'e giriş yaptıysan destek talebi olur, yanıtlar e-postana gelir; bir hatadan açarsan o hata da eklenir. [Değişiklik günlüğü](./CHANGELOG_tr.md#0142---2026-11-18)
 
 📥 [İndir](#-paketi-indir-ve-çalıştır) · 🌠 [Ekran görüntüleri](#-ekran-görüntüleri) · 🌟 [Özellikler](#-temel-özellikler) · 🆚 [Karşılaştır](#-anymodelbot-vs-grok-bot-openai-dots-ve-claude-duet) · 🔐 [Gizlilik](#-nasıl-çalışır-ve-gizlilik)
 
@@ -405,6 +405,7 @@ Tam lisanslar ve bildirimler: [THIRD_PARTY_NOTICES_tr.md](./THIRD_PARTY_NOTICES_
 
 - **Sorular ve fikirler:** [GitHub Discussions](https://github.com/modelflare-ai/AnyModelBot/discussions)
 - **Hatalar ve özellik istekleri:** [GitHub Issues](https://github.com/modelflare-ai/AnyModelBot/issues)
+- **Uygulama içi geri bildirim:** hesap menüsü → Geri bildirim (Modelflare'e giriş yaptıysan hesabında bir destek talebi olur)
 - **Toplulukla sohbet:** [Discord](https://discord.gg/umBN6wX3zJ) · [Telegram](https://t.me/+Tx6Payfzxqk2ZGVl)
 - **E-posta:** [support@anymodel.bot](mailto:support@anymodel.bot)
 - **Modelflare'den haberler:** [X'te @modelflare_dev](https://x.com/modelflare_dev)

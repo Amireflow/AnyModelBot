@@ -60,7 +60,7 @@ AnyModelBot は、Windows、macOS、Linux のパソコンで動く AI ボット�
 
 インストールすればすぐに使えます。バックグラウンドタスク、定期ルール、あなたの確認を待つ項目は標準で備えています。
 
-**0.1.40:** すぐ使えるタスクを 20 件追加し、オンにする前に試せます。プレビューにコードの色分け、JSON の折りたたみ、CSV の表、画像の拡大縮小、ファイル変更時の更新を追加。毎年・事前のリマインダーにも対応。 [変更履歴](./CHANGELOG_ja.md#0140---2026-11-15)
+**0.1.42:** 問題や提案をアプリから直接送れます。Modelflare にログインしていればお問い合わせとして登録され、返信はメールで届きます。エラーから開くとそのエラーも添付されます。 [変更履歴](./CHANGELOG_ja.md#0142---2026-11-18)
 
 📥 [ダウンロード](#-ダウンロードと実行) · 🌠 [画面紹介](#-画面紹介) · 🌟 [主な機能](#-主な機能) · 🆚 [比較](#-anymodelbot-と-grok-botopenai-dotsclaude-duet-の比較) · 🔐 [プライバシー](#-仕組みとプライバシー)
 
@@ -405,6 +405,7 @@ Modelflare はリクエストログを保持します。項目と期間は [ト�
 
 - **質問・アイデア：** [GitHub Discussions](https://github.com/modelflare-ai/AnyModelBot/discussions)
 - **不具合・機能要望：** [GitHub Issues](https://github.com/modelflare-ai/AnyModelBot/issues)
+- **アプリ内フィードバック：** アカウントメニュー → ご意見・フィードバック（Modelflare にログインしていれば、アカウントのお問い合わせとして登録）
 - **コミュニティチャット：** [Discord](https://discord.gg/umBN6wX3zJ) · [Telegram](https://t.me/+Tx6Payfzxqk2ZGVl)
 - **メール：** [support@anymodel.bot](mailto:support@anymodel.bot)
 - **Modelflare のニュース：** [X の @modelflare_dev](https://x.com/modelflare_dev)

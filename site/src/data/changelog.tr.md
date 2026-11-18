@@ -4,6 +4,16 @@
 
 Uygulamada fark edeceğin değişiklikler burada. Daha eski sürümler için [GitHub sürümlerine](https://github.com/modelflare-ai/AnyModelBot/releases) bak.
 
+## 0.1.42 - 2026-11-18
+
+### Yeni
+
+- **Uygulama içi geri bildirim:** geri bildirim penceresini hesap menüsündeki Geri bildirim'den, sohbette bir hatanın altındaki "Bu sorunu bildir"den, Ayarlar → Sorun giderme'den veya Ayarlar → Hakkında'dan açabilirsin. Sorun, Öneri ya da Diğer'i seç, birkaç satır yaz ve gönder. Sürüm ve sistem bilgileri her zaman eklenir; bir hatadan açtıysan o hata da eklenir. Tanılama bilgileri yalnızca kutuyu işaretlersen eklenir, göndermeden önce metnin tamamını önizleyebilirsin; sohbetler ve ekran görüntüleri asla eklenmez. Modelflare'e giriş yaptıysan geri bildirimin hesabında bir destek talebi olur: yanıtlar e-postana gelir ve Modelflare talepler sayfasında görünür, günde en fazla 3 kez. Giriş yapmadıysan GitHub üzerinden ya da e-postayla gönderebilirsin; ayrıntılar senin için doldurulur.
+
+### İyileştirmeler ve düzeltmeler
+
+- **E-posta bağlantıları:** masaüstü uygulamasında sohbetteki e-posta bağlantıları sistemin e-posta uygulamasında açılır. Önceden tıklayınca hiçbir şey olmuyordu.
+
 ## 0.1.41 - 2026-11-16
 
 ### Yeni

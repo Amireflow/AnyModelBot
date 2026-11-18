@@ -31,6 +31,7 @@ import { BotAvatar, MAIN_CHAR } from "./components/avatar.js";
 import { Onboarding } from "./screens/onboarding.js";
 import { CoachMark } from "./components/guide.js";
 import { WhatsNewHost, openWhatsNew } from "./components/whats-new.js";
+import { FeedbackHost } from "./components/feedback.js";
 import { SkillDetailHost } from "./components/skill-detail.js";
 import { api } from "./lib/api.js";
 import { clearCatalogRemoved } from "./lib/catalog.js";
@@ -798,6 +799,7 @@ function App() {
     <${PairChatHost} />
     <${RoutineHost} bots=${bots || []} models=${models} defaultModel=${settings?.defaultModel || ""} account=${managed ? account : null} onBotsChanged=${reloadBots} />
     <${AppDialogHost} bots=${bots || []} chatBot=${!searchOpen ? appChatTarget : null} onOpenSettings=${(tab) => openSettings(tab)} />
+    <${FeedbackHost} />
     <${DialogHost} />
   </div>`;
 }

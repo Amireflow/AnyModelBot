@@ -10,7 +10,7 @@ import { t } from "../i18n/index.js";
 import type { Store } from "../store/db.js";
 import { MODELFLARE_CLIENT_ID, MODELFLARE_SCOPES, MODELFLARE_WEB, UTM, webUrl } from "../providers/modelflare.js";
 import { discover, OAuthError, revokeToken, startLogin, type LoginAttempt, type OidcEndpoints } from "./oauth.js";
-import { AccountRevokedError, AccountSession, ApiError, ROUTING_STRATEGIES, type AppKey, type ConnectedAccount, type RoutingStrategy, type UsageRow } from "./client.js";
+import { AccountRevokedError, AccountSession, ApiError, ROUTING_STRATEGIES, type AppKey, type ConnectedAccount, type FeedbackKind, type FeedbackReceipt, type RoutingStrategy, type UsageRow } from "./client.js";
 import type { AccountRecord, AccountVault } from "./vault.js";
 
 import { accountProfile } from "./profile.js";
@@ -485,6 +485,11 @@ export class AccountManager {
 
   notifications(): Promise<unknown> {
     return this.call((s) => s.notifications());
+  }
+
+  /** 应用内反馈（src/feedback.ts 拼好正文）：提交到用户自己的 Modelflare 工单 */
+  submitFeedback(input: { kind: FeedbackKind; body: string; related_request_id?: string }): Promise<FeedbackReceipt> {
+    return this.call((s) => s.feedback(input));
   }
 
   async invite(): Promise<{ code: string; url: string }> {

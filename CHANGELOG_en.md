@@ -4,6 +4,16 @@
 
 This covers changes you'll notice in the app. For older versions, see the [GitHub releases](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.42 - 2026-11-18
+
+### New
+
+- **In-app feedback:** open the feedback window from Feedback in the account menu, "Report this problem" under an error in chat, Settings → Troubleshooting or Settings → About. Choose Problem, Suggestion or Other, write a few lines and send. The version and system details are always included, and opening it from an error adds that error. Diagnostics are included only if you tick the box, you can preview the full text before sending, and conversations and screenshots are never attached. When you're signed in to Modelflare, your feedback becomes a support ticket on your account: replies are emailed to you and appear on Modelflare's tickets page, up to 3 a day. Without a sign-in you can send it on GitHub or by email, with the details filled in for you.
+
+### Improvements and fixes
+
+- **Email links:** in the desktop app, email links in chat now open your system's mail app. Before, clicking them did nothing.
+
 ## 0.1.41 - 2026-11-16
 
 ### New

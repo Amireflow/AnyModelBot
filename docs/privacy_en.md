@@ -35,7 +35,7 @@ This document explains what AnyModelBot stores where, what leaves your device, a
 | Replies waiting to be sent | `anymodel.db` outbox: unsent message content and the reason, including WeChat messages held until the person writes again (kept up to 7 days; sent ones are deleted after 7 days, undeliverable ones after 30) | When they are sent | WeChat / Feishu |
 | Background tasks and rules | `anymodel.db` (tasks, rules and run logs, kept 30 days); task folders in `workspaces/<bot>/tasks/`, deleted after 30 days unused (you are told first in Needs you); their session files in `dsh/<bot>/sessions/`, deleted with the task | While they run | As for chats: context in model requests, sent through Modelflare to the provider you chose |
 | Settings | `config.json` | No | — |
-| Logs | `logs/app.log` (rotated by size) | No; "Copy diagnostics" is something you copy by hand, with keys replaced by `***` | — |
+| Logs | `logs/app.log` (rotated by size) | Not by default; "Copy diagnostics" is something you copy by hand, with keys replaced by `***`. If you tick "Include diagnostics" in Feedback and press Send, they go with your feedback | Your Modelflare support ticket (only when you send feedback) |
 | Credentials for connected apps (only if you connect them): sign-in tokens, pasted tokens and keys, dedicated URLs, and the headers / query parameters / environment variables of custom MCP connectors | `app-secrets.json` (permission 600, outside the database); masked in logs, diagnostics and the interface | Sent to that service as authentication each time a bot reads or writes; environment variables of a local command only go to the local program you added | The apps you connect (Feishu, Tencent Docs, DingTalk, Amap, Yuque, Notion, GitHub, Linear, Atlassian, Canva), or the custom MCP servers you add |
 | Names, addresses, status and tool lists of connections | `anymodel.db` (dedicated URLs and addresses that contain a key are stored masked) | No | — |
 | Content a bot reads from connected apps (docs, messages, issues…) | Not stored separately; once in a chat it's stored with that chat | Yes | Sent as context in model requests, through Modelflare to the provider you chose |
@@ -81,6 +81,7 @@ This document explains what AnyModelBot stores where, what leaves your device, a
 Besides model requests, the app goes online to:
 
 - Read Modelflare's model catalog, your balance, usage and notifications (your account data, from modelflare.dev).
+- When you press Send in Feedback: what you wrote, the version and system details, and the error and diagnostics you chose to include (keys replaced by `***`) go to modelflare.dev as a support ticket on your Modelflare account. Replies are emailed to you and appear on Modelflare's tickets page. You can preview the full text first; conversations and screenshots are never attached. Without a Modelflare sign-in, Feedback opens GitHub or your email app instead, and you send it from there.
 - Read a model's request format from docs.modelflare.dev when generating images or video.
 - WeChat channel: talk to `ilinkai.weixin.qq.com` and download images and files you send from the WeChat CDN.
 - Feishu channel: keep a long connection to the Feishu Open Platform.

@@ -60,7 +60,7 @@ AnyModelBot은 Windows, macOS, Linux의 내 컴퓨터에서 실행하는 AI 봇 
 
 설치하면 바로 쓸 수 있습니다. 백그라운드 작업, 예약 규칙, 내 확인을 기다리는 항목이 기본으로 들어 있습니다.
 
-**0.1.40:** 켜기 전에 시험할 수 있는 작업 20개를 추가했습니다. 미리보기에 코드 강조, JSON 접기, CSV 표, 이미지 확대·축소, 파일 변경 시 갱신을 추가하고 매년·사전 알림을 지원합니다. [변경 내역](./CHANGELOG_ko.md#0140---2026-11-15)
+**0.1.42:** 앱에서 문제와 제안을 바로 보낼 수 있습니다. Modelflare에 로그인했다면 문의로 접수되고 답변은 이메일로 받습니다. 오류에서 열면 그 오류도 함께 첨부됩니다. [변경 내역](./CHANGELOG_ko.md#0142---2026-11-18)
 
 📥 [다운로드](#-다운로드-및-실행) · 🌠 [스크린샷](#-스크린샷) · 🌟 [기능](#-주요-기능) · 🆚 [비교](#-anymodelbot과-grok-bot-openai-dots-claude-duet-비교) · 🔐 [개인정보](#-작동-방식과-개인정보)
 
@@ -405,6 +405,7 @@ Modelflare는 요청 로그를 보관합니다. 보관 항목과 기간은 [신�
 
 - **질문과 아이디어:** [GitHub Discussions](https://github.com/modelflare-ai/AnyModelBot/discussions)
 - **버그 및 기능 요청:** [GitHub Issues](https://github.com/modelflare-ai/AnyModelBot/issues)
+- **앱 내 피드백:** 계정 메뉴 → 의견 및 피드백(Modelflare에 로그인했다면 계정의 문의로 접수)
 - **커뮤니티 채팅:** [Discord](https://discord.gg/umBN6wX3zJ) · [Telegram](https://t.me/+Tx6Payfzxqk2ZGVl)
 - **이메일:** [support@anymodel.bot](mailto:support@anymodel.bot)
 - **Modelflare 소식:** [X의 @modelflare_dev](https://x.com/modelflare_dev)

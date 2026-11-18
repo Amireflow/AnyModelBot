@@ -23,6 +23,7 @@ import { TroubleshootPane } from "./troubleshoot.js";
 import { AboutMePane } from "../components/about-me.js";
 import { CommunityLinks } from "../components/community.js";
 import { QQ_GROUP } from "../lib/community.js";
+import { openFeedback } from "../lib/feedback.js";
 import { CollabPane } from "../components/collab.js";
 import { ConnectionSheets, connectionRows, useConnections } from "./connections.js";
 import { PwshHint } from "../components/pwsh-hint.js";
@@ -559,6 +560,9 @@ export function SettingsScreen({ tab, query: q, onQuery: setQ, onTab, focusRow, 
       // 故障排查页是单独的面板（troubleshoot.js），这一行只给搜索用：搜"日志""测试模型"时能找到入口
       { tab: "troubleshoot", id: "troubleshoot", name: t("settings.tabs.troubleshoot"), sub: t("settings.rows.troubleshoot.sub"), keys: t("settings.rows.troubleshoot.keys"),
         go: () => { setQ(""); onTab?.("troubleshoot"); } },
+      // 意见和反馈：打开应用内反馈弹窗（components/feedback.js）
+      { tab: "about", id: "feedback", name: t("feedback.title"), sub: t("feedback.settingsSub"), keys: t("feedback.settingsKeys"),
+        ctl: html`<button type="button" class="btn sm" aria-haspopup="dialog" onClick=${() => openFeedback()}>${t("feedback.settingsButton")}</button>` },
       // 社群（lib/community.js）：中文界面后面多一个 QQ 群号 + 复制（和监听地址、数据目录那几行一样）
       { tab: "about", id: "community", name: t("settings.rows.community.name"), sub: t("settings.rows.community.sub"), keys: t("settings.rows.community.keys"),
         ctl: html`<${CommunityLinks} />${lang === "zh-CN" && html`<span class="val">${QQ_GROUP}</span><${CopyButton} text=${QQ_GROUP} label=${t("settings.rows.community.copyQq")} />`}` },

@@ -206,15 +206,16 @@ function createWindow(): void {
       .catch(() => false)
       .then((handled) => { if (!handled && !wc.isDestroyed()) wc.setZoomLevel(zoom === 0 ? 0 : wc.getZoomLevel() + zoom); });
   });
-  // 只允许停留在本机管理界面；外部链接交给系统浏览器
+  // 只允许停留在本机管理界面；外部链接交给系统浏览器，mailto:（意见和反馈里的「发邮件」）交给系统的邮件程序
+  const external = (url: string) => /^(https?|mailto):/i.test(url);
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/i.test(url)) void shell.openExternal(url);
+    if (external(url)) void shell.openExternal(url);
     return { action: "deny" };
   });
   win.webContents.on("will-navigate", (e, url) => {
     if (new URL(url).origin !== origin) {
       e.preventDefault();
-      if (/^https?:/i.test(url)) void shell.openExternal(url);
+      if (external(url)) void shell.openExternal(url);
     }
   });
   win.webContents.on("did-finish-load", () => {

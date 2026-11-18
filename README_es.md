@@ -60,7 +60,7 @@ Las conversaciones, la memoria, los archivos y las claves de API se quedan en tu
 
 Listo para usar desde la instalación: las tareas en segundo plano, las reglas programadas y los asuntos que esperan tu visto bueno ya vienen integrados.
 
-**0.1.40:** 20 tareas listas que puedes probar antes de activar; vista previa con resaltado de código, plegado de JSON, tablas CSV, zoom de imágenes y actualización al cambiar los archivos; recordatorios anuales y anticipados. [Historial de cambios](./CHANGELOG_es.md#0140---2026-11-15)
+**0.1.42:** envía problemas y sugerencias desde la app: con sesión en Modelflare se convierten en una consulta de soporte y las respuestas llegan a tu correo; si lo abres desde un error, se incluye ese error. [Historial de cambios](./CHANGELOG_es.md#0142---2026-11-18)
 
 📥 [Descargar](#-descargar-y-ejecutar) · 🌠 [Capturas](#-capturas-de-pantalla) · 🌟 [Funciones](#-funciones-principales) · 🆚 [Comparativa](#-anymodelbot-frente-a-grok-bot-openai-dots-y-claude-duet) · 🔐 [Privacidad](#-cómo-funciona-y-privacidad)
 
@@ -405,6 +405,7 @@ Licencias y avisos completos: [THIRD_PARTY_NOTICES_es.md](./THIRD_PARTY_NOTICES_
 
 - **Preguntas e ideas:** [GitHub Discussions](https://github.com/modelflare-ai/AnyModelBot/discussions)
 - **Errores y solicitudes de funciones:** [GitHub Issues](https://github.com/modelflare-ai/AnyModelBot/issues)
+- **Comentarios desde la app:** menú de la cuenta → Comentarios (con sesión en Modelflare, se convierten en una consulta de soporte en tu cuenta)
 - **Chat con la comunidad:** [Discord](https://discord.gg/umBN6wX3zJ) · [Telegram](https://t.me/+Tx6Payfzxqk2ZGVl)
 - **Correo:** [support@anymodel.bot](mailto:support@anymodel.bot)
 - **Noticias de Modelflare:** [@modelflare_dev en X](https://x.com/modelflare_dev)

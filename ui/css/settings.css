@@ -429,3 +429,21 @@ button.need-head:hover, button.need-head:hover .need-who b { color: var(--fg); }
 /* 记忆页签顶部：关于我的一行入口（R4） */
 .aboutme-entry { display: flex; align-items: center; gap: var(--space-2); width: 100%; margin-bottom: var(--space-2); padding: var(--space-2-5) var(--card-pad); border: 0; border-radius: var(--r-card); background: var(--well); font: inherit; font-size: var(--fs-sm); color: var(--fg); text-align: left; cursor: pointer; }
 .aboutme-entry .text { color: var(--fg-2); }
+
+/* 意见和反馈（components/feedback.js）：全局弹窗，从账户菜单、错误卡片、故障排查、设置 › 关于打开 */
+.fb-form { display: grid; gap: var(--stack-gap); }
+.fb-count { justify-self: end; font-size: var(--fs-xs); color: var(--muted); }
+.fb-count.over { color: var(--red); }
+.fb-attached { display: grid; gap: var(--space-1-5); }
+.fb-pre { margin: 0; max-height: calc(var(--fs-xs) * 10); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font-family: var(--code); font-size: var(--fs-2xs); color: var(--fg-2); background: var(--well); border-radius: var(--r-item-sm); padding: var(--space-2) var(--space-2-5); }
+.fb-preview { display: grid; gap: var(--space-2); justify-items: start; }
+.fb-preview > .fb-pre, .fb-preview > .hint { justify-self: stretch; margin: 0; }
+.fb-preview-body { max-height: calc(var(--fs-xs) * 18); }
+.fb-check-sub { display: block; margin-top: var(--space-0-5); }
+.fb-env, .fb-where { margin: 0; overflow-wrap: anywhere; }
+.fb-sheet .actions { flex-wrap: wrap; align-items: center; }
+.fb-alt { margin-right: auto; }
+.fb-done { display: grid; justify-items: center; gap: var(--space-3); text-align: center; padding: var(--space-4) 0; }
+.fb-done p { margin: 0; color: var(--fg-2); }
+.fb-done-mark { display: grid; place-items: center; width: var(--ctl-xl); height: var(--ctl-xl); border-radius: var(--r-tile); background: var(--green-soft); color: var(--green); }
+.err-detail-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ctl-gap); }

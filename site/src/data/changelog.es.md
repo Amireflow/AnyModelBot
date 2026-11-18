@@ -4,6 +4,16 @@
 
 Aquí se recogen los cambios que notarás en la app. Para versiones anteriores, consulta las [versiones publicadas en GitHub](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.42 - 2026-11-18
+
+### Novedades
+
+- **Comentarios desde la app:** abre la ventana de comentarios desde Comentarios en el menú de la cuenta, «Informar de este problema» bajo un error en el chat, Ajustes → Solución de problemas o Ajustes → Acerca de. Elige Problema, Sugerencia u Otro, escribe unas líneas y envíalo. La versión y los datos del sistema se incluyen siempre, y si lo abres desde un error, también ese error. El diagnóstico solo se incluye si marcas la casilla, puedes ver el texto completo antes de enviarlo y nunca se adjuntan conversaciones ni capturas. Con sesión en Modelflare, tus comentarios se convierten en una consulta de soporte en tu cuenta: las respuestas te llegan por correo y aparecen en la página de consultas de Modelflare, hasta 3 al día. Sin sesión puedes enviarlos por GitHub o por correo, con los datos ya rellenados.
+
+### Mejoras y correcciones
+
+- **Enlaces de correo:** en la app de escritorio, los enlaces de correo del chat se abren en la app de correo del sistema. Antes no pasaba nada al pulsarlos.
+
 ## 0.1.41 - 2026-11-16
 
 ### Novedades

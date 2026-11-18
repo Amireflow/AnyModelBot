@@ -18,6 +18,8 @@ import { normalizeSettings } from "../src/agent/settings.js";
 import { locateDshRuntime } from "../src/agent/host.js";
 import { findAppRoot } from "../src/magpie/supervisor.js";
 import { Store } from "../src/store/db.js";
+import { sendFeedback } from "../src/feedback.js";
+import { t } from "../src/i18n/index.js";
 import { bareModel, isBotProviderModel, isGatewayGroupModel, resolveGroupModel, routeModel, skillHeader } from "../src/providers/modelflare.js";
 
 describe("回环 PKCE 登录", () => {
@@ -235,6 +237,39 @@ describe("AccountManager", () => {
     await until(() => manager.status().state === "signed_out");
     expect(manager.status().error).toBe("");
     expect(calls).toEqual([]);
+  });
+
+  describe("应用内反馈（src/feedback.ts → connected-app /feedback）", () => {
+    // 应用里用到的部分：有内置网关（magpie）才有 Modelflare 账户
+    const app = () => ({ magpie: {}, account: manager, config: { llm: { defaultModel: "gpt-test" } } }) as unknown as Parameters<typeof sendFeedback>[0];
+
+    it("没登录不发；登录后带类型、拼好的正文和 Request ID 提交，回执给出在 Modelflare 查看的地址", async () => {
+      await expect(sendFeedback(app(), { kind: "bug", text: "导出 PDF 时应用一直转圈" })).rejects.toMatchObject({ status: 409 });
+      expect(mf.s.feedback).toEqual([]);
+      await signIn();
+      const r = await sendFeedback(app(), { kind: "bug", text: "导出 PDF 时应用一直转圈", errorText: "HTTP 500 upstream error key=sk-abcdefghijklmnop", relatedRequestId: " req_123 " });
+      expect(r).toEqual({ ticketId: 41, topic: "bug", supportUrl: `${mf.url}/support-tickets?ticket_id=41` });
+      expect(mf.s.feedback).toHaveLength(1);
+      const sent = mf.s.feedback[0] as { kind: string; body: string; related_request_id: string };
+      expect(sent.kind).toBe("bug");
+      expect(sent.related_request_id).toBe("req_123");
+      expect(sent.body.startsWith("导出 PDF 时应用一直转圈\n")).toBe(true);
+      expect(sent.body).toContain("AnyModelBot ");
+      expect(sent.body).toContain("gpt-test");
+      expect(sent.body).toContain("HTTP 500 upstream error");
+      // 报错里的密钥不会发出去
+      expect(sent.body).not.toContain("sk-abcdefghijklmnop");
+    });
+
+    it("太短不发；每天限额用完（429）和旧版服务端没有接口（404）换成能看懂的提示", async () => {
+      await signIn();
+      await expect(sendFeedback(app(), { kind: "suggestion", text: "加快捷键" })).rejects.toMatchObject({ status: 400 });
+      expect(mf.s.feedback).toEqual([]);
+      mf.s.feedbackStatus = 429;
+      await expect(sendFeedback(app(), { kind: "suggestion", text: "希望能自定义更多快捷键" })).rejects.toMatchObject({ status: 429, message: t("feedback.rate_limited") });
+      mf.s.feedbackStatus = 404;
+      await expect(sendFeedback(app(), { kind: "suggestion", text: "希望能自定义更多快捷键" })).rejects.toMatchObject({ status: 502, message: t("feedback.unavailable") });
+    });
   });
 
   it("登录后签发本机 Key 并接到内置网关；refresh token 只存在 600 权限的账户文件里", async () => {

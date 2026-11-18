@@ -10,7 +10,8 @@ export default {
     "Modelflare keeps request logs for a retention period (you can pick 7–365 days in your profile) per its “Data retention” doc; when a request ultimately fails, or a route fails before a fallback succeeds, the gateway keeps one copy of the raw request (without the Authorization header) for troubleshooting and deletes it after 72 hours (same doc).",
     "Messages in Slack, Telegram and Discord pass through those platforms' servers by nature.",
     "If you connect apps such as Notion or GitHub, or add a custom MCP connector, what bots read and write goes to those services, and what they read also goes into model requests.",
-    "Installed desktop apps check GitHub for updates after startup and every 6 hours, and download update files in the background by default. You can turn automatic downloads off in Settings → General. Requests contain no account credentials or chat content. Installation requires you to click Restart and update, with no tasks running."
+    "Installed desktop apps check GitHub for updates after startup and every 6 hours, and download update files in the background by default. You can turn automatic downloads off in Settings → General. Requests contain no account credentials or chat content. Installation requires you to click Restart and update, with no tasks running.",
+    "When you press Send in the app's Feedback window, what you wrote, the version and system details, and any error and diagnostics you chose to include (keys replaced by ***) go to modelflare.dev as a support ticket on your Modelflare account. You can preview the full text first; conversations and screenshots are never attached."
   ],
   "guardsTitle": "Safeguards in the code",
   "limitsTitle": "Limits and promises we don't make",

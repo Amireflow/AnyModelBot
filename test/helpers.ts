@@ -343,6 +343,10 @@ export async function mockModelflare() {
     keyLists: 0,
     /** 设了就在令牌响应里带 ID Token（sub = 它） */
     subject: "" as string,
+    /** 收到的应用内反馈（POST /feedback 的请求体） */
+    feedback: [] as Array<Record<string, unknown>>,
+    /** POST /feedback 的响应：200 = 收下并回执；429 = 当天次数用完（和真实服务端一样没有正文）；404 = 旧版服务端没有这个接口 */
+    feedbackStatus: 200 as 200 | 429 | 404,
   };
   let base = "";
   let n = 0;
@@ -402,6 +406,13 @@ export async function mockModelflare() {
       const token = String(req.headers.authorization ?? "").replace(/^Bearer /, "");
       if (s.revokeAll || !s.access.has(token)) return json({ error: "invalid_token" }, 401);
       const p = u.pathname.slice("/api/connected-app".length);
+      if (p === "/feedback" && req.method === "POST") {
+        if (s.feedbackStatus !== 200) return res.writeHead(s.feedbackStatus).end();
+        const b = await readJson(req);
+        s.feedback.push(b);
+        const topic = b.kind === "suggestion" ? "suggestion" : b.kind === "other" ? "other" : "bug";
+        return json({ success: true, data: { ticket_id: 40 + s.feedback.length, topic, support_url: `${base}/support-tickets?ticket_id=${40 + s.feedback.length}` } });
+      }
       if (p === "/account" && s.accountFail) return json({ success: false, message: "account unavailable" }, 500);
       if (p === "/account") return json({ success: true, data: { display_name: "Ada", username: "ada", group: "default", balance_usd: s.balance, used_usd: 3, billed_to_enterprise: false, quota_per_unit: 500000, ...(s.bot !== undefined ? { bot: s.bot } : {}) } });
       if (p === "/api-keys" && req.method === "POST") {

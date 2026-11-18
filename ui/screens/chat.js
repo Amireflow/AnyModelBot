@@ -7,6 +7,7 @@ import { Markdown, Linkified } from "../components/markdown.js";
 import { Composer, setConvModel, useConvModel } from "../components/composer.js";
 import { officialSource } from "../lib/models.js";
 import { classifyError, redact, uiActionOf } from "../lib/errors.js";
+import { openFeedback } from "../lib/feedback.js";
 import { MF_TOPUP } from "../lib/links.js";
 import { PwshHint } from "../components/pwsh-hint.js";
 import { ActivityLine, currentStep, upsertStep } from "../components/activity.js";
@@ -328,6 +329,7 @@ export function MsgActions({ text, at }) {
  * - 余额 / 额度不足：Modelflare 的给"充值"；自己的 API Key（source = 厂商名）不引导去 Modelflare 充值，只提示去厂商那里看。
  * - 凭据失效、模型不可用、限流、网络、其他 403 分开说，不把所有 403 都当成欠费。
  * - "重新发送"是从头再执行这条消息：这一轮已经做过操作（有步骤、交付了文件）时先说清楚可能会重复，再让用户决定。
+ * - "反馈这个问题"打开应用内反馈，附带这条报错（已去掉凭据）和 Request ID。
  */
 export function ErrorNotice({ text, onRetry, onFixKey, onSwitchModel, source = "", ranSteps = false, topupUrl = "", disabled = false, detailsAfterActions = false }) {
   const [retrying, setRetrying] = useState(false);
@@ -352,17 +354,20 @@ export function ErrorNotice({ text, onRetry, onFixKey, onSwitchModel, source = "
   };
   const details = kind !== "unfinished" || e.raw;
   const detailText = redact(text);
+  // 反馈这条报错（components/feedback.js）：带上去掉凭据的报错和 Request ID。有"错误详情"时放在复制旁边，没有时放在操作按钮最后
+  const reportButton = html`<button type="button" class="btn sm ghost" aria-haspopup="dialog" onClick=${() => openFeedback({ kind: "bug", errorText: detailText, relatedRequestId: e.requestId })}>${t("feedback.reportError")}</button>`;
   const detail = details && html`<details class="err-details">
       <summary>${t("firstUse.errors.details")}</summary>
       ${(e.status || e.requestId) && html`<div class="err-meta">${e.status ? html`<span>${t("firstUse.errors.status", { status: e.status })}</span>` : ""}${e.requestId ? html`<span>Request ID: <code>${e.requestId}</code></span>` : ""}</div>`}
       <pre class="err-raw">${detailText}</pre>
-      <${CopyButton} text=${detailText} label=${t("firstUse.errors.copy")} />
+      <span class="err-detail-actions"><${CopyButton} text=${detailText} label=${t("firstUse.errors.copy")} />${reportButton}</span>
     </details>`;
   return html`<${Notice} tone="red" action=${html`<div class="err-actions">
       ${kind === "balance" && !source && html`<a class="btn primary" href=${topupUrl || MF_TOPUP} target="_blank" rel="noopener noreferrer">${t("sidebar.topUp")}</a>`}
       ${auth && onFixKey && html`<button type="button" class="btn" onClick=${onFixKey}>${source ? t("chat.error.fixOfficialKey") : t("chat.error.fixKey")}</button>`}
       ${(kind === "balance" || kind === "model") && onSwitchModel && html`<button type="button" class="btn" disabled=${disabled || retrying} onClick=${onSwitchModel}>${t("chat.menu.switchModel")}</button>`}
-      ${onRetry && kind !== "auth" && html`<button type="button" class="btn" disabled=${disabled || retrying} title=${t("firstUse.errors.retryHint")} onClick=${retry}>${t("firstUse.errors.retry")}</button>`}</div>${detailsAfterActions && detail}`}>
+      ${onRetry && kind !== "auth" && html`<button type="button" class="btn" disabled=${disabled || retrying} title=${t("firstUse.errors.retryHint")} onClick=${retry}>${t("firstUse.errors.retry")}</button>`}
+      ${!details && reportButton}</div>${detailsAfterActions && detail}`}>
     <div class="err-main">${main}</div>
     ${hint && html`<div class="err-hint">${hint}</div>`}
     ${!detailsAfterActions && detail}

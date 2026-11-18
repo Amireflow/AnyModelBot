@@ -20,6 +20,7 @@ import { HttpError, NOTION_CALLBACK, send, webEvent, consoleConvId, isLoopback, 
 import { systemRoutes } from "./routes/system.js";
 import { modelsRoutes } from "./routes/models.js";
 import { accountRoutes } from "./routes/account.js";
+import { feedbackRoutes } from "./routes/feedback.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { computerRoutes } from "./routes/computer.js";
 import { channelsRoutes } from "./routes/channels.js";
@@ -255,7 +256,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
     publicGroup,
     groupMembers,
   };
-  const routes: Route[] = [systemRoutes(ctx), modelsRoutes(ctx), accountRoutes(ctx), settingsRoutes(ctx), aboutMeRoutes(ctx), collabRoutes(ctx), computerRoutes(ctx), channelsRoutes(ctx), connectionsRoutes(ctx), appsRoutes(ctx), tasksRoutes(ctx), routinesRoutes(ctx), chatRoutes(ctx, filePreviews), botsRoutes(ctx, filePreviews), skillInstallsRoutes(ctx), mySkillsRoutes(ctx)];
+  const routes: Route[] = [systemRoutes(ctx), modelsRoutes(ctx), accountRoutes(ctx), feedbackRoutes(ctx), settingsRoutes(ctx), aboutMeRoutes(ctx), collabRoutes(ctx), computerRoutes(ctx), channelsRoutes(ctx), connectionsRoutes(ctx), appsRoutes(ctx), tasksRoutes(ctx), routinesRoutes(ctx), chatRoutes(ctx, filePreviews), botsRoutes(ctx, filePreviews), skillInstallsRoutes(ctx), mySkillsRoutes(ctx)];
 
   async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
     const p = url.pathname.slice("/amb/api".length);

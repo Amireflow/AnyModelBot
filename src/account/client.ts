@@ -68,6 +68,16 @@ export interface UsageRow {
   token_used: number;
 }
 
+/** 应用内反馈的类型，对应 Modelflare 工单主题 bug / suggestion / other */
+export type FeedbackKind = "bug" | "suggestion" | "other";
+
+/** 提交反馈后 Modelflare 的回执：support_url 是控制台里看这条工单和回复的页面 */
+export interface FeedbackReceipt {
+  ticket_id: number;
+  topic: string;
+  support_url: string;
+}
+
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
@@ -189,6 +199,10 @@ export class AccountSession {
   }
   invite(): Promise<string> {
     return this.request("GET", "/invite");
+  }
+  /** 应用内反馈：进入用户自己的 Modelflare 工单（和控制台联系表单同一个收件箱，每天限 3 次） */
+  feedback(input: { kind: FeedbackKind; body: string; related_request_id?: string }): Promise<FeedbackReceipt> {
+    return this.request("POST", "/feedback", input);
   }
   listKeys(): Promise<AppKey[]> {
     return this.request("GET", "/api-keys");

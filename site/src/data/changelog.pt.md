@@ -4,6 +4,16 @@
 
 Aqui estão as mudanças que você vai notar no app. Para versões mais antigas, veja as [versões no GitHub](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.42 - 2026-11-18
+
+### Novidades
+
+- **Feedback pelo app:** abra a janela de feedback em Feedback no menu da conta, em "Relatar este problema" abaixo de um erro no chat, em Configurações → Solução de problemas ou em Configurações → Sobre. Escolha Problema, Sugestão ou Outro, escreva algumas linhas e envie. A versão e os dados do sistema vão sempre junto e, se você abrir a partir de um erro, esse erro também. O diagnóstico só vai se você marcar a opção, dá para ver o texto completo antes de enviar e conversas e capturas de tela nunca são anexadas. Com login no Modelflare, o feedback vira um chamado de suporte na sua conta: as respostas chegam por e-mail e aparecem na página de chamados do Modelflare, até 3 por dia. Sem login, dá para enviar pelo GitHub ou por e-mail, com os dados já preenchidos.
+
+### Melhorias e correções
+
+- **Links de e-mail:** no app para desktop, links de e-mail no chat abrem no app de e-mail do sistema. Antes, clicar neles não fazia nada.
+
 ## 0.1.41 - 2026-11-16
 
 ### Novidades

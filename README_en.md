@@ -60,7 +60,7 @@ Conversations, memory, files, and API keys stay on your device. Models can come 
 
 Ready to use after install: background tasks, scheduled rules, and items waiting for your OK are built in.
 
-**0.1.40:** 20 ready-made tasks with a trial before activation; file previews gain code highlighting, JSON folding, CSV tables, image zoom and refresh on file changes; yearly and advance reminders. [Changelog](./CHANGELOG_en.md#0140---2026-11-15)
+**0.1.42:** send problems and suggestions from inside the app: when you're signed in to Modelflare they become a support ticket and replies reach your inbox; opening it from an error includes that error. [Changelog](./CHANGELOG_en.md#0142---2026-11-18)
 
 📥 [Download](#-download-and-run) · 🌠 [Screenshots](#-screenshots) · 🌟 [Features](#-key-features) · 🆚 [Compare](#-anymodelbot-vs-grok-bot-openai-dots-and-claude-duet) · 🔐 [Privacy](#-how-it-works--privacy)
 
@@ -405,6 +405,7 @@ Full licenses and notices: [THIRD_PARTY_NOTICES_en.md](./THIRD_PARTY_NOTICES_en.
 
 - **Questions and ideas:** [GitHub Discussions](https://github.com/modelflare-ai/AnyModelBot/discussions)
 - **Bugs and feature requests:** [GitHub Issues](https://github.com/modelflare-ai/AnyModelBot/issues)
+- **In-app feedback:** account menu → Feedback (signed in to Modelflare, it becomes a support ticket on your account)
 - **Chat with the community:** [Discord](https://discord.gg/umBN6wX3zJ) · [Telegram](https://t.me/+Tx6Payfzxqk2ZGVl)
 - **Email:** [support@anymodel.bot](mailto:support@anymodel.bot)
 - **News from Modelflare:** [@modelflare_dev on X](https://x.com/modelflare_dev)
