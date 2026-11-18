@@ -504,11 +504,12 @@
       "audience": "Döviz bozan veya altın alanlar",
       "steps": [
         "Herkese açık fiyatı günde bir kez kontrol eder",
-        "Yalnızca senin seviyene gelince tek satır gönderir",
+        "Yalnızca senin seviyene gelince tek satır gönderir, sonuna yalnızca bilgi amaçlı olduğunu ekler",
+        "Güvenilir fiyat bulamazsa tahmin etmez, \"Bulunamadı\" yazar",
         "Aynı gün ikinci kez hatırlatmaz"
       ],
-      "sample": "USD/CNY şu an 7,08 (Kotasyon sitesi, 10:02), 7,10 altında.",
-      "instruction": "{item} güncel fiyatına bak. Fiyat {price} seviyesinin {direction} olduğunda, güncel fiyatı, kaynağı ve saati tek cümlede söyle; o seviyeye gelmediyse mesaj gönderme. Aynı gün ikinci kez hatırlatma (bu klasördeki alert.md dosyasında tut).",
+      "sample": "USD/CNY şu an 7,08 (Kotasyon sitesi, 10:02), 7,10 altında. Yalnızca bilgi amaçlıdır, yatırım tavsiyesi değildir.",
+      "instruction": "{item} güncel fiyatına bak. Fiyat {price} seviyesinin {direction} olduğunda, güncel fiyatı, kaynağı ve saati tek cümlede söyle ve sonuna \"Yalnızca bilgi amaçlıdır, yatırım tavsiyesi değildir.\" ekle; o seviyeye gelmediyse mesaj gönderme. Yalnızca bulduğun güvenilir, herkese açık kotasyon sayfalarını kullan; güvenilir bir fiyat bulamazsan yalnızca \"{item}: bulunamadı.\" yaz. Fiyatı tahmin etme ve seviyeye ulaşılmış sayma (alert.md dosyasına yazma, ertesi gün her zamanki gibi yine bak). Aynı gün ikinci kez hatırlatma (bu klasördeki alert.md dosyasında tut).",
       "params": {
         "item": {
           "label": "Kur veya fiyat",

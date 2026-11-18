@@ -26,7 +26,7 @@ import { t, useLang } from "../lib/i18n.js";
 import { notify, plainSnippet } from "../lib/notify.js";
 import { reducedMotion, usePresence } from "../design/motion.js";
 import { ConversationFind, HistoryBar, HistoryPageButton, useMessageHistory } from "../components/chat-search.js";
-import { chatView, saveChatView, useChatDraft } from "../lib/chat-view.js";
+import { chatView, saveChatView, useChatDraft, useFollowBottom } from "../lib/chat-view.js";
 import { SkillInstallCard } from "../components/skill-install-card.js";
 import { SkillDraftCard } from "../components/skill-draft-card.js";
 import { openSkillDetail } from "../lib/my-skills.js";
@@ -404,6 +404,8 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
   const lang = useLang();
   const scroller = useRef(null);
   const stick = useRef(savedView.current.atBottom);
+  // 内容自己长高、输入框变高时：在底部的再贴一次底（关于我的提示行、草稿卡不被输入框盖住）
+  useFollowBottom(scroller, stick);
   const history = useMessageHistory({ scope: { conversation: viewId }, scroller, stick, initialFocus, visible });
   const ta = useRef(null);
   const composer = useRef(null); // 输入框给的 { openModel, closeSlash }

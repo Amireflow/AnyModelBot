@@ -6,6 +6,8 @@ export default {
   queued: "Bu yanıt bitince beceriyi derleyeceğim",
   card: {
     title: "{bot} bir beceri derledi. Uygun görünce kaydet",
+    savedTitle: "{bot} tarafından derlenen beceri kaydedildi",
+    updatedTitle: "Beceri, {bot} tarafından derlenen sürümle güncellendi",
     drafting: "Beceri derleniyor…",
     saving: "Kaydediliyor…",
     missing: "Bu kart yok. Kaldırılmış olabilir.",
@@ -123,8 +125,8 @@ export default {
     deleteTitle: "“{name}” becerisi silinsin mi?",
     deleteBody: "Hiçbir bot bunu kullanamaz. Bu geri alınamaz.",
     deleteBodyRules: {
-      one: "Hiçbir bot bunu kullanamaz. Bunu kullanan {count} rutin duraklatılır. Bu geri alınamaz.",
-      other: "Hiçbir bot bunu kullanamaz. Bunu kullanan {count} rutin duraklatılır. Bu geri alınamaz.",
+      one: "Hiçbir bot bunu kullanamaz. Bunu kullanan {count} rutin otomatik olarak kapatılır. Bu geri alınamaz.",
+      other: "Hiçbir bot bunu kullanamaz. Bunu kullanan {count} rutin otomatik olarak kapatılır. Bu geri alınamaz.",
     },
     deleted: "“{name}” silindi",
     unverified: "Doğrulanmadı: bu beceri görev bitmeden kaydedildi. Bir kez başarıyla tamamlanınca işaret kalkar.",

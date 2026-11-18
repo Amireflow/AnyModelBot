@@ -39,9 +39,9 @@ export default {
       "too_many": "A bot can have up to 100 imported skills. Delete unused skills first."
     },
     "imported": {
-      "active": "Imported {name}. Ready from your next message.",
-      "waiting": "Imported {name}. Ready from your next message after the current task ends.",
-      "loading": "Imported {name}. Loading. Ready from your next message.",
+      "active": "Imported \"{name}\". Ready from your next message.",
+      "waiting": "Imported \"{name}\". Ready from your next message after the current task ends.",
+      "loading": "Imported \"{name}\". Loading. Ready from your next message.",
     },
     "manualOnly": "This skill is set so the bot won't use it on its own. Write /{name} in a message to use it.",
   },

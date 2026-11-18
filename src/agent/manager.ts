@@ -1181,7 +1181,10 @@ export class AgentManager {
     if (!conv) return { error: "Couldn't find this conversation, so no draft card was shown." };
     const gate = this.saveSkillGate(botId, conv);
     if (gate) return { text: gate.say ? `No draft card was shown. ${gate.why} Reply to the user with exactly this sentence and nothing else: 「${gate.say}」` : `No draft card was shown here. ${gate.why}` };
-    const card = drafts.request({ botId, conversationId: conv, args: (b?.args ?? {}) as Record<string, unknown>, records: this.skillRecords(botId, conv), context: this.recentUserText(conv) });
+    const args = (b?.args ?? {}) as Record<string, unknown>;
+    // 应用、技能、做不了定时的步骤只从要存的那件事里认（不混进这段对话里更早的事）
+    const from = this.skillTaskStart(conv, typeof args.task_request === "string" ? args.task_request : "");
+    const card = drafts.request({ botId, conversationId: conv, args, records: this.skillRecords(botId, conv, from), context: this.recentUserText(conv) });
     await drafts.deliver(conv, card);
     const d = card.draft!;
     const lines = [`Draft card shown for "${d.title}" (${d.name}). The user saves, edits or cancels it on the card; nothing is saved until then.`];
@@ -1213,12 +1216,20 @@ export class AgentManager {
     return { why: "Nothing was done with tools in this chat yet.", say: tr("mySkills.nothing") };
   }
 
-  /** 这段对话（/new 之后）里的工具步骤：存成过的消息 + 正在进行的这一轮 */
-  private conversationSteps(conv: string): ActivityStep[] {
-    const since = this.o.store.listSegments(conv).filter((x) => x.reason === "manual").at(-1)?.endedAt ?? 0;
+  /** 这段对话（/new 之后）开始的时间 */
+  private segmentStart(conv: string): number {
+    return this.o.store.listSegments(conv).filter((x) => x.reason === "manual").at(-1)?.endedAt ?? 0;
+  }
+
+  /**
+   * 这段对话（/new 之后）里的工具步骤：存成过的消息 + 正在进行的这一轮。
+   * after：只要这条用户消息之后的回复（存成技能时只看要存的那件事）
+   */
+  private conversationSteps(conv: string, after?: number): ActivityStep[] {
+    const since = this.segmentStart(conv);
     const steps: ActivityStep[] = [];
     for (const m of this.o.store.listMessages(conv, 80)) {
-      if (m.role !== "assistant" || !m.steps || m.createdAt < since) continue;
+      if (m.role !== "assistant" || !m.steps || m.createdAt < since || (after !== undefined && m.id <= after)) continue;
       steps.push(...(this.o.store.getActivity(conv, m.id) as ActivityStep[]));
     }
     const live = this.turnsInProgress.get(conv);
@@ -1226,11 +1237,32 @@ export class AgentManager {
     return steps;
   }
 
-  /** 存成技能时宿主记下的：做事的工具调用有几次、定时运行做不了的步骤、用到的应用（按连接别名）和技能（带来源） */
-  skillRecords(botId: string, conv: string): SkillRecords {
+  /**
+   * 存成技能要存的那件事从哪条用户消息算起（返回它的 id，之后的回复都算这件事）：
+   * 模型给了用户提出这件事的原话（task_request）时，找这段对话里最近一条含它的用户消息；
+   * 没给、找不到时按最近做完的那件事算——正在进行的这一轮是说「存成技能」的那条，往前一条用户消息就是那件事的开头。
+   * 这段对话里没有更早的用户消息时 undefined（整段都算）
+   */
+  skillTaskStart(conv: string, quote: string): number | undefined {
+    const since = this.segmentStart(conv);
+    const users = this.o.store.listMessages(conv, 80).filter((m) => m.role === "user" && m.createdAt >= since);
+    const norm = (x: string) => x.replace(/\s+/g, " ").trim().toLowerCase();
+    const q = norm(quote).slice(0, 80);
+    if (q.length >= 2) {
+      const hit = users.findLast((m) => norm(m.content).includes(q));
+      if (hit) return hit.id;
+    }
+    return (this.turnsInProgress.has(conv) ? users.at(-2) : users.at(-1))?.id;
+  }
+
+  /**
+   * 存成技能时宿主记下的：做事的工具调用有几次、定时运行做不了的步骤、用到的应用（按连接别名）和技能（带来源）。
+   * after：只看这条用户消息之后的（要存的那件事）；不给时整段对话都算（「没有可存的事」按整段判断）
+   */
+  skillRecords(botId: string, conv: string, after?: number): SkillRecords {
     const apps = this.o.apps;
     const skills = this.o.userSkills;
-    return skillRecordsOf(this.conversationSteps(conv), {
+    return skillRecordsOf(this.conversationSteps(conv, after), {
       app: (key) => {
         const v = apps?.viewOf(key);
         if (!v) return undefined;
@@ -1441,8 +1473,9 @@ export class AgentManager {
             const hits = [...(about?.search(q).map((h) => `[关于我] ${h}`) ?? []), ...this.memory.search(scopes, q)];
             return { text: hits.length ? hits.join("\n") : `没有找到包含「${q}」的记忆` };
           }
+          // 不带关键词时给全文：关于我现在还在的句子（撤销、删掉的不在里面；空的写明是空的），机器人自己的记忆连同主题里的完整句子
           const mine = about?.text();
-          const text = [mine ? `## 关于我\n${mine}` : "", this.memory.snapshot(scopes)].filter(Boolean).join("\n\n");
+          const text = [about ? `## 关于我\n${mine || "（关于我是空的）"}` : "", this.memory.fullText(scopes)].filter(Boolean).join("\n\n");
           if (aboutOk) this.o.store.setKV(ABOUT_SEEN + conv!.id, String(this.aboutMe.seq));
           return { text: text || "长期记忆为空" };
         }

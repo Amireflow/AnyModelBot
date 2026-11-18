@@ -183,7 +183,8 @@ function createWindow(): void {
     const k = input.key.toLowerCase();
     if (k === "f12" || ((input.meta || input.control) && input.alt && ["i", "j", "c", "insert"].includes(k))) event.preventDefault();
   });
-  // ⌘W / Ctrl+W：焦点在右侧预览面板时只关当前标签（界面里的 __ambPreviewCloseTab 说了算），否则照常关窗口（和菜单的「关闭」一样，按设置收进托盘）。
+  // ⌘W / Ctrl+W：焦点在右侧预览面板时只关当前标签（界面里的 __ambPreviewCloseTab 说了算：点在预览正文上、焦点在预览的菜单里也算；
+  // 关掉最后一个后焦点留在空状态，再按也不关窗口），否则照常关窗口（和菜单的「关闭」一样，按设置收进托盘）。
   // 菜单快捷键先于网页收到按键，所以在这里拦下再问界面
   // ⌘ / Ctrl 加减号、⌘0 / Ctrl+0：焦点在预览内容区时缩放内容（__ambPreviewKey），否则和菜单的放大 / 缩小 / 实际大小一样缩放整个窗口
   win.webContents.on("before-input-event", (event, input) => {
@@ -192,7 +193,8 @@ function createWindow(): void {
     const key = input.key.toLowerCase();
     const wc = win?.webContents;
     if (!wc) return;
-    if (key === "w" && !input.shift) {
+    // 俄文等非拉丁键盘：W 键上的字母不是 w，按物理键认（拉丁布局只认字母本身，免得 AZERTY 的 ⌘Z 被当成 ⌘W）
+    if ((key === "w" || (input.code === "KeyW" && !/^[a-z]$/.test(key))) && !input.shift) {
       event.preventDefault();
       void wc.executeJavaScript("typeof window.__ambPreviewCloseTab === 'function' && window.__ambPreviewCloseTab() === true", true)
         .catch(() => false)

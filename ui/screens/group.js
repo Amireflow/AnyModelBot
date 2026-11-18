@@ -22,7 +22,7 @@ import { ErrorNotice, MsgActions, PromptCard, WorkLine, addFile, errText, isErro
 import { SkillInstallCard } from "../components/skill-install-card.js";
 import { SkillDraftCard } from "../components/skill-draft-card.js";
 import { ConversationFind, HistoryBar, HistoryPageButton, useMessageHistory } from "../components/chat-search.js";
-import { chatView, saveChatView, useChatDraft } from "../lib/chat-view.js";
+import { chatView, saveChatView, useChatDraft, useFollowBottom } from "../lib/chat-view.js";
 import { AboutMeNotes, aboutMeByItem } from "../components/about-me.js";
 import { replyAfter } from "../lib/collab.js";
 
@@ -136,6 +136,8 @@ export function GroupScreen({ group, bots, onEdit, onOpenSettings, onChanged, in
   const { sendKey } = useStore(prefs);
   const scroller = useRef(null);
   const stick = useRef(savedView.current.atBottom);
+  // 内容自己长高、输入框变高时：在底部的再贴一次底（关于我的提示行、草稿卡不被输入框盖住）
+  useFollowBottom(scroller, stick);
   const history = useMessageHistory({ scope: { group: group.id }, scroller, stick, initialFocus, visible });
   const ta = useRef(null);
   const mounted = useRef(true);

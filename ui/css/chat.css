@@ -14,6 +14,8 @@
 .chat {
   --col: min(var(--col-w), calc(100% - 2 * var(--page-gutter)));
   --dock-pb: var(--space-4);      /* 输入框离主区下沿 */
+  /* 输入框底座占的高度：一行字时是 --composer-h；多行、带附件时用量出来的实际高度（--composer-live，lib/chat-view.js useFollowBottom） */
+  --composer-room: calc(var(--dock-pb) + max(var(--composer-h), var(--composer-live, 0px)));
   position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column;
 }
 
@@ -43,13 +45,14 @@ button.head-bot:active { background: var(--pill-press); }
    滚动条总是占着右边那一条（scrollbar-gutter），输入框的底座也留同样一条：对话列和输入框按同一个宽度居中，左右边对齐 */
 .chat-scroll {
   flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; scroll-padding-top: var(--head-h); scrollbar-gutter: stable;
+  scroll-padding-bottom: calc(var(--composer-room) + var(--space-4));   /* 卡片把按钮滚到眼前时（scrollIntoView）停在输入框上方 */
   /* 输入框下面那一窄条：内容淡出，露出主区本身 */
   mask-image: linear-gradient(to top, transparent, var(--black) var(--space-4));
 }
 /* 下边距 = 输入框占的高度 + 48，最后一条消息滚到底时停在输入框上方 */
 .chat-col {
   width: var(--col); margin: 0 auto;
-  padding: calc(var(--head-h) + var(--space-6)) 0 calc(var(--dock-pb) + var(--composer-h) + var(--space-12)); display: flex; flex-direction: column;
+  padding: calc(var(--head-h) + var(--space-6)) 0 calc(var(--composer-room) + var(--space-12)); display: flex; flex-direction: column;
 }
 .chat-skel { display: grid; gap: var(--space-3-5); margin-top: var(--space-6); }
 .chat-skel .skel { height: 34px; border-radius: var(--r-bubble); }
@@ -168,7 +171,7 @@ button.act-head:active { background: var(--pill-hover); }
 .conv-divider + .msg-row, .conv-divider + .time-sep { margin-top: var(--space-4); }
 /* 对话底部的轻提示（已经是新对话了 / 代理没有启用 / 没能开始新对话）：输入框上方一颗深色胶囊，几秒后消失 */
 .chat-hint {
-  position: absolute; z-index: var(--z-float); left: 50%; bottom: calc(var(--dock-pb) + var(--composer-h) + var(--space-6)); translate: -50% 0;
+  position: absolute; z-index: var(--z-float); left: 50%; bottom: calc(var(--composer-room) + var(--space-6)); translate: -50% 0;
   max-width: min(480px, calc(100% - 2 * var(--page-gutter))); padding: var(--space-1-5) var(--ctl-px-md); border-radius: var(--r-ctl);
   background: var(--primary); color: var(--on-primary); font-size: var(--fs-sm); line-height: var(--lh-normal); text-align: center; overflow-wrap: anywhere;
   box-shadow: var(--shadow-float); pointer-events: none; animation: fade-in var(--dur-base) var(--ease-out);
@@ -306,7 +309,7 @@ a.file-card:active, .file-card:has(> .file-open:active) { background: var(--well
 
 /* —— 回到底部：玻璃小圆钮 —— */
 .to-bottom {
-  position: absolute; z-index: var(--z-float); left: 50%; bottom: calc(var(--dock-pb) + var(--composer-h) + var(--space-6)); translate: -50% 0;
+  position: absolute; z-index: var(--z-float); left: 50%; bottom: calc(var(--composer-room) + var(--space-6)); translate: -50% 0;
   width: var(--ctl-lg); height: var(--ctl-lg); border-radius: 50%; display: grid; place-items: center;
   background: var(--glass-float); backdrop-filter: var(--glass-filter-sm); color: var(--fg-2); box-shadow: var(--shadow-float);
   animation: fade-in var(--dur-base) var(--ease-out);

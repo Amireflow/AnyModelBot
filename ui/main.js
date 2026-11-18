@@ -361,7 +361,7 @@ function App() {
       previewToast(t("info.preview.expandHint"), "ok", 3000);
     }
   };
-  // 本对话的会话：「+」菜单和空状态列它们交付的文件（群聊是每个成员在群里的会话）
+  // 本对话的会话：「+」菜单和空状态列在它们里面打开过的文件（群聊是每个成员在群里的会话）
   const previewConvs = panelKind === "chat" && bot ? [`${bot.id}:web:console`]
     : panelKind === "app" ? (appBot ? [`${appBot.id}:web:console`] : [])
     : route.view === "group" ? ((groupsData?.groups || []).find((g) => g.id === route.groupId)?.members || []).map((id) => `${id}:web:group:${route.groupId}`)

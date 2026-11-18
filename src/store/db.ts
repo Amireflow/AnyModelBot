@@ -637,6 +637,10 @@ CREATE INDEX IF NOT EXISTS run_inputs_run ON run_inputs(run_id, taken_at);
 CREATE TABLE IF NOT EXISTS bot_groups (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, members TEXT NOT NULL DEFAULT '[]', last_bot TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+-- 右侧预览里打开过的文件（按会话；real 是真实路径，同一个文件只留一行；path 是最近一次打开时的写法，标签按它认）
+CREATE TABLE IF NOT EXISTS preview_opens (
+  conversation_id TEXT NOT NULL, real TEXT NOT NULL, path TEXT NOT NULL, at INTEGER NOT NULL,
+  PRIMARY KEY (conversation_id, real));
 `;
 
 /** 旧库补列（CREATE TABLE IF NOT EXISTS 不会改已有表）。 */
@@ -844,6 +848,7 @@ export class Store {
     const convs = this.db.prepare("SELECT id FROM conversations WHERE bot_id = ?").all(id) as Row[];
     for (const c of convs) this.db.prepare("DELETE FROM messages WHERE conversation_id = ?").run(String(c.id));
     this.db.prepare("DELETE FROM agent_segments WHERE conversation_id IN (SELECT id FROM conversations WHERE bot_id = ?)").run(id);
+    this.db.prepare("DELETE FROM preview_opens WHERE conversation_id IN (SELECT id FROM conversations WHERE bot_id = ?)").run(id);
     this.db.prepare("DELETE FROM conversations WHERE bot_id = ?").run(id);
     for (const g of this.listGroups()) if (g.members.includes(id)) this.updateGroup(g.id, { members: g.members.filter((m) => m !== id) });
     // 渠道账号（登录态、名单）是全局的，不跟着机器人删；这个机器人原来的账号改由别的机器人回复（core/routes.ts）
@@ -988,6 +993,7 @@ export class Store {
       this.db.prepare("DELETE FROM messages WHERE conversation_id = ?").run(c.id);
       this.db.prepare("DELETE FROM agent_segments WHERE conversation_id = ?").run(c.id);
       this.db.prepare("DELETE FROM agent_sessions WHERE conversation_id = ?").run(c.id);
+      this.db.prepare("DELETE FROM preview_opens WHERE conversation_id = ?").run(c.id);
       this.db.prepare("DELETE FROM conversations WHERE id = ?").run(c.id);
       this.db.prepare("DELETE FROM kv WHERE key = ?").run(`group-seen:${id}:${c.botId}`);
     }
@@ -1118,6 +1124,30 @@ export class Store {
   }
   clearMessages(conversationId: string): void {
     this.db.prepare("DELETE FROM messages WHERE conversation_id = ?").run(conversationId);
+    this.db.prepare("DELETE FROM preview_opens WHERE conversation_id = ?").run(conversationId);
+  }
+
+  /** 右侧预览打开了这个会话里的一个文件：记下（同一个文件只留一行，更新时间和写法）；每个会话最多留 200 个 */
+  notePreviewOpen(conversationId: string, real: string, input: string, at = Date.now()): void {
+    this.db
+      .prepare("INSERT INTO preview_opens (conversation_id, real, path, at) VALUES (?, ?, ?, ?) ON CONFLICT(conversation_id, real) DO UPDATE SET path = excluded.path, at = excluded.at")
+      .run(conversationId, real, input, at);
+    this.db
+      .prepare("DELETE FROM preview_opens WHERE conversation_id = ? AND real NOT IN (SELECT real FROM preview_opens WHERE conversation_id = ? ORDER BY at DESC LIMIT 200)")
+      .run(conversationId, conversationId);
+  }
+  /** 这些会话里在右侧预览打开过的文件，最近打开的在前（按真实路径去重）：预览的空状态和「+」菜单 */
+  previewOpens(conversationIds: string[]): Array<{ conversationId: string; path: string; real: string; at: number }> {
+    const out = new Map<string, { conversationId: string; path: string; real: string; at: number }>();
+    const q = this.db.prepare("SELECT conversation_id, real, path, at FROM preview_opens WHERE conversation_id = ? ORDER BY at DESC LIMIT 200");
+    for (const conversationId of conversationIds) {
+      for (const r of q.all(conversationId) as Row[]) {
+        const row = { conversationId, path: String(r.path), real: String(r.real), at: Number(r.at) || 0 };
+        const had = out.get(row.real);
+        if (!had || had.at < row.at) out.set(row.real, row);
+      }
+    }
+    return [...out.values()].sort((a, b) => b.at - a.at);
   }
 
   /**

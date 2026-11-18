@@ -44,6 +44,7 @@ export default {
   costOf: "Yaklaşık {spent} / {budget}",
   costShort: "Yaklaşık {spent}",
   origin: "Kaynak",
+  fromBot: "{bot} gönderdi",
   question: "Soru",
   originLine: "{where} · {when} “{text}”",
   openConv: "Sohbeti aç",

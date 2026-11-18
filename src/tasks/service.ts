@@ -252,6 +252,8 @@ export interface TaskView {
   question?: { text: string; note?: string };
   /** 正在跑的那个 run：开始时间与步数 */
   live?: { runId: string; since: number; steps: number; current?: ActivityStep };
+  /** 别的机器人发来的事（tasks.handoff_id）：谁发来的。花费（spentUsd）含重做、补充和「继续」再给的额度，和「机器人协作」页这对机器人的累计同一个算法 */
+  from?: { botId: string; name: string };
 }
 
 /** 一个在跑（或收尾中）的 run 的内存状态（任务的，或规则的：ruleId 不空、taskId 是空的） */
@@ -1895,9 +1897,18 @@ export class TaskService {
       spentUsd: task.spentUsd,
       budgetUsd: task.budgetUsd,
       cleanupAt: task.cleanupAt,
+      ...this.handoffFrom(task),
       ...this.openQuestion(task),
       ...(l && run ? { live: { runId: run.id, since: run.startedAt, steps: l.activity.steps.length, current: l.activity.steps.findLast((s) => s.status === "running") } } : {}),
     };
+  }
+
+  /** 别的机器人发来的事：发来的那个机器人（已删除的用记下的 id） */
+  private handoffFrom(task: TaskRow): Pick<TaskView, "from"> {
+    if (!task.handoffId) return {};
+    const h = this.store.collab.get(task.handoffId);
+    if (!h) return {};
+    return { from: { botId: h.fromBot, name: this.store.getBot(h.fromBot)?.name ?? h.fromBot } };
   }
 
   /** 任务问用户的、还没回答的那个问题（最新的；预算的那个不算，它有自己的阶段） */
@@ -1908,11 +1919,14 @@ export class TaskService {
     return { question: { text: questionsOf(row)[0]?.question ?? row.detail, ...(note ? { note } : {}) } };
   }
 
-  /** 任务列表：进行中、等你的在前，再按新旧；group 只要这几组的（GET /tasks?group=，3f）。归档了的不列 */
-  list(o: { botId?: string; conversationId?: string; limit?: number; since?: number; group?: StageGroup[] } = {}): TaskView[] {
+  /**
+   * 任务列表：进行中、等你的在前，再按新旧；group 只要这几组的（GET /tasks?group=，3f）。归档了的不列。
+   * handoffs：连别的机器人发来的事一起列（右侧面板「任务」里看这个机器人的花费明细）；不给时只列用户自己发起的
+   */
+  list(o: { botId?: string; conversationId?: string; limit?: number; since?: number; group?: StageGroup[]; handoffs?: boolean } = {}): TaskView[] {
     const rank = { working: 0, needs: 1, ended: 2 } as const;
     return this.store
-      .listTasks({ botId: o.botId, conversationId: o.conversationId, limit: 200, handoffs: false })
+      .listTasks({ botId: o.botId, conversationId: o.conversationId, limit: 200, handoffs: o.handoffs ? undefined : false })
       .map((t) => this.view(t))
       .filter((v) => !o.group?.length || o.group.includes(v.stage.group))
       .filter((v) => !o.since || v.stage.group !== "ended" || v.updatedAt >= o.since)
