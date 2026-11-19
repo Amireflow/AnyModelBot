@@ -11,7 +11,7 @@ export default {
     "Messages in Slack, Telegram and Discord pass through those platforms' servers by nature.",
     "If you connect apps such as Notion or GitHub, or add a custom MCP connector, what bots read and write goes to those services, and what they read also goes into model requests.",
     "Installed desktop apps check GitHub for updates after startup and every 6 hours, and download update files in the background by default. You can turn automatic downloads off in Settings → General. Requests contain no account credentials or chat content. Installation requires you to click Restart and update, with no tasks running.",
-    "When you press Send in the app's Feedback window, what you wrote, the version and system details, and any error and diagnostics you chose to include (keys replaced by ***) go to modelflare.dev as a support ticket on your Modelflare account. You can preview the full text first; conversations and screenshots are never attached."
+    "When you send from the app's Requests & Feedback window, what you wrote, the category and background you added, the version and system details, and any error and logs you chose to include (keys replaced by ***) go to modelflare.dev as a private ticket on your Modelflare account. Contact details are included only if you tick the consent box. You can view everything first; conversations and screenshots are never attached."
   ],
   "guardsTitle": "Safeguards in the code",
   "limitsTitle": "Limits and promises we don't make",

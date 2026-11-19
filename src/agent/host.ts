@@ -308,6 +308,8 @@ export type AgentApi = "openai-completions" | "openai-responses" | "anthropic-me
 export interface ModelApiInfo {
   endpoints?: string[];
   reasoning?: boolean;
+  /** 模型资料里的图片输入（input_modalities）；没有资料时不给 */
+  vision?: boolean;
 }
 
 /**
@@ -333,6 +335,8 @@ export interface ModelRoute {
   fallback?: ApiFallback;
   limits: { window: number; maxTokens: number };
   reasoning?: boolean;
+  /** 模型资料明确写了看不看图；没有资料时按模型名判断（acceptsImages） */
+  vision?: boolean;
 }
 
 /**
@@ -422,7 +426,7 @@ export function providerProfiles(routes: ModelRoute[], bridgeUrl: string, botId:
       contextWindow: r.limits.window,
       maxTokens: r.limits.maxTokens,
       // 默认只收文字；能看图的模型声明图片输入，用户发来的图片才会作为图片交给它
-      ...(acceptsImages(r.model) ? { input: ["text", "image"] } : {}),
+      ...((r.vision ?? acceptsImages(r.model)) ? { input: ["text", "image"] } : {}),
       ...(effortApplies(api, reasoning) ? { reasoningEfforts: { low: "low", medium: "medium", high: "high" } } : {}),
       ...(compat ? { compat } : {}),
     });
@@ -1230,7 +1234,7 @@ exec "$REAL" "$@"
       const ask = <T>(q: Promise<T | undefined> | undefined) => withTimeoutOr(q ?? Promise.resolve(undefined), 3000, undefined).catch(() => undefined);
       p = Promise.all([ask(this.o.contextWindow?.(model)), ask(this.o.apiInfo?.(model))]).then(([known, info]) => {
         const api = agentApi(info?.endpoints);
-        return { model, provider: providerFor(api, info?.reasoning), api, limits: modelLimits(model, known), reasoning: info?.reasoning };
+        return { model, provider: providerFor(api, info?.reasoning), api, limits: modelLimits(model, known), reasoning: info?.reasoning, ...(info?.vision !== undefined ? { vision: info.vision } : {}) };
       });
       this.routes.set(model, p);
     }
@@ -2055,7 +2059,7 @@ exec "$REAL" "$@"
     if (!t || !this.canSteer(conversationId)) return false;
     await withTimeoutOr(t.accepted, 5000, undefined);
     if (this.turns.get(conversationId) !== t || t.finishing || t.stopping) return false;
-    const images = this.imageInput && acceptsImages(t.model) ? (msg.images ?? []) : [];
+    const images = this.imageInput && ((await this.routeFor(t.model)).vision ?? acceptsImages(t.model)) ? (msg.images ?? []) : [];
     for (let i = 0; i < 2 && this.control.connected; i++) {
       try {
         const r = await this.control.send<{ accepted?: boolean; reason?: string }>("steer", { sessionId: t.sessionId, messageId: msg.id, text: msg.text, images }, 15_000);

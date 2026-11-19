@@ -4,6 +4,20 @@
 
 Uygulamada fark edeceğin değişiklikler burada. Daha eski sürümler için [GitHub sürümlerine](https://github.com/modelflare-ai/AnyModelBot/releases) bak.
 
+## 0.1.43 - 2026-11-20
+
+### Yenilikler
+
+- **Görsel ve dosya ekleri:** sohbete bir ekran görüntüsü veya görsel yapıştırın ya da görselleri ve metin dosyalarını (Markdown, HTML, TXT, CSV, JSON, kod ve diğerleri) sürükleyin ve mesajınızla birlikte gönderin. Yalnızca ek de gönderebilirsiniz. Görseller, görselleri görebilen modellere; dosyaların tam metni modele iletilir. Küçük resme tıklayarak büyütebilirsiniz. Her mesajda en fazla 8 ek (en fazla 4’ü görsel) ve ek başına en fazla 10 MiB. Geçerli model görselleri desteklemiyorsa uygulama bunu bildirir. PDF, Office belgeleri, arşivler, ses ve video henüz desteklenmiyor.
+- **İstekler ve Geri Bildirim:** "Geri bildirim" artık "İstekler ve Geri Bildirim" ve üç kategorisi var: Kullanım senaryoları ve fikirler, Sorunlar, Kurumsal ve iş birliği. Her birinin taslağı ayrı tutulur. İletişim bilgileri yalnızca o gönderim için onay kutusunu işaretlerseniz, günlükler yalnızca işaretlerseniz eklenir; göndermeden önce gönderilecek her şeyi görebilirsiniz. Keşfet’e kurumsal senaryolar bölümü eklendi.
+
+### İyileştirmeler ve düzeltmeler
+
+- **Bilgisayardaki dosyaları düzenleme:** bir bottan Masaüstü veya başka klasörlerdeki dosyaları düzenlemesini istediğinizde artık önce Erişilebilirlik veya Ekran Kaydı istenmiyor; çalışma alanı dışındaki işlemler yine onayınızı gerektirir. Bir görev gerçekten bir masaüstü uygulamasını kullanmayı gerektiriyorsa ve sistem izni eksikse, sohbette izni açabileceğiniz bir kart görünür.
+- **Önizleme:** odak önizlemedeyken Cmd+W / Ctrl+W yalnızca geçerli sekmeyi kapatır; boş önizleme ve + menüsü bu sohbette açılan dosyaları listeler.
+- **Beceriler:** "Beceri olarak kaydet" varsayılan olarak en son tamamlanan isteği taslağa alır; taslak kartındaki seçimler düzenlemeden sonra korunur; içe aktarma bildirimi ve kartlar artık "Yükleniyor"da kalmaz.
+- **Sohbet ve görevler:** içerik veya mesaj kutusu büyüdüğünde sohbet en altta kalır, notlar ve kartlar kutunun arkasında kalmaz; bir botun Görevler sekmesi diğer botların gönderdiği işleri ve kimin gönderdiğini gösterir.
+
 ## 0.1.42 - 2026-11-18
 
 ### Yeni

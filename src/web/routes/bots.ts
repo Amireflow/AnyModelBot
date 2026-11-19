@@ -215,6 +215,8 @@ export function botsRoutes(ctx: WebContext, previews = new FilePreviews()): Rout
       // started 带分隔线的时刻；already 已经是新对话；off 代理没有启用；failed 开新段本身出错（交接便条出错不算）
       if (sub === "chat/new" && m === "POST") {
         const r = await app.runtime.newConversation(id, consoleConvId(id));
+        // 开了新对话：上一段没发出的附件不带过来
+        if (r.status === "started") app.attachments.dropDraft(id, consoleConvId(id));
         return send(res, 200, r);
       }
       // 控制台对话当前用的模型（空 = 跟着 Bot）：目录 Bot 的界面打开时读，不用把整段历史取回来

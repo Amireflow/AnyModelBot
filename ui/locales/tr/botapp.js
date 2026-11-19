@@ -3,7 +3,7 @@ export default {
   sidebar: { discover: "Keşfet", mine: "Benimkiler", latest: "Yeni", new: "Yeni" },
   discover: {
     title: "Keşfet",
-    lead: "Hazır araçlar. Birini aç, kullan ve neyin değişeceğini söylemen yeter.",
+    lead: "İşinize yarayan araçları bulun, iş akışlarınızı nasıl bağlayacağınızı da konuşalım.",
     featured: "Öne çıkanlar",
     latest: "Yeni",
     empty: "Eşleşme yok",

@@ -8,6 +8,7 @@ import type { Schedule } from "../domain/schedule.js";
 import { usedSummary, type ActivityStep, type UsedItem } from "../domain/activity.js";
 import { ChatSearch } from "./chat-search.js";
 import { CollabStore } from "./collab.js";
+import type { MessageAttachment } from "../domain/attachments.js";
 
 /**
  * SQLite 存储（node:sqlite，无原生模块，Electron 下也无需 rebuild）。
@@ -110,6 +111,8 @@ export interface Message {
   ruleSource?: { ruleId: string; title: string; dueAt: number; late: boolean; timeZone: string };
   permissionWait?: boolean;
   errorContext?: { model: string; groupId: string; input: string };
+  /** 用户随这条消息发的附件（图片、文本文件）的引用；内容在受管副本里（attachments/service.ts） */
+  attachments?: MessageAttachment[];
 }
 
 /** 一条助手消息除了正文之外的东西：回合中间说的话、交付的文件 */
@@ -119,6 +122,7 @@ export interface MessageExtra {
   ruleSource?: Message["ruleSource"];
   permissionWait?: boolean;
   errorContext?: Message["errorContext"];
+  attachments?: MessageAttachment[];
 }
 
 export interface WeixinAccount {
@@ -692,6 +696,8 @@ const COLUMNS: Array<[string, string, string]> = [
   ["messages", "rule_source", "TEXT NOT NULL DEFAULT ''"],
   ["messages", "permission_wait", "INTEGER NOT NULL DEFAULT 0"],
   ["messages", "error_context", "TEXT NOT NULL DEFAULT ''"],
+  // 用户消息带的附件引用（JSON 数组，见 attachments/service.ts）
+  ["messages", "attachments", "TEXT NOT NULL DEFAULT ''"],
   // 保留与清理（3f）：任务文件夹定在什么时候清理
   ["tasks", "cleanup_at", "INTEGER NOT NULL DEFAULT 0"],
   // 机器人之间发消息（collab/）：别的机器人发来的这件事（handoffs.id）；这件事每次运行最长多久（0 = 任务的默认上限）
@@ -1010,7 +1016,7 @@ export class Store {
     const replies = convs.length ? ` OR (conversation_id IN (${convs.map(() => "?").join(", ")}) AND role = 'assistant')` : "";
     const rows = this.db
       .prepare(
-        `SELECT * FROM (SELECT id, conversation_id, role, content, created_at, interim, files, rule_source, permission_wait, error_context, CASE WHEN json_valid(activity) THEN json_array_length(activity) ELSE 0 END AS steps, ${USES_SQL} FROM messages WHERE id > ? AND (conversation_id = ?${replies}) ORDER BY id DESC LIMIT ?) ORDER BY id`,
+        `SELECT * FROM (SELECT id, conversation_id, role, content, created_at, interim, files, rule_source, permission_wait, error_context, attachments, CASE WHEN json_valid(activity) THEN json_array_length(activity) ELSE 0 END AS steps, ${USES_SQL} FROM messages WHERE id > ? AND (conversation_id = ?${replies}) ORDER BY id DESC LIMIT ?) ORDER BY id`,
       )
       .all(afterId, groupPeer(groupId), ...convs.map((c) => c.id), limit) as Row[];
     return rows.map((r) => ({ ...this.toMessage(r), botId: botOf.get(String(r.conversation_id)) ?? "" }));
@@ -1033,8 +1039,8 @@ export class Store {
     const now = Date.now();
     const json = (a: unknown[] | undefined) => (a?.length ? JSON.stringify(a) : "");
     const res = this.db
-      .prepare("INSERT INTO messages(conversation_id, role, content, created_at, activity, interim, files, rule_source, permission_wait, error_context) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(conversationId, role, content, now, json(activity), json(extra.interim), json(extra.files), extra.ruleSource ? JSON.stringify(extra.ruleSource) : "", extra.permissionWait ? 1 : 0, extra.errorContext ? JSON.stringify(extra.errorContext) : "");
+      .prepare("INSERT INTO messages(conversation_id, role, content, created_at, activity, interim, files, rule_source, permission_wait, error_context, attachments) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(conversationId, role, content, now, json(activity), json(extra.interim), json(extra.files), extra.ruleSource ? JSON.stringify(extra.ruleSource) : "", extra.permissionWait ? 1 : 0, extra.errorContext ? JSON.stringify(extra.errorContext) : "", json(extra.attachments));
     this.db.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(now, conversationId);
     return Number(res.lastInsertRowid);
   }
@@ -1058,7 +1064,7 @@ export class Store {
   listMessages(conversationId: string, limit = 500): Message[] {
     const rows = this.db
       .prepare(
-        `SELECT * FROM (SELECT id, conversation_id, role, content, created_at, interim, files, rule_source, permission_wait, error_context, CASE WHEN json_valid(activity) THEN json_array_length(activity) ELSE 0 END AS steps, ${USES_SQL} FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?) ORDER BY id ASC`,
+        `SELECT * FROM (SELECT id, conversation_id, role, content, created_at, interim, files, rule_source, permission_wait, error_context, attachments, CASE WHEN json_valid(activity) THEN json_array_length(activity) ELSE 0 END AS steps, ${USES_SQL} FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?) ORDER BY id ASC`,
       )
       .all(conversationId, limit) as Row[];
     return rows.map((r) => this.toMessage(r));
@@ -1079,6 +1085,7 @@ export class Store {
       ...(r.rule_source ? { ruleSource: parseJson<Message["ruleSource"]>(r.rule_source) } : {}),
       ...(Number(r.permission_wait) ? { permissionWait: true } : {}),
       ...(r.error_context ? { errorContext: parseJson<Message["errorContext"]>(r.error_context) } : {}),
+      ...(r.attachments ? { attachments: parseJson<MessageAttachment[]>(r.attachments) ?? [] } : {}),
     };
   }
   /** 全部历史中的新手事实；不依赖界面曾加载过哪一页，也不把错误或命令回复算成对话。 */
@@ -1153,15 +1160,15 @@ export class Store {
   /**
    * 滑动窗口上下文：从最新往回取，直到条数或字符数超限；保证以 user 消息开头。
    */
-  contextWindow(conversationId: string, maxMessages: number, maxChars: number): Array<Pick<Message, "role" | "content">> {
+  contextWindow(conversationId: string, maxMessages: number, maxChars: number): Array<Pick<Message, "role" | "content" | "attachments">> {
     const recent = this.listMessages(conversationId, maxMessages);
-    const picked: Array<Pick<Message, "role" | "content">> = [];
+    const picked: Array<Pick<Message, "role" | "content" | "attachments">> = [];
     let chars = 0;
     for (let i = recent.length - 1; i >= 0; i--) {
       const m = recent[i];
       if (picked.length > 0 && chars + m.content.length > maxChars) break;
       chars += m.content.length;
-      picked.unshift({ role: m.role, content: m.content });
+      picked.unshift({ role: m.role, content: m.content, ...(m.attachments?.length ? { attachments: m.attachments } : {}) });
     }
     while (picked.length > 1 && picked[0].role !== "user") picked.shift();
     return picked;

@@ -60,7 +60,7 @@ AnyModelBot은 Windows, macOS, Linux의 내 컴퓨터에서 실행하는 AI 봇 
 
 설치하면 바로 쓸 수 있습니다. 백그라운드 작업, 예약 규칙, 내 확인을 기다리는 항목이 기본으로 들어 있습니다.
 
-**0.1.42:** 앱에서 문제와 제안을 바로 보낼 수 있습니다. Modelflare에 로그인했다면 문의로 접수되고 답변은 이메일로 받습니다. 오류에서 열면 그 오류도 함께 첨부됩니다. [변경 내역](./CHANGELOG_ko.md#0142---2026-11-18)
+**0.1.43:** 이미지와 파일을 봇에게 바로 건넬 수 있습니다. 스크린샷을 붙여 넣거나 이미지, Markdown·HTML·TXT 파일을 대화에 끌어 놓아 메시지와 함께 보내세요. "피드백"은 "요청과 피드백"이 되었습니다. [변경 내역](./CHANGELOG_ko.md#0143---2026-11-20)
 
 📥 [다운로드](#-다운로드-및-실행) · 🌠 [스크린샷](#-스크린샷) · 🌟 [기능](#-주요-기능) · 🆚 [비교](#-anymodelbot과-grok-bot-openai-dots-claude-duet-비교) · 🔐 [개인정보](#-작동-방식과-개인정보)
 
@@ -405,7 +405,7 @@ Modelflare는 요청 로그를 보관합니다. 보관 항목과 기간은 [신�
 
 - **질문과 아이디어:** [GitHub Discussions](https://github.com/modelflare-ai/AnyModelBot/discussions)
 - **버그 및 기능 요청:** [GitHub Issues](https://github.com/modelflare-ai/AnyModelBot/issues)
-- **앱 내 피드백:** 계정 메뉴 → 의견 및 피드백(Modelflare에 로그인했다면 계정의 문의로 접수)
+- **요청과 피드백:** 계정 메뉴 → 요청과 피드백(사용 사례와 제안·문제 신고·기업·제휴. Modelflare에 로그인했다면 계정의 비공개 티켓으로 접수되고, 연락처는 동의한 경우에만 첨부)
 - **커뮤니티 채팅:** [Discord](https://discord.gg/umBN6wX3zJ) · [Telegram](https://t.me/+Tx6Payfzxqk2ZGVl)
 - **이메일:** [support@anymodel.bot](mailto:support@anymodel.bot)
 - **Modelflare 소식:** [X의 @modelflare_dev](https://x.com/modelflare_dev)

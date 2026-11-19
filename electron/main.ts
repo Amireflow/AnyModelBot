@@ -154,6 +154,8 @@ function macPermissions(): NonNullable<import("../src/app.js").DesktopHooks["cuP
       const pane = kind === "accessibility" ? "Privacy_Accessibility" : "Privacy_ScreenCapture";
       void shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${pane}`);
     },
+    // 系统禁止访问桌面等受保护文件夹：隐私与安全性 → 文件和文件夹
+    openFolderSettings: () => void shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"),
   };
 }
 

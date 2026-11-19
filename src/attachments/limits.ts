@@ -1,0 +1,120 @@
+/**
+ * 消息附件（粘贴图片、拖入图片和文本文件）的硬上限与格式表。界面经 GET …/attachments/state 读到同一份数字，
+ * 前后端按它核算；服务端的核算是准的（绕开界面也过不去）。
+ */
+
+/** 附件协议版本：界面和服务端对不上时提示更新，不降级成只发文字或文件名 */
+export const ATTACHMENT_PROTOCOL = 1;
+/** 发送结构版本（POST …/chat/send 的请求形状） */
+export const SEND_VERSION = 1;
+
+export const MIB = 1024 * 1024;
+
+export const LIMITS = {
+  /** 每条消息最多几个附件、其中几张图片 */
+  maxItems: 8,
+  maxImages: 4,
+  /** 单份 10 MiB、原始附件合计 50 MiB */
+  maxFileBytes: 10 * MIB,
+  maxTotalBytes: 50 * MIB,
+  /** 原图：最长边、总像素 */
+  maxImageEdge: 12_000,
+  maxImagePixels: 40_000_000,
+  /** 规范化后最长边 */
+  normEdge: 4096,
+  /** 文本：单份、单条累计的 Unicode 码点 */
+  maxTextChars: 100_000,
+  maxTextCharsTotal: 200_000,
+  /** 没有可信的上下文长度资料时的保守预算（tokens） */
+  fallbackContextTokens: 8192,
+  /** 没发出的副本最长保留、已发的受管副本保留 */
+  draftTtlMs: 24 * 3600_000,
+  sentTtlMs: 30 * 24 * 3600_000,
+} as const;
+
+/** 文本类：扩展名 → 给模型看的类型名 */
+export const TEXT_TYPES: Readonly<Record<string, string>> = {
+  md: "markdown", markdown: "markdown",
+  html: "html", htm: "html",
+  txt: "text", csv: "csv", json: "json", log: "log", yaml: "yaml", yml: "yaml", xml: "xml",
+  css: "css", js: "javascript", ts: "typescript", py: "python", sh: "shell", ps1: "powershell", bat: "batch", cmd: "batch",
+};
+/** 直接接收的图片 */
+export const IMAGE_TYPES: Readonly<Record<string, string>> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
+/** 要先转成 PNG / JPG 的图片 */
+const IMAGE_CONVERT = new Set(["heic", "heif", "avif", "bmp", "tif", "tiff", "svg", "svgz", "ico", "apng", "jxl", "psd"]);
+
+export type { AttachmentKind } from "../domain/attachments.js";
+import type { AttachmentKind } from "../domain/attachments.js";
+/**
+ * 拒绝原因（界面按它选一句提示）：format 不支持的格式 · imageConvert 请转成 PNG/JPG · empty 空文件 · size 单份或合计超限 ·
+ * count 数量超限 · unreadable 读不了 · encoding 编码认不出 · content 文字太多 · context 超出模型上下文 · expired 过期
+ */
+export type RejectCode = "format" | "imageConvert" | "empty" | "size" | "count" | "unreadable" | "encoding" | "content" | "context" | "expired";
+
+export const extOf = (name: string): string => {
+  const base = String(name ?? "").replace(/\\/g, "/").split("/").pop() ?? "";
+  const i = base.lastIndexOf(".");
+  return i > 0 ? base.slice(i + 1).toLowerCase() : "";
+};
+
+/**
+ * 按文件名和 MIME 先分一次类（读内容之前的硬条件；真实内容之后由 sniff.ts 再核对）。
+ * 剪贴板图片没有可信的名字：MIME 是直接接收的图片类型就算图片。文本允许空 MIME。
+ */
+export function classify(name: string, mime: string): { kind: AttachmentKind; ext: string } | { reject: RejectCode } {
+  const ext = extOf(name);
+  const type = String(mime ?? "").toLowerCase().split(";")[0].trim();
+  if (ext in IMAGE_TYPES) return type && !type.startsWith("image/") ? { reject: "format" } : { kind: "image", ext };
+  if (IMAGE_CONVERT.has(ext)) return { reject: "imageConvert" };
+  if (ext in TEXT_TYPES) return /^(image|audio|video)\//.test(type) ? { reject: "format" } : { kind: "text", ext };
+  if (!ext && type.startsWith("image/")) {
+    const hit = Object.entries(IMAGE_TYPES).find(([, m]) => m === type);
+    return hit ? { kind: "image", ext: hit[0] } : { reject: "imageConvert" };
+  }
+  if (type.startsWith("image/") && !ext) return { reject: "imageConvert" };
+  return { reject: "format" };
+}
+
+export interface BatchItem { name: string; mime: string; size: number; }
+export interface Usage { items: number; images: number; bytes: number; }
+
+/**
+ * 一个批次的硬条件：类型、空文件、单份大小、数量、合计大小。任何一项不合格整批不加。
+ * 返回最相关的那个原因；全部合格返回每一项的分类。
+ */
+export function checkBatch(batch: BatchItem[], used: Usage): { ok: true; kinds: Array<{ kind: AttachmentKind; ext: string }> } | { ok: false; code: RejectCode } {
+  if (!batch.length) return { ok: false, code: "unreadable" };
+  const kinds: Array<{ kind: AttachmentKind; ext: string }> = [];
+  for (const f of batch) {
+    const c = classify(f.name, f.mime);
+    if ("reject" in c) return { ok: false, code: c.reject };
+    kinds.push(c);
+  }
+  if (batch.some((f) => !Number.isFinite(f.size) || f.size <= 0)) return { ok: false, code: "empty" };
+  if (batch.some((f) => f.size > LIMITS.maxFileBytes)) return { ok: false, code: "size" };
+  const images = kinds.filter((k) => k.kind === "image").length;
+  if (used.items + batch.length > LIMITS.maxItems || used.images + images > LIMITS.maxImages) return { ok: false, code: "count" };
+  if (used.bytes + batch.reduce((n, f) => n + f.size, 0) > LIMITS.maxTotalBytes) return { ok: false, code: "size" };
+  return { ok: true, kinds };
+}
+
+/** 规范化后的尺寸：最长边超过 4096 时等比缩到 4096，小图不放大 */
+export function normalizedSize(width: number, height: number): { width: number; height: number } {
+  const edge = Math.max(width, height);
+  if (edge <= LIMITS.normEdge) return { width, height };
+  const k = LIMITS.normEdge / edge;
+  return { width: Math.max(1, Math.round(width * k)), height: Math.max(1, Math.round(height * k)) };
+}
+
+/** 粗略估算 tokens（标明是估算）：ASCII 约 4 个字符一个，其余（中日韩等）一个字一个 */
+export function estimateTextTokens(text: string): number {
+  let ascii = 0;
+  let wide = 0;
+  for (const ch of text) (ch.codePointAt(0)! < 0x80 ? ascii++ : wide++);
+  return Math.ceil(ascii / 4) + wide;
+}
+/** 一张图占多少 tokens 的估算（按 512 的格子，和常见视觉模型的算法同一量级） */
+export function estimateImageTokens(width: number, height: number): number {
+  return 85 + 170 * Math.ceil(Math.max(1, width) / 512) * Math.ceil(Math.max(1, height) / 512);
+}

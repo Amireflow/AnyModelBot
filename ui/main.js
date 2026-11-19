@@ -46,6 +46,10 @@ import { trailingThrottle } from "./lib/throttle.js";
 import { usePresence } from "./design/motion.js";
 import { t, useLang, adoptServerLang, changeLang, getLangPref, LANG_NAMES, LANGS } from "./lib/i18n.js";
 import { fold } from "./lib/text-fold.js";
+import { installDropGuard } from "./lib/attachments.js";
+
+// 带文件的拖动在整个窗口都不触发浏览器的打开 / 导航；只有对话主区接收（lib/attachments.js）
+installDropGuard();
 
 // —— 路由：#/chat/<bot> · #/group/<群> · #/new · #/needs · #/settings/<tab>[/<row>] · #/bot/<bot>/settings[/<section>] ——
 /** @returns {{view: string, botId?: string, groupId?: string, conversationId?: string, messageId?: number, query?: string, tab?: string, row?: string, section?: string, catalogId?: string}} */

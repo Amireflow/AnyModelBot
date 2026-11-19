@@ -4,6 +4,20 @@
 
 Aqui estão as mudanças que você vai notar no app. Para versões mais antigas, veja as [versões no GitHub](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.43 - 2026-11-20
+
+### Novidades
+
+- **Anexos de imagens e arquivos:** cole uma captura de tela ou imagem na conversa, ou arraste imagens e arquivos de texto (Markdown, HTML, TXT, CSV, JSON, código e outros), e envie junto com a mensagem. Também dá para enviar só os anexos. As imagens vão para modelos que conseguem vê-las e o texto completo dos arquivos vai para o modelo; clique em uma miniatura para ampliar. Cada mensagem aceita até 8 anexos, sendo no máximo 4 imagens, de até 10 MiB cada. Se o modelo atual não aceitar imagens, o app avisa. PDF, documentos do Office, arquivos compactados, áudio e vídeo ainda não são compatíveis.
+- **Solicitações e feedback:** "Feedback" agora é "Solicitações e feedback", com três categorias: Casos de uso e ideias, Problemas, e Empresas e parcerias. Cada uma mantém seu próprio rascunho. Os dados de contato só são incluídos se você marcar o consentimento para aquele envio, os registros só se você marcá-los, e dá para ver tudo o que será enviado antes de enviar. Descobrir ganhou uma seção de cenários para empresas.
+
+### Melhorias e correções
+
+- **Organizar arquivos do computador:** ao pedir a um bot que organize arquivos da Mesa ou de outras pastas, ele não pede mais Acessibilidade ou Gravação de Tela antes; o que estiver fora do espaço de trabalho continua precisando da sua aprovação. Quando uma tarefa realmente precisa operar um app de desktop e falta uma permissão do sistema, aparece na conversa um cartão para ativá-la.
+- **Pré-visualização:** com o foco na pré-visualização, Cmd+W / Ctrl+W fecha só a aba atual; a pré-visualização vazia e o menu + listam os arquivos abertos nesta conversa.
+- **Habilidades:** "Salvar como habilidade" usa por padrão a última solicitação concluída; as escolhas no cartão de rascunho são mantidas ao editar; o aviso de importação e os cartões não ficam mais em "Carregando".
+- **Conversa e tarefas:** a conversa continua no fim quando o conteúdo ou a caixa de mensagem cresce, então notas e cartões não ficam escondidos; a aba Tarefas de um bot lista o trabalho enviado por outros bots e mostra quem enviou.
+
 ## 0.1.42 - 2026-11-18
 
 ### Novidades

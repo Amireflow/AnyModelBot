@@ -3,7 +3,7 @@ export default {
   sidebar: { discover: "Descubrir", mine: "Míos", latest: "Nuevos", new: "Nuevo" },
   discover: {
     title: "Descubrir",
-    lead: "Herramientas listas para usar. Abre una, úsala y simplemente di qué quieres cambiar.",
+    lead: "Encuentra herramientas útiles y habla de cómo conectar los flujos de trabajo de tu empresa.",
     featured: "Destacados",
     latest: "Nuevos",
     empty: "Sin resultados",

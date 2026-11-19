@@ -41,6 +41,17 @@ export const CHAT_RULES = [
   "- 在微信、飞书里回复要短，通常几句话；长内容写成文件交付，聊天里只给结论。微信只显示纯文本，不要用表格和标题。",
 ].join("\n");
 
+/**
+ * 本机文件与系统权限（PRD 2026-11-20 R11）：整理文件走文件操作和工作区外批准，不拿「辅助功能」「屏幕录制」当前提；
+ * 系统拒绝访问桌面时只说这一项；系统授权框只能由应用在用户点了以后发起，模型不能自称已经弹出、也不把用户指到没有开关的设置里。
+ */
+export const FILE_RULES = [
+  "# 本机文件与系统权限",
+  "- 整理、移动、重命名桌面或其他文件夹里的文件：用文件读写和命令做，工作区外的操作等用户在批准卡上允许。这不需要「辅助功能」「屏幕录制」，不要为此用电脑操作，也不要让用户开这两项。",
+  "- 系统拒绝访问桌面时，只用用户的语言说：「无法访问桌面上的文件。请在系统设置里允许 AnyModelBot 访问桌面，然后再试一次。」",
+  "- 系统授权框由应用在用户点按钮后发起：不要说它已经弹出，也不要让用户去机器人设置里找开关。",
+].join("\n");
+
 /** 长期记忆的用法（只在本机器人开着长期记忆时放进系统提示词；快照在每段对话的第一条消息里） */
 export const MEMORY_GUIDE = [
   "# 长期记忆",
@@ -118,8 +129,8 @@ export function botIdentity(name: string, persona: string): string {
 /**
  * 机器人段的全文（宿主写进文件，amb-prompt 插件每次模型请求现读）。只放每个机器人固定的内容，
  * 同一机器人的所有会话共用一份系统提示词；按会话变化的（渠道、记忆快照、交接便条）放在每段的第一条消息里。
- * 顺序按变化频率从低到高：聊天规则（随应用升级）→ 记忆说明（随开关）→ 其他机器人（增删或改名时）→ 名字与人设（用户随时改）。
+ * 顺序按变化频率从低到高：聊天规则、本机文件与系统权限（随应用升级）→ 记忆说明（随开关）→ 其他机器人（增删或改名时）→ 名字与人设（用户随时改）。
  */
 export function botPrompt(o: BotPromptInput): string {
-  return [CHAT_RULES, o.memory ? MEMORY_GUIDE : "", botTeam(o.others ?? [], o.collab), botIdentity(o.name, o.persona)].filter(Boolean).join("\n\n");
+  return [CHAT_RULES, FILE_RULES, o.memory ? MEMORY_GUIDE : "", botTeam(o.others ?? [], o.collab), botIdentity(o.name, o.persona)].filter(Boolean).join("\n\n");
 }

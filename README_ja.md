@@ -60,7 +60,7 @@ AnyModelBot は、Windows、macOS、Linux のパソコンで動く AI ボット�
 
 インストールすればすぐに使えます。バックグラウンドタスク、定期ルール、あなたの確認を待つ項目は標準で備えています。
 
-**0.1.42:** 問題や提案をアプリから直接送れます。Modelflare にログインしていればお問い合わせとして登録され、返信はメールで届きます。エラーから開くとそのエラーも添付されます。 [変更履歴](./CHANGELOG_ja.md#0142---2026-11-18)
+**0.1.43:** 画像やファイルをそのままボットに渡せます。スクリーンショットを貼り付けるか、画像や Markdown・HTML・TXT などのファイルを会話にドラッグして、メッセージと一緒に送信できます。「フィードバック」は「要望とフィードバック」になりました。 [変更履歴](./CHANGELOG_ja.md#0143---2026-11-20)
 
 📥 [ダウンロード](#-ダウンロードと実行) · 🌠 [画面紹介](#-画面紹介) · 🌟 [主な機能](#-主な機能) · 🆚 [比較](#-anymodelbot-と-grok-botopenai-dotsclaude-duet-の比較) · 🔐 [プライバシー](#-仕組みとプライバシー)
 
@@ -405,7 +405,7 @@ Modelflare はリクエストログを保持します。項目と期間は [ト�
 
 - **質問・アイデア：** [GitHub Discussions](https://github.com/modelflare-ai/AnyModelBot/discussions)
 - **不具合・機能要望：** [GitHub Issues](https://github.com/modelflare-ai/AnyModelBot/issues)
-- **アプリ内フィードバック：** アカウントメニュー → ご意見・フィードバック（Modelflare にログインしていれば、アカウントのお問い合わせとして登録）
+- **要望とフィードバック：** アカウントメニュー → 要望とフィードバック（利用シーンと提案・問題の報告・法人・提携。Modelflare にログインしていればアカウントの非公開チケットとして登録、連絡先は同意したときだけ添付）
 - **コミュニティチャット：** [Discord](https://discord.gg/umBN6wX3zJ) · [Telegram](https://t.me/+Tx6Payfzxqk2ZGVl)
 - **メール：** [support@anymodel.bot](mailto:support@anymodel.bot)
 - **Modelflare のニュース：** [X の @modelflare_dev](https://x.com/modelflare_dev)

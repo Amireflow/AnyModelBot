@@ -42,6 +42,7 @@ const LIMITS = [
   [/^docs\/assets\/brand\/logo-eyes\.svg$/, 2 * KB],
   [/^docs\/assets\/brand\/wordmark-(light|dark)\.svg$/, 12 * KB],
   [/^docs\/assets\/brand\/social-preview\.png$/, 400 * KB],
+  [/^docs\/assets\/brand\/github-social-preview-(zh|en)\.jpg$/, 1 * MB],
   [/^docs\/assets\/hero\/hero-demo\.gif$/, 5 * MB],
   [/^docs\/assets\/modelflare\/modelflare-logo\.png$/, 40 * KB],
   [/^docs\/assets\/modelflare\/modelflare-banner-(zh|en)\.webp$/, 150 * KB],

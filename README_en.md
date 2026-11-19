@@ -60,7 +60,7 @@ Conversations, memory, files, and API keys stay on your device. Models can come 
 
 Ready to use after install: background tasks, scheduled rules, and items waiting for your OK are built in.
 
-**0.1.42:** send problems and suggestions from inside the app: when you're signed in to Modelflare they become a support ticket and replies reach your inbox; opening it from an error includes that error. [Changelog](./CHANGELOG_en.md#0142---2026-11-18)
+**0.1.43:** hand images and files straight to a bot: paste a screenshot, or drag images and Markdown, HTML or TXT files into the chat and send them with your message; Feedback is now Requests & Feedback. [Changelog](./CHANGELOG_en.md#0143---2026-11-20)
 
 📥 [Download](#-download-and-run) · 🌠 [Screenshots](#-screenshots) · 🌟 [Features](#-key-features) · 🆚 [Compare](#-anymodelbot-vs-grok-bot-openai-dots-and-claude-duet) · 🔐 [Privacy](#-how-it-works--privacy)
 
@@ -405,7 +405,7 @@ Full licenses and notices: [THIRD_PARTY_NOTICES_en.md](./THIRD_PARTY_NOTICES_en.
 
 - **Questions and ideas:** [GitHub Discussions](https://github.com/modelflare-ai/AnyModelBot/discussions)
 - **Bugs and feature requests:** [GitHub Issues](https://github.com/modelflare-ai/AnyModelBot/issues)
-- **In-app feedback:** account menu → Feedback (signed in to Modelflare, it becomes a support ticket on your account)
+- **Requests & Feedback:** account menu → Requests & Feedback (use cases & ideas, problems, business & partnerships; signed in to Modelflare, it becomes a private ticket on your account, with contact details only if you agree)
 - **Chat with the community:** [Discord](https://discord.gg/umBN6wX3zJ) · [Telegram](https://t.me/+Tx6Payfzxqk2ZGVl)
 - **Email:** [support@anymodel.bot](mailto:support@anymodel.bot)
 - **News from Modelflare:** [@modelflare_dev on X](https://x.com/modelflare_dev)

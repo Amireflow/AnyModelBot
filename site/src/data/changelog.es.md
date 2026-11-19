@@ -4,6 +4,20 @@
 
 Aquí se recogen los cambios que notarás en la app. Para versiones anteriores, consulta las [versiones publicadas en GitHub](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.43 - 2026-11-20
+
+### Novedades
+
+- **Adjuntos de imágenes y archivos:** pega una captura o una imagen en el chat, o arrastra imágenes y archivos de texto (Markdown, HTML, TXT, CSV, JSON, código y más), y envíalos junto con tu mensaje. También puedes enviar solo adjuntos. Las imágenes llegan a los modelos que pueden verlas y el texto completo de los archivos llega al modelo; haz clic en una miniatura para ampliarla. Cada mensaje admite hasta 8 adjuntos, de los cuales 4 imágenes como máximo, de hasta 10 MiB cada uno. Si el modelo actual no admite imágenes, la app te lo indica. PDF, documentos de Office, archivos comprimidos, audio y vídeo aún no son compatibles.
+- **Solicitudes y comentarios:** «Comentarios» pasa a ser «Solicitudes y comentarios», con tres categorías: Casos de uso e ideas, Problemas, y Empresas y alianzas. Cada una guarda su propio borrador. Los datos de contacto solo se incluyen si marcas el consentimiento para ese envío, los registros solo si los marcas, y puedes ver todo lo que se enviará antes de enviarlo. Descubrir tiene una nueva sección de escenarios para empresas.
+
+### Mejoras y correcciones
+
+- **Ordenar archivos de tu equipo:** al pedir a un bot que ordene archivos del Escritorio u otras carpetas ya no se pide antes Accesibilidad ni Grabación de pantalla; lo que quede fuera de su espacio de trabajo sigue necesitando tu aprobación. Cuando una tarea de verdad necesita manejar una app de escritorio y falta un permiso del sistema, aparece en el chat una tarjeta para activarlo.
+- **Vista previa:** con el foco en la vista previa, Cmd+W / Ctrl+W cierra solo la pestaña actual; la vista previa vacía y el menú + muestran los archivos abiertos en este chat.
+- **Habilidades:** «Guardar como habilidad» toma por defecto la última solicitud terminada; lo elegido en la tarjeta de borrador se conserva al editar; el aviso de importación y las tarjetas ya no se quedan en «Cargando».
+- **Chat y tareas:** el chat sigue al final cuando crece el contenido o el cuadro de mensaje, así las notas y tarjetas no quedan tapadas; la pestaña Tareas de un bot muestra el trabajo enviado por otros bots e indica quién lo envió.
+
 ## 0.1.42 - 2026-11-18
 
 ### Novedades

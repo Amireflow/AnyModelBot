@@ -11,7 +11,7 @@ export default {
     "As mensagens no Slack, Telegram e Discord passam, por natureza, pelos servidores dessas plataformas.",
     "Se você conectar apps como Notion ou GitHub, ou adicionar um conector MCP personalizado, o que os bots leem e escrevem vai para esses serviços, e o que eles leem também entra nas solicitações aos modelos.",
     "Os apps de desktop instalados verificam se há atualizações no GitHub após a inicialização e a cada 6 horas, e por padrão baixam os arquivos de atualização em segundo plano. Você pode desativar os downloads automáticos em Configurações → Geral. As solicitações não contêm credenciais de conta nem conteúdo de conversas. A instalação exige que você clique em Reiniciar e atualizar, sem tarefas em execução.",
-    "Ao tocar em Enviar na janela de Feedback do app, o que você escreveu, a versão e os dados do sistema, e o erro e o diagnóstico que você escolheu incluir (com as chaves trocadas por ***) vão para modelflare.dev como um chamado de suporte na sua conta do Modelflare. Dá para ver o texto completo antes; conversas e capturas de tela nunca são anexadas."
+    "Ao enviar pela janela Solicitações e feedback do app, o que você escreveu, a categoria e o contexto que adicionou, a versão e os dados do sistema, e o erro e os registros que você escolheu incluir (com as chaves trocadas por ***) vão para modelflare.dev como um chamado privado na sua conta do Modelflare. Os dados de contato só são incluídos se você marcar o consentimento. Dá para ver tudo antes; conversas e capturas de tela nunca são anexadas."
   ],
   "guardsTitle": "Proteções no código",
   "limitsTitle": "Limites e promessas que não fazemos",

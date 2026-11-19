@@ -68,14 +68,14 @@ export interface UsageRow {
   token_used: number;
 }
 
-/** 应用内反馈的类型，对应 Modelflare 工单主题 bug / suggestion / other */
-export type FeedbackKind = "bug" | "suggestion" | "other";
-
-/** 提交反馈后 Modelflare 的回执：support_url 是控制台里看这条工单和回复的页面 */
-export interface FeedbackReceipt {
-  ticket_id: number;
-  topic: string;
-  support_url: string;
+/**
+ * 不拆信封的原始响应（需求与反馈 schema 2 用）：要分清 201 / 200 / 202，认出 HTML 200 这类"不是回执"的响应，
+ * 错误体里还有 code / field。isJson = 响应声明了 JSON 而且解析成功。
+ */
+export interface RawApiResponse {
+  status: number;
+  isJson: boolean;
+  json: unknown;
 }
 
 export class ApiError extends Error {
@@ -172,6 +172,50 @@ export class AccountSession {
     }
   }
 
+  /**
+   * 调用 connected-app 接口，原样返回状态码和 JSON（不按 success 信封判成功）。401 时和 request 一样换一次令牌重试；
+   * 网络错误、超时（包括读响应体时超时）抛 ApiError(status 0)：调用方据此判断"结果未知"。
+   */
+  async raw(method: string, path: string, body: unknown, timeoutMs: number): Promise<RawApiResponse> {
+    for (let attempt = 0; ; attempt++) {
+      const token = await this.accessToken(attempt > 0);
+      let res: Response;
+      let text: string;
+      try {
+        res = await this.fetch(`${this.o.issuer}/api/connected-app${path}`, {
+          method,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json",
+            "Accept-Language": lang(),
+            ...(body !== undefined ? { "content-type": "application/json" } : {}),
+          },
+          body: body !== undefined ? JSON.stringify(body) : undefined,
+          redirect: "error",
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        text = await res.text();
+      } catch (e) {
+        throw new ApiError(t("account.unreachable", { reason: fetchFailureReason(e) }), 0);
+      }
+      if (res.status === 401) {
+        if (attempt === 0) continue;
+        throw new AccountRevokedError(t("account.revoked"));
+      }
+      let json: unknown;
+      let isJson = false;
+      if (/^application\/json\b/i.test(res.headers.get("content-type") ?? "")) {
+        try {
+          json = JSON.parse(text);
+          isJson = true;
+        } catch {
+          /* 声明是 JSON 却解析不了：当作不是回执 */
+        }
+      }
+      return { status: res.status, isJson, json };
+    }
+  }
+
   async account(): Promise<ConnectedAccount> {
     const account = await this.request<ConnectedAccount>("GET", "/account");
     // Only use the existing profile grant and an issuer-validated discovery endpoint.
@@ -199,10 +243,6 @@ export class AccountSession {
   }
   invite(): Promise<string> {
     return this.request("GET", "/invite");
-  }
-  /** 应用内反馈：进入用户自己的 Modelflare 工单（和控制台联系表单同一个收件箱，每天限 3 次） */
-  feedback(input: { kind: FeedbackKind; body: string; related_request_id?: string }): Promise<FeedbackReceipt> {
-    return this.request("POST", "/feedback", input);
   }
   listKeys(): Promise<AppKey[]> {
     return this.request("GET", "/api-keys");

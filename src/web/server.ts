@@ -32,6 +32,7 @@ import { routinesRoutes } from "./routes/routines.js";
 import { aboutMeRoutes } from "./routes/about-me.js";
 import { collabRoutes } from "./routes/collab.js";
 import { chatRoutes } from "./routes/chat.js";
+import { attachmentsRoutes, isAttachmentUpload } from "./routes/attachments.js";
 import { botsRoutes } from "./routes/bots.js";
 import { skillInstallsRoutes } from "./routes/skill-installs.js";
 import { mySkillsRoutes } from "./routes/my-skills.js";
@@ -256,7 +257,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
     publicGroup,
     groupMembers,
   };
-  const routes: Route[] = [systemRoutes(ctx), modelsRoutes(ctx), accountRoutes(ctx), feedbackRoutes(ctx), settingsRoutes(ctx), aboutMeRoutes(ctx), collabRoutes(ctx), computerRoutes(ctx), channelsRoutes(ctx), connectionsRoutes(ctx), appsRoutes(ctx), tasksRoutes(ctx), routinesRoutes(ctx), chatRoutes(ctx, filePreviews), botsRoutes(ctx, filePreviews), skillInstallsRoutes(ctx), mySkillsRoutes(ctx)];
+  const routes: Route[] = [systemRoutes(ctx), modelsRoutes(ctx), accountRoutes(ctx), feedbackRoutes(ctx), settingsRoutes(ctx), aboutMeRoutes(ctx), collabRoutes(ctx), computerRoutes(ctx), channelsRoutes(ctx), connectionsRoutes(ctx), appsRoutes(ctx), tasksRoutes(ctx), routinesRoutes(ctx), chatRoutes(ctx, filePreviews), attachmentsRoutes(ctx), botsRoutes(ctx, filePreviews), skillInstallsRoutes(ctx), mySkillsRoutes(ctx)];
 
   async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
     const p = url.pathname.slice("/amb/api".length);
@@ -264,7 +265,9 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
     const seg = p.split("/").filter(Boolean);
     // JSON 和技能 ZIP 都触发 CORS 预检；不接受跨站表单能发送的简单 Content-Type。
     const zipUpload = m === "POST" && seg[0] === "bots" && seg[2] === "skills" && (seg.length === 3 || (seg.length === 4 && seg[3] === "preview")) && /^application\/(zip|octet-stream)\s*(;|$)/i.test(String(req.headers["content-type"] || "").trim());
-    if ((m === "POST" || m === "PUT" || m === "PATCH") && !zipUpload && !/^application\/json\s*(;|$)/i.test(String(req.headers["content-type"] || "").trim())) {
+    // 附件的真实字节：流式二进制（application/octet-stream 同样要预检），不塞进 JSON
+    const attachmentUpload = isAttachmentUpload(m, seg, String(req.headers["content-type"] || ""));
+    if ((m === "POST" || m === "PUT" || m === "PATCH") && !zipUpload && !attachmentUpload && !/^application\/json\s*(;|$)/i.test(String(req.headers["content-type"] || "").trim())) {
       throw new HttpError(415, t("web.needJson"));
     }
 

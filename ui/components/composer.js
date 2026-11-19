@@ -11,6 +11,9 @@ import { prefs } from "../lib/prefs.js";
 import { t } from "../lib/i18n.js";
 import { UsablesPanel } from "./usables.js";
 import { focusRange, insertPhrase } from "../lib/usage.js";
+import { addFiles, notify as attachNotify, readPaste, reasonText, refresh as refreshAttachments, sendCheck, useDraft } from "../lib/attachments.js";
+import { AttachmentTray, focusLastAttachment } from "./attachments.js";
+import { toast } from "../lib/store.js";
 
 // 文案跟着界面语言：渲染时再取（写成函数，不在模块顶层缓存翻译）
 const commands = () => [
@@ -38,9 +41,11 @@ export const useConvModel = (key) => useStore(convModels)[key] || "";
  * bot：null 时是目录 Bot 的示例（还没有实例）：只能选模型，不显示 ＋ 菜单和文件权限。
  * onSend(raw)：raw 不给时发输入框里的文字。steer：回复进行中可以接着发（并进那一轮）。
  * ctl：页面拿到 { openModel, closeSlash }（出错提示里的「换个模型」、引导卡片填入句子）。
+ * attachments：这个输入框收附件（已有机器人的单聊和专属页）：粘贴图片进文字上方的待发区，和文字一起由原来的发送按钮发出。
+ * 没有机器人实例的示例页不收，粘贴图片时提示先添加机器人。dragging：正有真实文件拖在对话主区上（输入框高亮成落点）。
  */
 export function Composer({ bot, modelKey = bot?.id, text, setText, taRef, placeholder, label, generating = false, stopping = false, sent = false, steer = false, onSend, onStop,
-  models, modelsError, reloadModels, defaultModel, account, onAccount, onBotUpdated, onOpenBotSettings, showPerm = true, guide = false, ctl, onNewConversation }) {
+  models, modelsError, reloadModels, defaultModel, account, onAccount, onBotUpdated, onOpenBotSettings, showPerm = true, guide = false, ctl, onNewConversation, attachments = false, dragging = false }) {
   const own = useRef(null);
   const ta = taRef || own;
   const plusRef = useRef(null);
@@ -53,6 +58,12 @@ export function Composer({ bot, modelKey = bot?.id, text, setText, taRef, placeh
   const { sendKey } = useStore(prefs);
   const convModel = useConvModel(modelKey);
   const botId = bot?.id;
+  // —— 附件 ——
+  const attachOn = !!(attachments && botId);
+  const draft = useDraft(attachOn ? botId : "");
+  const items = attachOn ? draft.items : [];
+  const check = attachOn ? sendCheck(draft, { text, generating }) : { blocked: "", hint: "" };
+  const root = useRef(null);
   const openModel = () => requestAnimationFrame(() => setMenu("model"));
   if (ctl) ctl.current = { openModel, closeSlash: () => setSlashOff(true) };
 
@@ -87,10 +98,22 @@ export function Composer({ bot, modelKey = bot?.id, text, setText, taRef, placeh
   useEffect(() => {
     if (models && models.length) prefetchModelInfo();
   }, [!!(models && models.length)]);
+  // 模型、回复状态变了：重新读一次能力（看图三态、通路、上下文预算跟着实际会用的模型走）
+  useEffect(() => {
+    if (attachOn) void refreshAttachments(botId);
+  }, [attachOn, botId, effective, generating]);
+  // 机器人在别处忙（别的窗口发的、自己醒来的一轮）而这里有待发附件：隔几秒看一次，忙完了发送按钮自己放开
+  const waitingBusy = attachOn && items.length > 0 && !generating && !!draft.server?.busy;
+  useEffect(() => {
+    if (!waitingBusy) return;
+    const timer = setInterval(() => void refreshAttachments(botId), 3000);
+    return () => clearInterval(timer);
+  }, [waitingBusy, botId]);
   const pickModel = async (m) => {
     try {
       if (botId) await api(`/bots/${encodeURIComponent(botId)}/chat/model`, { method: "PUT", body: { model: m } });
       setConvModel(modelKey, m);
+      if (attachOn) void refreshAttachments(botId);
       if (botId) {
         saved();
         markDone("model");
@@ -151,8 +174,30 @@ export function Composer({ bot, modelKey = bot?.id, text, setText, taRef, placeh
     ta.current?.focus();
   };
 
+  /**
+   * 粘贴：剪贴板实际给出图片字节时加入待发区。只有图片时文字的选区和光标不动、不把文件名贴进去；
+   * 图片和真正的普通文字同时在时，文字照常粘贴（不拦默认行为），图片另外异步加入。
+   * 普通文件的复制对象、路径、文件 URI 不当附件；只有文字（含网址、路径）时完全是原来的粘贴。
+   */
+  const onPaste = (e) => {
+    const p = readPaste(e.clipboardData);
+    if (!p.hasFiles && !p.failed) return;
+    if (!p.realText) e.preventDefault();
+    if (!attachOn) return void toast(t("attach.noBot"));
+    if (p.failed) return attachNotify(botId, "clipboard");
+    if (p.otherFiles.length) attachNotify(botId, "filePaste");
+    if (p.images.length) void addFiles(botId, p.images);
+  };
+
   const onKey = (e) => {
+    // 输入法组合期间 Enter / Delete / Backspace 只交给输入法：不发送、不移除附件
     if (e.isComposing || e.keyCode === 229) return;
+    // 空输入框里第一下 Backspace 只把焦点移到最后一个附件，第二下（在附件上）才移除；长按不连删
+    if (e.key === "Backspace" && items.length && !text && e.target.selectionStart === 0 && e.target.selectionEnd === 0) {
+      e.preventDefault();
+      if (!e.repeat) focusLastAttachment(root.current);
+      return;
+    }
     if (slashOpen) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -186,28 +231,35 @@ export function Composer({ bot, modelKey = bot?.id, text, setText, taRef, placeh
   const key = sendKey === "mod" ? MOD_ENTER : "Enter";
   const permMap = perms();
   const permChip = showPerm && bot && permMap[perm];
-  return html`<div class="composer" data-guide=${guide ? "composer" : undefined}>
-      <textarea ref=${ta} rows="1" placeholder=${placeholder} aria-label=${label} value=${text}
+  // 同一个提示位置只显示最相关的一句：挡着发送的原因 > 刚发生的事（批次没加上、粘贴不了）> 不挡发送的说明
+  const noteCode = check.blocked && check.blocked !== "processing" ? check.blocked : draft.notice?.code || check.hint;
+  const images = items.filter((a) => a.kind === "image").length;
+  const cantSend = items.length ? !!check.blocked : !text.trim();
+  return html`<div class=${`composer${dragging ? " drag" : ""}`} ref=${root} data-guide=${guide ? "composer" : undefined}>
+      ${attachOn && noteCode && html`<div class="composer-note" role="status">${reasonText(noteCode)}</div>`}
+      ${attachOn && html`<${AttachmentTray} botId=${botId} items=${items} taRef=${ta} />`}
+      <textarea ref=${ta} rows="1" placeholder=${items.length && !images ? t("attach.fileOnlyPlaceholder") : placeholder} aria-label=${label} value=${text}
         onInput=${(e) => { setText(e.target.value); setSlashOff(false); setSlashSel(0); autoGrow(e.target); }}
-        onKeyDown=${onKey} />
+        onKeyDown=${onKey} onPaste=${onPaste} />
       <div class="composer-bar">
         ${plusItems && html`<button type="button" class="plus" ref=${plusRef} aria-label=${t("chat.menu.more")} aria-haspopup="menu" aria-expanded=${menu === "plus" || menu === "usables"} onClick=${() => setMenu(menu === "plus" || menu === "usables" ? null : "plus")}><${Icon} name="plus" size="md" /></button>`}
         ${permChip && html`<button type="button" class=${`model-chip perm ${perm}`} ref=${permRef} title=${t("chat.perm.title", { note: permChip.note })} aria-haspopup="menu" aria-expanded=${menu === "perm"}
           onClick=${() => setMenu(menu === "perm" ? null : "perm")}>
           <${Icon} name=${permChip.icon} size="sm" class="lead" /><span class="v">${permChip.label}</span><${Icon} name="chevDown" />
         </button>`}
+        ${items.length > 0 && html`<span class="att-count num" title=${t("attach.storage")}>${images ? t("attach.countImages", { count: images, n: items.length, max: draft.server?.limits.maxItems ?? 8 }) : t("attach.count", { count: items.length, n: items.length, max: draft.server?.limits.maxItems ?? 8 })}</span>`}
         <span class="grow"></span>
         <button type="button" class="model-chip" ref=${modelRef} data-guide=${guide ? "model" : undefined} title=${effective ? t("chat.composer.currentModel", { model: effective }) : t("chat.composer.pickModel")} aria-haspopup="listbox" aria-expanded=${menu === "model"}
           onClick=${() => setMenu(menu === "model" ? null : "model")}>
           <span class="v">${effective ? shortModel(effective) : t("chat.composer.pickModel")}</span><${Icon} name="chevDown" />
         </button>
-        ${steer && generating && text.trim() && !text.trim().startsWith("/") && !stopping
+        ${steer && generating && !items.length && text.trim() && !text.trim().startsWith("/") && !stopping
           ? html`<button type="button" class="send" aria-label=${t("chat.composer.steer")} title=${t("chat.composer.steerTitle", { key })} onMouseDown=${keepFocus} onClick=${() => onSend()}><${Icon} name="up" size="md" strong /></button>`
           : null}
         ${generating
           ? html`<button type="button" class="send stop" aria-label=${stopping ? t("chat.composer.stopping") : t("chat.composer.stop")} title=${stopping ? t("chat.composer.stopping") : t("chat.composer.stopTitle")}
               disabled=${stopping} aria-busy=${stopping} onMouseDown=${keepFocus} onClick=${onStop}>${stopping ? html`<${Spinner} />` : html`<${Icon} name="stop" size="md" />`}</button>`
-          : html`<button type="button" class=${`send${sent ? " back" : ""}`} aria-label=${t("chat.composer.send")} title=${t("chat.composer.sendTitle", { key })} disabled=${!text.trim()} onMouseDown=${keepFocus} onClick=${() => onSend()}><${Icon} name="up" size="md" strong /></button>`}
+          : html`<button type="button" class=${`send${sent ? " back" : ""}`} aria-label=${t("chat.composer.send")} title=${t("chat.composer.sendTitle", { key })} disabled=${cantSend} aria-busy=${draft.sending || undefined} onMouseDown=${keepFocus} onClick=${() => onSend()}><${Icon} name="up" size="md" strong /></button>`}
       </div>
     </div>
     ${slashOpen && ta.current && html`<${Popover} anchor=${ta.current} prefer="up" width=${320} keepFocus label=${t("chat.commandsLabel")} onClose=${() => setSlashOff(true)}>

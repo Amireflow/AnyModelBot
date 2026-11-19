@@ -27,7 +27,8 @@ import mySkills from "./mySkills.js";
 import aboutMe from "./aboutMe.js";
 import collab from "./collab.js";
 import feedback from "./feedback.js";
-export default { aboutMe, collab, feedback, connections, apps, skills, mySkills,
+import attachments from "./attachments.js";
+export default { attachments, aboutMe, collab, feedback, connections, apps, skills, mySkills,
   access,
   account,
   activity,

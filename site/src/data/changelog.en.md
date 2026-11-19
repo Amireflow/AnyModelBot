@@ -4,6 +4,20 @@
 
 This covers changes you'll notice in the app. For older versions, see the [GitHub releases](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.43 - 2026-11-20
+
+### New
+
+- **Image and file attachments:** paste a screenshot or image into a chat, or drag in images and text files (Markdown, HTML, TXT, CSV, JSON, code and more), and send them with your message. You can also send attachments on their own. Images go to models that can see images, and the full text of files goes to the model to read; click a thumbnail to enlarge it. Each message takes up to 8 attachments, including up to 4 images, at up to 10 MiB each. If the current model does not support images, the app tells you. PDF, Office documents, archives, audio and video are not supported yet.
+- **Requests & Feedback:** Feedback is now Requests & Feedback, with three categories: Use cases & ideas, Problems, and Business & partnerships. Each keeps its own draft. Contact details are left out unless you tick the consent box for that submission, logs are included only if you tick them, and you can view everything that will be sent first. Discover has a new section for business scenarios.
+
+### Improvements and fixes
+
+- **Organising files on your computer:** asking a bot to tidy files on the Desktop or in other folders no longer asks for Accessibility or Screen Recording first; anything outside its workspace still needs your approval. When a task really needs to operate a desktop app and a system permission is missing, a permission card appears in the chat for you to turn it on.
+- **Preview:** with focus in the preview, Cmd+W / Ctrl+W closes only the current tab; the empty preview and the + menu list the files opened in this chat.
+- **Skills:** Save as skill drafts the most recently finished request by default; choices on the draft card survive editing; the import toast and cards no longer stay on "Loading".
+- **Chat and tasks:** the chat stays at the bottom when content or the composer grows, so notes and cards are not hidden behind the composer; a bot's Tasks tab lists work sent by other bots and says who sent it.
+
 ## 0.1.42 - 2026-11-18
 
 ### New

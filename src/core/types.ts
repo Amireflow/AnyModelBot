@@ -54,6 +54,11 @@ export interface InboundEvent {
   /** 飞书：这条是回复（或话题里的消息）时，回复链的根消息和直接回复的那条（message_id） */
   thread?: { rootId?: string; parentId?: string };
   receivedAt: number;
+  /**
+   * 网页对话随消息发的附件（web/routes/attachments.ts）：用户消息已经和附件一起原子存好，
+   * text 是交给模型的全文（文本文件的完整内容 + 用户的话），images 是规范化后的图片。
+   */
+  prepared?: { messageId: number; text: string; images: Array<{ data: string; mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp" }> };
 }
 
 export type OutboundOp =

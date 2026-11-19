@@ -53,6 +53,8 @@ import { OFFICIAL_PROVIDERS, officialFailure, officialModelName, officialOf, off
 import { AccountManager } from "./account/manager.js";
 import { AccountVault, type LegacySecretBox } from "./account/vault.js";
 import { gatewayModelInfo, loadModelInfo, type ModelInfo, type Rates } from "./account/model-info.js";
+import { Attachments } from "./attachments/service.js";
+import { acceptsImages } from "./llm/client.js";
 import { loadQualitySnapshot } from "./account/model-quality.js";
 import { MediaService, pickDefault } from "./tools/media/index.js";
 import { SearchService, loadWebSearch, saveWebSearch, type SearchProvider, type WebSearchSettings, type WebSearchView } from "./tools/search.js";
@@ -234,6 +236,8 @@ export class App {
   readonly skillInstalls: SkillInstalls;
   /** 对话里「存成技能」的草稿卡：确认后存进「我的技能」（skills/drafts.ts、skills/mine.ts） */
   readonly skillDrafts: SkillDrafts;
+  /** 网页对话的消息附件（粘贴图片、拖入文件）的受管副本 */
+  readonly attachments: Attachments;
   web: WebServer | undefined;
   private catalogSweep: NodeJS.Timeout | undefined;
   desktop: DesktopHooks | undefined;
@@ -276,6 +280,7 @@ export class App {
     const freshData = !fs.existsSync(path.join(config.dataDir, "anymodel.db"));
     this.store = new Store(path.join(config.dataDir, "anymodel.db"));
     this.cuPermissions.bindStore(this.store);
+    this.attachments = new Attachments(this.store, path.join(config.dataDir, "attachments"));
     // "更新了什么"：全新安装第一次启动不弹，直接记成当前版本；升级上来的（库已经在）还没有记录时弹一次这一版
     if (freshData && !this.store.getKV(WHATS_NEW_SEEN) && appVersion()) this.store.setKV(WHATS_NEW_SEEN, appVersion());
     // 旧版仅有默认会话的库仍需补齐默认机器人；用户删光机器人时会话也已删除，不重新创建。
@@ -353,7 +358,7 @@ export class App {
       apiInfo: async (model) => {
         if (!this.magpie) return undefined;
         const info = await this.infoOf(model);
-        return info && { endpoints: info.endpoints, reasoning: info.reasoning };
+        return info && { endpoints: info.endpoints, reasoning: info.reasoning, vision: info.vision };
       },
       effort: () => this.config.llm.reasoningEffort,
       // 服务端压缩：价格目录列出压缩端点只是提示，bridge 用之前会探测
@@ -496,7 +501,32 @@ export class App {
       recoverKey: () => (this.account?.signedIn ? this.account.repairKeys(15_000) : Promise.resolve(false)),
       skillInstalls: this.skillInstalls,
       skillDrafts: this.skillDrafts,
+      vision: (model) => this.visionOf(model),
+      attachments: this.attachments,
     });
+  }
+
+  /**
+   * 这个模型看不看图，三态：模型资料明确写了的照资料（supported / unsupported）；没有资料时按模型名判断，
+   * 认得出的算 supported，认不出的是 unknown（不拿私人图片去试探）。附件核验、输入框提示和实际请求都用这一个结果。
+   * 只填了官方 Key 时资料来自本机网关的模型目录，不为这件事访问 Modelflare（见 modelInfo）。
+   */
+  async visionOf(model: string): Promise<"supported" | "unsupported" | "unknown"> {
+    const known = this.magpie ? await Promise.race([this.infoOf(model).catch(() => undefined), new Promise<undefined>((r) => setTimeout(() => r(undefined), 3000).unref?.())]) : undefined;
+    if (known?.vision !== undefined) return known.vision ? "supported" : "unsupported";
+    return acceptsImages(model) ? "supported" : "unknown";
+  }
+
+  /** 模型资料里的上下文长度（tokens）；没有可信资料返回 undefined（附件按保守预算核算） */
+  async contextOf(model: string): Promise<number | undefined> {
+    if (!this.magpie) return undefined;
+    const info = await Promise.race([this.infoOf(model).catch(() => undefined), new Promise<undefined>((r) => setTimeout(() => r(undefined), 3000).unref?.())]);
+    return Number(info?.context) > 0 ? Number(info!.context) : undefined;
+  }
+
+  /** 这个机器人现在能不能把图片本身交给模型：代理进程的图片输入关着时（Linux 桌面版、带图回合崩过）是 closed */
+  imageChannel(botId: string): "open" | "closed" {
+    return this.agent.available && !this.agent.host(botId).imageInput ? "closed" : "open";
   }
 
   /** 渠道登录过期了（微信 -14）："需要你"里一行，去重新扫码 */
@@ -819,6 +849,7 @@ export class App {
     // 「我的技能」保留（保存它的机器人删了也留着），只从打开名单里去掉
     this.userSkills.mine.dropBot(botId);
     this.skillDrafts.dropBot(botId);
+    this.attachments.dropBot(botId);
     if (bot?.settings.budget.enabled && this.account.signedIn) {
       await this.account.setBotBudget(botId, bot.name, { ...bot.settings.budget, enabled: false }).catch((e) => log.warn("remove bot key failed", { message: (e as Error).message }));
     }
@@ -896,6 +927,7 @@ export class App {
     this.agent.start();
     this.skillInstalls.start();
     this.skillDrafts.start();
+    this.attachments.start();
     this.cuPermissions.start((botId, pending) => this.runtime.resumePermission(botId, pending));
     this.apps.start();
     this.ensureAccount();
@@ -988,6 +1020,7 @@ export class App {
 
   async stop(): Promise<void> {
     this.cuPermissions.stop();
+    this.attachments.stop();
     this.skillInstalls.stop();
     this.skillDrafts.stop();
     this.catalog.stop();

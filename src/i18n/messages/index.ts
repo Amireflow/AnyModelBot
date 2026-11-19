@@ -28,5 +28,6 @@ import * as mySkills from "./mySkills.js";
 import * as aboutMe from "./aboutMe.js";
 import * as collab from "./collab.js";
 import * as feedback from "./feedback.js";
+import * as attachments from "./attachments.js";
 
-export const catalogs = { aboutMe, collab, feedback, connections, apps, skills, mySkills, web, desktop, app, diag, modelflare, official, account, magpie, channel, runtime, agent, approvals, media, cu, pwsh, activity, tasks, access, delivery, cli, rules };
+export const catalogs = { attachments, aboutMe, collab, feedback, connections, apps, skills, mySkills, web, desktop, app, diag, modelflare, official, account, magpie, channel, runtime, agent, approvals, media, cu, pwsh, activity, tasks, access, delivery, cli, rules };

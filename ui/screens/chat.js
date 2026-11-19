@@ -14,7 +14,7 @@ import { ActivityLine, currentStep, upsertStep } from "../components/activity.js
 import { TaskChip } from "../components/tasks.js";
 import { DeliveredFiles } from "../components/files.js";
 import { Welcome, GuideCompletion, MediaDemo, OfficialGuideNotice } from "../components/guide.js";
-import { CuPermissionCard } from "../components/cu-permission.js";
+import { CuPermissionCard, permissionState } from "../components/cu-permission.js";
 import { RuleCard, RuleSource, useRuleActions } from "../components/rules.js";
 import { api, attachChat, streamChat } from "../lib/api.js";
 import { confirmSheet, failed, toast, useStore } from "../lib/store.js";
@@ -33,6 +33,8 @@ import { openSkillDetail } from "../lib/my-skills.js";
 import { AboutMeNotes, aboutMeByItem } from "../components/about-me.js";
 import { CollabItem, collabByItem, useCollabView } from "../components/collab.js";
 import { botById, replyAfter } from "../lib/collab.js";
+import { addFiles, clearDraft, draftStore, droppedFiles, isFileDrag, newMessageId, notify as attachNotify, querySend, refresh as refreshAttachments, sendCheck, setSending, setUnknown, settleSent, submit as submitAttachments, useDraft } from "../lib/attachments.js";
+import { DropOverlay, ImageLightbox, SentAttachments } from "../components/attachments.js";
 
 const NEAR_BOTTOM = 80;
 let seq = 0;
@@ -47,7 +49,7 @@ function toItems(messages) {
   return messages.map((m) =>
     m.role === "assistant" && isError(m.content)
       ? { kind: "error", id: "m" + m.id, mid: m.id, text: errText(m.content), at: m.createdAt, steps: m.steps, used: m.used, interim: m.interim, files: m.files, ruleSource: m.ruleSource, permissionWait: m.permissionWait }
-      : { kind: "msg", id: "m" + m.id, mid: m.id, role: m.role === "user" ? "user" : "assistant", text: m.content, at: m.createdAt, steps: m.steps, used: m.used, interim: m.interim, files: m.files, ruleSource: m.ruleSource, permissionWait: m.permissionWait },
+      : { kind: "msg", id: "m" + m.id, mid: m.id, role: m.role === "user" ? "user" : "assistant", text: m.content, at: m.createdAt, steps: m.steps, used: m.used, interim: m.interim, files: m.files, ruleSource: m.ruleSource, permissionWait: m.permissionWait, attachments: m.attachments },
   );
 }
 
@@ -87,6 +89,17 @@ export function withDividers(list, times = []) {
 export const freshConversation = (list) => {
   const last = (list || []).filter((x) => x.kind !== "prompt").at(-1);
   return !last || last.kind === "divider";
+};
+
+const squash = (s) => String(s || "").replace(/[\s「」“”"']/g, ""); // i18n-ignore
+const DESKTOP_DENIED_ZH = "无法访问桌面上的文件。请在系统设置里允许 AnyModelBot 访问桌面，然后再试一次。"; // i18n-ignore
+/**
+ * 回复里说的是「系统禁止访问桌面」那一句（机器人按提示词原样说，界面语言或中文）：下面给一个打开系统设置对应页面的入口。
+ * 这和电脑操作的「辅助功能」「屏幕录制」是两回事，不出那张授权卡。
+ */
+export const saysDesktopDenied = (text) => {
+  const body = squash(text);
+  return !!body && (body.includes(squash(t("firstUse.cu.desktopDenied"))) || body.includes(squash(DESKTOP_DENIED_ZH)));
 };
 
 /** 回复显示的全文：模型在回合中间说的话在前，按说的顺序，最后的回复接着（最后没再说话时回复就是中间说的最后一句，不重复） */
@@ -313,7 +326,13 @@ function usedSummaryNodes(items, name) {
  * 用户消息：界面按钮发给目录 Bot 的 "[ui-action] {json}" 不给人看 JSON（第 9 项），显示附带的说明，
  * 没有说明时显示"在界面上操作"。复制的仍是原文（Bot 按原文执行，内部上下文不丢）。
  */
-function userMessage(it) {
+function userMessage(it, botId, ta, onLoad) {
+  // 附件在正文气泡上方、同一组右对齐；只有附件时不造一个空的文字气泡
+  if (it.attachments?.length) {
+    return html`<${SentAttachments} botId=${botId} list=${it.attachments} fallback=${ta} onLoad=${onLoad} />
+      ${it.text && html`<div class="msg"><${Linkified} text=${it.text} /></div>`}
+      ${it.text ? html`<${MsgActions} text=${it.text} at=${it.at} />` : html`<div class="msg-actions">${it.at && html`<span class="when num">${fmtClock(it.at)}</span>`}</div>`}`;
+  }
   const ua = uiActionOf(it.text);
   if (!ua) return html`<div class="msg"><${Linkified} text=${it.text} /></div><${MsgActions} text=${it.text} at=${it.at} />`;
   return html`<div class="msg">${ua.text ? html`<${Linkified} text=${ua.text} />` : html`<span class="tone-muted">${t("firstUse.errors.uiAction")}</span>`}</div><${MsgActions} text=${ua.text || it.text} at=${it.at} />`;
@@ -354,8 +373,9 @@ export function ErrorNotice({ text, onRetry, onFixKey, onSwitchModel, source = "
   };
   const details = kind !== "unfinished" || e.raw;
   const detailText = redact(text);
-  // 反馈这条报错（components/feedback.js）：带上去掉凭据的报错和 Request ID。有"错误详情"时放在复制旁边，没有时放在操作按钮最后
-  const reportButton = html`<button type="button" class="btn sm ghost" aria-haspopup="dialog" onClick=${() => openFeedback({ kind: "bug", errorText: detailText, relatedRequestId: e.requestId })}>${t("feedback.reportError")}</button>`;
+  // 反馈这条报错（components/feedback.js）：打开"遇到问题"，可选附带去掉凭据的报错和 Request ID（本人可以在发送前移除）。
+  // 不带模型：这里认不出出错那次用的是哪个模型，不能拿默认模型代替。有"错误详情"时放在复制旁边，没有时放在操作按钮最后
+  const reportButton = html`<button type="button" class="btn sm ghost" aria-haspopup="dialog" onClick=${() => openFeedback({ source: "error_card", errorText: detailText, relatedRequestId: e.requestId })}>${t("feedback.reportError")}</button>`;
   const detail = details && html`<details class="err-details">
       <summary>${t("firstUse.errors.details")}</summary>
       ${(e.status || e.requestId) && html`<div class="err-meta">${e.status ? html`<span>${t("firstUse.errors.status", { status: e.status })}</span>` : ""}${e.requestId ? html`<span>Request ID: <code>${e.requestId}</code></span>` : ""}</div>`}
@@ -419,6 +439,13 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
   const reloadAfter = useRef(false);
   // 开始新对话（新建按钮、加号菜单、手动输入 /new）：正在请求；回复进行中手动输入的 /new 排到回复结束后
   const [newBusy, setNewBusy] = useState(false);
+  // macOS 桌面版才有系统设置的入口（其他系统不展示）
+  const systemPerms = useStore(permissionState);
+  // —— 附件：当前输入里的待发附件、拖入遮罩、带附件消息的发送（受理不明时只查原请求） ——
+  const draft = useDraft(bot.id);
+  const [dragging, setDragging] = useState(false);
+  const dragState = useRef({ cancelled: false, last: 0 });
+  const sendingAtt = useRef(false);
   const newQueued = useRef(false);
   // 对话底部的轻提示（已经是新对话了、代理没有启用、没能开始新对话）：几秒后自己消失
   const [hint, setHint] = useState(null);
@@ -726,6 +753,8 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
       const r = await api(`/bots/${encodeURIComponent(bot.id)}/chat/new`, { method: "POST", body: {} });
       if (!mounted.current) return;
       if (r.status === "started") {
+        // 新对话不带上一段没发出的附件
+        clearDraft(bot.id);
         stick.current = true;
         setUnseen(false);
         setItems((l) => [...(l || []), { kind: "divider", id: `d${r.at}`, at: r.at, enter: true }]);
@@ -740,8 +769,124 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
     }
   };
 
+  /**
+   * 带附件的消息（用的还是原来的发送按钮）：冻结这一刻的文字和有序的内容版本，交给服务端原子受理；只有受理了才出现一条消息、
+   * 清掉这次发出的输入（等待期间新打的字不动）。没受理时文字和附件原位保留，只给一句原因。
+   * 断线、结果不明时保留输入并提示，之后只查同一个请求：确认受理就显示原消息，确认未受理才放开原发送按钮，不自动重发。
+   */
+  const accepted = (r, sentText, cids) => {
+    settleSent(bot.id, cids);
+    // 等待期间又打了字：只去掉已经发出去的那一段
+    setText((cur) => (cur.trim() === sentText ? "" : cur.startsWith(sentText) ? cur.slice(sentText.length).replace(/^\s+/, "") : cur));
+    requestAnimationFrame(() => autoGrow(ta.current));
+    consumeWelcome();
+    sentOnce.current = true;
+    stick.current = true;
+    history.clear();
+    // 历史里已经有这条用户消息（带附件）；接上它的回合
+    void load();
+  };
+  const sendWithAttachments = async (msg) => {
+    if (sendingAtt.current) return;
+    const check = sendCheck(draftStore(bot.id).get(), { text: msg, generating: generating || !!following.current });
+    if (check.blocked) return attachNotify(bot.id, check.blocked);
+    sendingAtt.current = true;
+    setSending(bot.id, true);
+    const clientMessageId = newMessageId();
+    try {
+      const r = await submitAttachments(bot.id, msg, clientMessageId);
+      if (!mounted.current) return;
+      if (r.ok) return accepted(r.receipt, msg, r.cids);
+      if (r.unknown) {
+        setUnknown(bot.id, { clientMessageId, text: msg, cids: r.cids });
+        return;
+      }
+      attachNotify(bot.id, r.code);
+    } finally {
+      sendingAtt.current = false;
+      setSending(bot.id, false);
+    }
+  };
+  // 结果不明：每 2 秒查一次原请求，期间不能再发
+  useEffect(() => {
+    const u = draft.unknown;
+    if (!u) return;
+    let alive = true;
+    const tick = async () => {
+      const r = await querySend(bot.id, u.clientMessageId);
+      if (!alive || !mounted.current) return;
+      if (r.status === "accepted") return accepted(r.receipt, u.text, u.cids);
+      if (r.status === "none") {
+        // 确认没有受理：输入原样留着，条件允许后点原发送按钮
+        setUnknown(bot.id, null);
+        void refreshAttachments(bot.id);
+        attachNotify(bot.id, "network");
+      }
+    };
+    const timer = setInterval(tick, 2000);
+    void tick();
+    return () => { alive = false; clearInterval(timer); };
+  }, [draft.unknown?.clientMessageId]);
+  // 服务连不上时隔几秒再读一次能力，连上了提示自己消失
+  useEffect(() => {
+    if (!draft.offline) return;
+    const timer = setInterval(() => void refreshAttachments(bot.id), 5000);
+    return () => clearInterval(timer);
+  }, [draft.offline]);
+
+  // —— 拖入真实的系统文件：对话主区都能放，输入框高亮成落点；松开前不读文件、不发送 ——
+  const onDragEnter = (e) => {
+    if (!isFileDrag(e.dataTransfer)) return;
+    const d = dragState.current;
+    // 隔了一阵没有拖动事件：是新的一次拖动，上一次按 Esc 的取消不再算数
+    if (Date.now() - d.last > 1500) d.cancelled = false;
+    d.last = Date.now();
+    if (!d.cancelled) setDragging(true);
+  };
+  const onDragOver = (e) => {
+    if (!isFileDrag(e.dataTransfer)) return;
+    e.preventDefault();
+    dragState.current.last = Date.now();
+    e.dataTransfer.dropEffect = dragState.current.cancelled ? "none" : "copy";
+  };
+  const onDragLeave = (e) => {
+    // 经过内部子节点不算离开；拖出主区或窗口才收起
+    if (e.currentTarget.contains(e.relatedTarget)) return;
+    setDragging(false);
+  };
+  const onDrop = (e) => {
+    if (!isFileDrag(e.dataTransfer)) return;
+    e.preventDefault();
+    const cancelled = dragState.current.cancelled;
+    dragState.current = { cancelled: false, last: 0 };
+    setDragging(false);
+    if (cancelled) return;
+    const { files, hasDir } = droppedFiles(e.dataTransfer);
+    // 目录不展开、不递归：整批不加
+    if (hasDir || !files.length) return attachNotify(bot.id, hasDir ? "format" : "unreadable");
+    void addFiles(bot.id, files);
+    requestAnimationFrame(() => ta.current?.focus());
+  };
+  useEffect(() => {
+    if (!dragging) return;
+    // Esc 取消这一次拖动：收起遮罩，直到这次拖动结束都不再唤起
+    const key = (e) => {
+      if (e.key !== "Escape") return;
+      dragState.current.cancelled = true;
+      setDragging(false);
+    };
+    const end = () => setDragging(false);
+    window.addEventListener("keydown", key, true);
+    window.addEventListener("dragend", end);
+    window.addEventListener("blur", end);
+    return () => { window.removeEventListener("keydown", key, true); window.removeEventListener("dragend", end); window.removeEventListener("blur", end); };
+  }, [dragging]);
+
   const send = async (raw) => {
     const msg = (raw ?? text).trim();
+    // 当前输入里有附件：走带附件的发送（不当命令、不并进正在进行的回复、不排队）
+    if (raw === undefined && draftStore(bot.id).get().items.length) return sendWithAttachments(msg);
+    if (raw === undefined && draftStore(bot.id).get().unknown) return attachNotify(bot.id, "unknown");
     if (msg) { history.clear(); setFindOpen(false); }
     // 手动输入的 /new（后面的文字忽略）和新建按钮一样；回复进行中时排到回复结束后立即开始
     if (/^\/new(\s|$)/i.test(msg)) {
@@ -904,13 +1049,14 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
         const shown = it.permissionWait ? "" : it.role === "user" ? it.text : shownText(it);
         out.push(html`<div class=${`${cls}${it.id === lastAi ? " last" : ""}`} data-message-id=${it.mid} key=${it.id}>
           ${it.role === "user"
-            ? userMessage(it)
+            ? userMessage(it, bot.id, ta, onMedia)
             : html`${co.before.has(it.id) && html`<div class="collab-lines">${coItems(co.before.get(it.id))}</div>`}
               ${(it.live || it.workedMs || it.steps) && html`<${WorkLine} live=${it.live} stopping=${it.live && stopping} text=${it.text} startedAt=${it.startedAt} workedMs=${it.workedMs}
                 steps=${it.activity} count=${it.steps} used=${it.used} botId=${bot.id} load=${it.mid ? loadActivity(it.mid) : undefined} />`}
               ${it.permissionWait && html`<${CuPermissionCard} botId=${bot.id} messageId=${it.mid} />`}
               ${it.ruleSource && html`<${RuleSource} source=${it.ruleSource} botId=${bot.id} />`}
               ${shown && html`<div class="msg"><${Markdown} text=${shown} conv=${convId.current || `${bot.id}:web:console`} canOpen=${canOpen} /></div>`}
+              ${!it.live && systemPerms?.supported && saysDesktopDenied(shown) && html`<div class="folder-denied"><button type="button" class="btn sm" onClick=${() => api("/computer-use/permissions/open", { method: "POST", body: { kind: "files" } }).catch(failed)}>${t("firstUse.cu.openSettings")}</button></div>`}
               ${files(it)}
               ${chips(it)}
               <${AboutMeNotes} list=${notes.get(it.id)} onChanged=${loadAboutMe} />
@@ -938,7 +1084,7 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
       prev = it;
     }
     return out;
-  }, [items, history.context, generating, stopping, chipsAfter, lang, canOpen, ruleActions, aboutMe, collab]);
+  }, [items, history.context, generating, stopping, chipsAfter, lang, canOpen, ruleActions, aboutMe, collab, systemPerms?.supported]);
 
   // 经 ctl 交来的话（专业 Bot 界面上的操作、还没有实例时发的第一句）：历史还没读到时先记着，读到后再发——
   // 否则先发出去的这一轮会被随后到的历史整个换掉（回复很快出错时连提示都没了）
@@ -971,7 +1117,8 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
   const replying = generating && (items || []).some((x) => x.live && x.text);
   const face = pending > 0 ? "waiting" : generating ? (replying ? "replying" : "thinking") : text.trim() ? "listening" : "idle";
   const toBottomBtn = usePresence(!atBottom);
-  return html`<section class=${`chat${scrolled ? " scrolled" : ""}${findOpen || history.context || history.loading || history.error ? " has-chat-tools" : ""}`} data-screen="chat" aria-label=${t("chat.aria", { name: bot.name })}>
+  return html`<section class=${`chat${scrolled ? " scrolled" : ""}${findOpen || history.context || history.loading || history.error ? " has-chat-tools" : ""}${dragging ? " dropping" : ""}`} data-screen="chat" data-drop-zone aria-label=${t("chat.aria", { name: bot.name })}
+    onDragEnter=${onDragEnter} onDragOver=${onDragOver} onDragLeave=${onDragLeave} onDrop=${onDrop}>
     <header class="chat-head">
       ${onBackToSearch && html`<${IconButton} icon="chevLeft" label=${t("search.backResults")} onClick=${onBackToSearch} />`}
       <button type="button" class="head-bot bot-hover" data-guide="info" aria-pressed=${infoOpen} title=${t("chat.infoPanel")} onClick=${onToggleInfo}>
@@ -1014,8 +1161,10 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
     </div>
     ${toBottomBtn.mounted && html`<button type="button" class=${`to-bottom${toBottomBtn.leaving ? " leaving" : ""}`} aria-label=${t("chat.toBottom")} onClick=${toBottom}><${Icon} name="down" size="md" />${unseen && html`<span class="new"></span>`}</button>`}
     ${hint && html`<div class="chat-hint" role="status" key=${hint.text}>${hint.text}</div>`}
+    ${dragging && html`<${DropOverlay} limits=${draft.server?.limits} />`}
+    <${ImageLightbox} />
     <div class="composer-dock">
-      <${Composer} bot=${bot} text=${text} setText=${setText} taRef=${ta} ctl=${composer} guide steer onNewConversation=${newConversation}
+      <${Composer} bot=${bot} text=${text} setText=${setText} taRef=${ta} ctl=${composer} guide steer onNewConversation=${newConversation} attachments dragging=${dragging}
         placeholder=${t("chat.composer.placeholder", { name: bot.name })} label=${t("chat.composer.label")}
         generating=${generating} stopping=${stopping} sent=${sentOnce.current} onSend=${send} onStop=${stop}
         models=${models} modelsError=${modelsError} reloadModels=${reloadModels} defaultModel=${defaultModel} account=${account} onAccount=${onAccount}

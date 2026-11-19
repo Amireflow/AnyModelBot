@@ -286,7 +286,7 @@ export function TroubleshootPane({ bots, desktop }) {
       <span>${t("troubleshoot.logs.title")}</span><span class="t-meta">${logs ? t("troubleshoot.logs.lines", { count: logs.lines.length }) : ""}</span><span class="grow"></span>
       <${Button} size="sm" icon="refresh" onClick=${loadLogs}>${t("common.refresh")}<//>
       <${Button} size="sm" icon="copy" loading=${busy === "copy"} disabled=${!!busy && busy !== "copy"} onClick=${copy}>${t("troubleshoot.copyReport")}<//>
-      <${Button} size="sm" icon="chat" aria-haspopup="dialog" onClick=${() => openFeedback({ kind: "bug", includeDiagnostics: true })}>${t("feedback.reportProblem")}<//>
+      <${Button} size="sm" icon="chat" aria-haspopup="dialog" onClick=${() => openFeedback({ source: "troubleshooting" })}>${t("feedback.reportProblem")}<//>
     </div>
     <pre class="ts-log" ref=${logRef} tabindex="0" aria-label=${t("troubleshoot.logs.title")}>${logs ? logs.lines.join("\n") || t("troubleshoot.logs.empty") : t("common.loading")}</pre>
     <p class="ts-note">${t("troubleshoot.note")}</p>

@@ -60,7 +60,7 @@ Conversas, memória, arquivos e chaves de API ficam no seu dispositivo. Os model
 
 Pronto para usar logo após a instalação: tarefas em segundo plano, regras agendadas e os itens que aguardam o seu OK já vêm integrados.
 
-**0.1.42:** envie problemas e sugestões pelo próprio app: com login no Modelflare, viram um chamado de suporte e as respostas chegam ao seu e-mail; aberto a partir de um erro, esse erro vai junto. [Registro de alterações](./CHANGELOG_pt.md#0142---2026-11-18)
+**0.1.43:** entregue imagens e arquivos direto a um bot: cole uma captura de tela ou arraste imagens e arquivos Markdown, HTML ou TXT para a conversa e envie com a mensagem; "Feedback" agora é "Solicitações e feedback". [Registro de alterações](./CHANGELOG_pt.md#0143---2026-11-20)
 
 📥 [Baixar](#-baixar-e-executar) · 🌠 [Capturas de tela](#-capturas-de-tela) · 🌟 [Recursos](#-principais-recursos) · 🆚 [Comparação](#-anymodelbot-vs-grok-bot-openai-dots-e-claude-duet) · 🔐 [Privacidade](#-como-funciona-e-privacidade)
 
@@ -405,7 +405,7 @@ Licenças e avisos completos: [THIRD_PARTY_NOTICES_pt.md](./THIRD_PARTY_NOTICES_
 
 - **Perguntas e ideias:** [GitHub Discussions](https://github.com/modelflare-ai/AnyModelBot/discussions)
 - **Bugs e pedidos de recursos:** [GitHub Issues](https://github.com/modelflare-ai/AnyModelBot/issues)
-- **Feedback pelo app:** menu da conta → Feedback (com login no Modelflare, vira um chamado de suporte na sua conta)
+- **Solicitações e feedback:** menu da conta → Solicitações e feedback (casos de uso e ideias, problemas, empresas e parcerias; com login no Modelflare, vira um ticket privado na sua conta, com contato só se você aceitar)
 - **Chat com a comunidade:** [Discord](https://discord.gg/umBN6wX3zJ) · [Telegram](https://t.me/+Tx6Payfzxqk2ZGVl)
 - **E-mail:** [support@anymodel.bot](mailto:support@anymodel.bot)
 - **Novidades do Modelflare:** [@modelflare_dev no X](https://x.com/modelflare_dev)

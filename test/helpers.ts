@@ -343,10 +343,20 @@ export async function mockModelflare() {
     keyLists: 0,
     /** 设了就在令牌响应里带 ID Token（sub = 它） */
     subject: "" as string,
-    /** 收到的应用内反馈（POST /feedback 的请求体） */
+    /** 存下的需求与反馈（schema 2 的请求体，按提交 ID 幂等：同 ID 同载荷不重复建单） */
     feedback: [] as Array<Record<string, unknown>>,
-    /** POST /feedback 的响应：200 = 收下并回执；429 = 当天次数用完（和真实服务端一样没有正文）；404 = 旧版服务端没有这个接口 */
-    feedbackStatus: 200 as 200 | 429 | 404,
+    /** 收到的 POST /feedback 次数（含重放、失败） */
+    feedbackPosts: 0,
+    /** 工单服务版本：v2 = 有能力接口和 schema 2；v1 = 旧版（能力接口 404） */
+    feedbackServer: "v2" as "v1" | "v2",
+    /** 能力接口里当前身份已有的账号邮箱；空串 = 没有 */
+    feedbackEmail: "ada@example.com",
+    /**
+     * 接下来几次 POST /feedback 怎么回（按顺序取，用完按正常处理）：
+     * 429 当天次数用完 · html200 返回网页 · 500 · 202 处理中 · hang 不回（让客户端超时）·
+     * store-then-hang 先入库再不回（建单后断网）· badurl 回执里的工单地址不是官方地址
+     */
+    feedbackNext: [] as Array<"429" | "html200" | "500" | "202" | "hang" | "store-then-hang" | "badurl">,
   };
   let base = "";
   let n = 0;
@@ -406,12 +416,45 @@ export async function mockModelflare() {
       const token = String(req.headers.authorization ?? "").replace(/^Bearer /, "");
       if (s.revokeAll || !s.access.has(token)) return json({ error: "invalid_token" }, 401);
       const p = u.pathname.slice("/api/connected-app".length);
+      const receipt = (b: Record<string, unknown>, replayed: boolean, url = "") => {
+        const id = 40 + s.feedback.indexOf(b) + 1;
+        const topic = b.ticket_type === "use_case" ? "suggestion" : b.ticket_type;
+        return { schema_version: 2, stored_schema_version: 2, client_submission_id: b.client_submission_id, status: "created", ticket_id: id, topic, support_url: url || `https://modelflare.dev/support-tickets?ticket_id=${id}`, replayed };
+      };
+      if (p === "/feedback/capabilities" && req.method === "GET") {
+        if (s.feedbackServer === "v1") return res.writeHead(404).end();
+        return json({ success: true, data: {
+          supported_schema_versions: [1, 2],
+          features: { structured_fields: true, idempotency: true, submission_lookup: true },
+          limits: { description_min: 10, input_max: 4000, body_max: 7800, daily_limit: 3 },
+          contact_policy_version: "2026-11-19",
+          contact_identity: { email_available: !!s.feedbackEmail, identity_revision: `rev-${s.feedbackEmail || "none"}`, ...(s.feedbackEmail ? { email: s.feedbackEmail } : {}) },
+        } });
+      }
+      const lookup = p.match(/^\/feedback\/submissions\/([^/]+)$/);
+      if (lookup && req.method === "GET") {
+        const found = s.feedback.find((f) => f.client_submission_id === lookup[1]);
+        return json({ success: true, data: found ? receipt(found, true) : { schema_version: 2, stored_schema_version: 2, client_submission_id: lookup[1], status: "not_found" } });
+      }
       if (p === "/feedback" && req.method === "POST") {
-        if (s.feedbackStatus !== 200) return res.writeHead(s.feedbackStatus).end();
+        s.feedbackPosts++;
+        const mode = s.feedbackNext.shift();
         const b = await readJson(req);
+        if (mode === "429") return json({ success: false, code: "DAILY_TICKET_LIMIT", message_key: "feedback.daily_limit" }, 429);
+        if (mode === "html200") return res.writeHead(200, { "content-type": "text/html" }).end("<html><body>ok</body></html>");
+        if (mode === "500") return json({ success: false, message: "boom" }, 500);
+        if (mode === "202") return json({ success: true, data: { status: "processing" } }, 202);
+        if (mode === "hang") return void setTimeout(() => res.destroy(), 400);
+        const existing = s.feedback.find((f) => f.client_submission_id === b.client_submission_id);
+        if (existing) {
+          if (JSON.stringify(existing) !== JSON.stringify(b)) return json({ success: false, code: "SUBMISSION_CONFLICT", field: "client_submission_id" }, 409);
+          return json({ success: true, data: receipt(existing, true) });
+        }
+        const c = b.contact as { consent?: boolean; channel?: string; identity_revision?: string } | undefined;
+        if (c?.consent && c.channel === "account_email" && c.identity_revision !== `rev-${s.feedbackEmail || "none"}`) return json({ success: false, code: "CONTACT_IDENTITY_CHANGED", field: "contact.identity_revision" }, 409);
         s.feedback.push(b);
-        const topic = b.kind === "suggestion" ? "suggestion" : b.kind === "other" ? "other" : "bug";
-        return json({ success: true, data: { ticket_id: 40 + s.feedback.length, topic, support_url: `${base}/support-tickets?ticket_id=${40 + s.feedback.length}` } });
+        if (mode === "store-then-hang") return void setTimeout(() => res.destroy(), 400);
+        return json({ success: true, data: receipt(b, false, mode === "badurl" ? "https://modelflare.dev.example.com/support-tickets?ticket_id=1" : "") }, 201);
       }
       if (p === "/account" && s.accountFail) return json({ success: false, message: "account unavailable" }, 500);
       if (p === "/account") return json({ success: true, data: { display_name: "Ada", username: "ada", group: "default", balance_usd: s.balance, used_usd: 3, billed_to_enterprise: false, quota_per_unit: 500000, ...(s.bot !== undefined ? { bot: s.bot } : {}) } });
