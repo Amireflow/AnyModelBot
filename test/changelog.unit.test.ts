@@ -18,8 +18,11 @@ describe("更新日志", () => {
 
   it("当前版本中英文都写了；发布说明中文在前", () => {
     const notes = execFileSync(process.execPath, ["scripts/release-notes.mjs", version], { encoding: "utf8" });
-    expect(notes).toContain("### 新增");
-    expect(notes.indexOf("### 新增")).toBeLessThan(notes.indexOf("### New"));
+    // 只修问题的版本没有「新增」，只有「改进与修复」：两种小节认哪个都行
+    const zh = notes.search(/^### (新增|改进与修复)$/m);
+    const en = notes.search(/^### (New|Improvements and fixes)$/m);
+    expect(zh).toBeGreaterThanOrEqual(0);
+    expect(en).toBeGreaterThan(zh);
   });
 
   it("这个版本没写更新日志：脚本失败，发布流程开始就停下", () => {
