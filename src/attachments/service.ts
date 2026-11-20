@@ -4,7 +4,7 @@
  * - 副本在运行机器人的这台设备上（数据目录的 attachments/，随机文件名，不带原名和扩展名）；不写进文档素材存储，
  *   也不进机器人工作区。之后只读这份快照，不再沿原路径取文件。
  * - 归属按机器人 + 会话 + 对话分段；别的机器人、别的分段用不了。没发出的最长留 24 小时，随消息发出的留 30 天。
- * - 图片：服务端按文件头核对真实格式、尺寸、动画；规范化（纠正方向、去元信息、缩到 4096）由界面解码后交来，
+ * - 图片：服务端按文件头认真实格式（扩展名写错的照收）、尺寸、动画；规范化（纠正方向、去元信息、缩到 4096）由界面解码后交来，
  *   服务端再核对它是合法的 PNG / JPEG、尺寸与原图成比例，并去掉残留的元信息块。给模型的、预览的都是这一份。
  * - 文本：在这里完整解码（UTF-8 / 带 BOM 的 UTF-16），存成 UTF-8；只当资料读，不执行、不渲染、不联网。
  * - 日志只记 id、类型、字节数和错误码，不记正文、文件名和路径。
@@ -260,11 +260,15 @@ export class Attachments {
     if (others + data.length > LIMITS.maxTotalBytes) return this.fail(a, "size");
     if (a.kind === "image") {
       const info = sniffImage(data);
-      if (!info || IMAGE_FORMAT_EXT[info.format].every((e) => e !== a.ext)) return this.fail(a, "format");
-      if (info.animated) return this.fail(a, "imageConvert");
+      // 认不出来（内容不是 PNG / JPEG / WebP / GIF，或文件坏了）和动画一样，回图片那一句提示
+      if (!info || info.animated) return this.fail(a, "imageConvert");
       if (Math.max(info.width, info.height) > LIMITS.maxImageEdge || info.width * info.height > LIMITS.maxImagePixels) return this.fail(a, "size");
       const turned = info.orientation >= 5;
-      this.store.db.prepare("UPDATE attachments SET status = 'rendition', bytes = ?, orig_width = ?, orig_height = ? WHERE id = ?").run(data.length, turned ? info.height : info.width, turned ? info.width : info.height, a.id);
+      // 扩展名和真实内容对不上（.jpg 里其实是 PNG / WebP，网页另存、聊天软件导出的图常这样）照收：以文件头为准，
+      // 把真实格式记进 ext，界面按它决定规范化后编码成什么
+      this.store.db
+        .prepare("UPDATE attachments SET status = 'rendition', ext = ?, bytes = ?, orig_width = ?, orig_height = ? WHERE id = ?")
+        .run(IMAGE_FORMAT_EXT[info.format], data.length, turned ? info.height : info.width, turned ? info.width : info.height, a.id);
       this.bump(botId, a.conversationId);
       return this.get(botId, id)!;
     }
@@ -280,10 +284,10 @@ export class Attachments {
     const a = this.waiting(botId, id, "rendition");
     if (!data.length || data.length > LIMITS.maxFileBytes) return this.fail(a, "size");
     const clean = cleanRendition(data);
-    if (!clean) return this.fail(a, "format");
+    if (!clean) return this.fail(a, "imageConvert");
     const want = normalizedSize(a.origWidth, a.origHeight);
     // 不裁剪、不拉伸、不放大：尺寸必须是原图等比缩放的结果（取整差一个像素以内）
-    if (Math.abs(clean.width - want.width) > 1 || Math.abs(clean.height - want.height) > 1) return this.fail(a, "format");
+    if (Math.abs(clean.width - want.width) > 1 || Math.abs(clean.height - want.height) > 1) return this.fail(a, "imageConvert");
     return this.store_(a, clean.data, { bytes: a.bytes, mime: clean.mime, width: clean.width, height: clean.height });
   }
 
@@ -554,7 +558,8 @@ export class Attachments {
   }
 }
 
-const IMAGE_FORMAT_EXT: Record<string, string[]> = { png: ["png"], jpeg: ["jpg", "jpeg"], webp: ["webp"], gif: ["gif"] };
+/** 文件头认出的格式 → 记进 ext 的写法 */
+const IMAGE_FORMAT_EXT: Record<string, string> = { png: "png", jpeg: "jpg", webp: "webp", gif: "gif" };
 
 function toAttachment(r: Row): Attachment {
   return {
@@ -576,6 +581,7 @@ export function publicAttachment(a: Attachment) {
     id: a.id, clientId: a.clientId, batch: a.batch, order: a.order, kind: a.kind,
     name: a.kind === "image" ? "" : a.name,
     size: a.bytes, storedBytes: a.storedBytes, status: a.status, error: a.error, version: a.version, expiresAt: a.expiresAt,
-    ...(a.kind === "image" ? { width: a.width, height: a.height, origWidth: a.origWidth, origHeight: a.origHeight, want: a.origWidth ? normalizedSize(a.origWidth, a.origHeight) : undefined } : { textChars: a.textChars }),
+    // want：规范化后该交来的尺寸，和原图的真实格式（png / jpg / webp / gif，按文件头认的，不看扩展名）
+    ...(a.kind === "image" ? { width: a.width, height: a.height, origWidth: a.origWidth, origHeight: a.origHeight, want: a.origWidth ? { ...normalizedSize(a.origWidth, a.origHeight), format: a.ext } : undefined } : { textChars: a.textChars }),
   };
 }

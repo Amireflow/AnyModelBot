@@ -4,6 +4,14 @@
 
 Uygulamada fark edeceğin değişiklikler burada. Daha eski sürümler için [GitHub sürümlerine](https://github.com/modelflare-ai/AnyModelBot/releases) bak.
 
+## 0.1.44 - 2026-11-20
+
+### İyileştirmeler ve düzeltmeler
+
+- **Görsel ekleri:** bazı görseller sohbete sürüklendiğinde veya yapıştırıldığında desteklenmeyen biçim sayılıp reddediliyordu; artık ekleniyor: uzantısı gerçek biçimiyle uyuşmayan görseller (örneğin .jpg olarak kaydedilmiş bir PNG veya WebP), görselin ardından ek veri taşıyan telefon JPEG'leri ve hareketli fotoğraflar (yalnızca durağan kare kullanılır), ayrıca .jfif veya .jpe uzantılı görseller. Gerçekten eklenemeyen bir görsel için artık Markdown, HTML veya TXT kullanmanız değil, görseli PNG veya JPG'ye dönüştürmeniz istenir.
+- **Önizleme güvenliği:** bir botun ürettiği web sayfasını önizlerken sayfadaki betikler aynı klasördeki diğer dosyaların içeriğini artık okuyamaz (fetch engellenir); stiller, betikler, görseller ve yazı tipleri eskisi gibi yüklenir. JSON gibi veri dosyaları önizlenen sayfalara artık sunulmaz; veriyi HTML'in içine gömün veya betik olarak verin.
+- **Uygulama içi güncelleme:** macOS'te "Yeniden başlat ve güncelle"ye tıkladıktan sonra kurulum sırasında "AnyModelBot bir sorunla karşılaştı" penceresi artık çıkmıyor. Düzeltme 0.1.44'ten itibaren geçerlidir: eski bir sürümden 0.1.44'e güncellerken pencere bir kez daha çıkabilir, güncelleme yine de normal şekilde tamamlanır.
+
 ## 0.1.43 - 2026-11-20
 
 ### Yenilikler

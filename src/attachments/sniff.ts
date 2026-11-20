@@ -15,6 +15,7 @@ export interface ImageInfo {
 }
 
 const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const JPEG_EOI = Buffer.from([0xff, 0xd9]);
 
 export function sniffImage(buf: Buffer): ImageInfo | undefined {
   try {
@@ -62,9 +63,9 @@ function jpeg(buf: Buffer): ImageInfo | undefined {
       const height = buf.readUInt16BE(p + 5);
       const width = buf.readUInt16BE(p + 7);
       if (!width || !height) return undefined;
-      // 结尾要有 EOI（截断的文件不收）
-      const tail = buf.subarray(Math.max(0, buf.length - 64));
-      if (tail.lastIndexOf(Buffer.from([0xff, 0xd9])) < 0) return undefined;
+      // 图像数据后面要有 EOI（截断的文件不收）。不要求它在文件最末尾：手机相机常在 EOI 后追加厂商元数据，
+      // 动态照片后面还拼着一段视频，有的工具会补零对齐——这些都是正常的 JPEG
+      if (buf.indexOf(JPEG_EOI, p + 2 + len) < 0) return undefined;
       return { format: "jpeg", width, height, animated: false, orientation };
     }
     if (marker === 0xda) return undefined;
@@ -192,6 +193,8 @@ export function cleanRendition(buf: Buffer): { data: Buffer; mime: "image/png" |
       return { data: Buffer.concat(parts), mime: "image/png", width: info.width, height: info.height };
     }
     if (info.format === "jpeg") {
+      // 这一份是界面刚编码出来的，EOI 就在末尾：后面不该再拖着别的数据（原图可以，见 jpeg()）
+      if (buf.subarray(Math.max(0, buf.length - 64)).lastIndexOf(JPEG_EOI) < 0) return undefined;
       const parts: Buffer[] = [buf.subarray(0, 2)];
       for (let p = 2; p + 4 <= buf.length; ) {
         if (buf[p] !== 0xff) return undefined;

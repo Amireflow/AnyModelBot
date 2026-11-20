@@ -39,8 +39,8 @@ export const TEXT_TYPES: Readonly<Record<string, string>> = {
   txt: "text", csv: "csv", json: "json", log: "log", yaml: "yaml", yml: "yaml", xml: "xml",
   css: "css", js: "javascript", ts: "typescript", py: "python", sh: "shell", ps1: "powershell", bat: "batch", cmd: "batch",
 };
-/** 直接接收的图片 */
-export const IMAGE_TYPES: Readonly<Record<string, string>> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
+/** 直接接收的图片（jfif / jpe 是 JPEG 的另外两种扩展名，Windows 上的浏览器另存图片时常见） */
+export const IMAGE_TYPES: Readonly<Record<string, string>> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif", jfif: "image/jpeg", jpe: "image/jpeg" };
 /** 要先转成 PNG / JPG 的图片 */
 const IMAGE_CONVERT = new Set(["heic", "heif", "avif", "bmp", "tif", "tiff", "svg", "svgz", "ico", "apng", "jxl", "psd"]);
 
@@ -61,6 +61,7 @@ export const extOf = (name: string): string => {
 /**
  * 按文件名和 MIME 先分一次类（读内容之前的硬条件；真实内容之后由 sniff.ts 再核对）。
  * 剪贴板图片没有可信的名字：MIME 是直接接收的图片类型就算图片。文本允许空 MIME。
+ * 是图片但收不了的一律回 imageConvert（提示转成 PNG / JPG），不回 format——那一句只列了文本格式，会让人以为图片都不支持。
  */
 export function classify(name: string, mime: string): { kind: AttachmentKind; ext: string } | { reject: RejectCode } {
   const ext = extOf(name);
@@ -72,7 +73,8 @@ export function classify(name: string, mime: string): { kind: AttachmentKind; ex
     const hit = Object.entries(IMAGE_TYPES).find(([, m]) => m === type);
     return hit ? { kind: "image", ext: hit[0] } : { reject: "imageConvert" };
   }
-  if (type.startsWith("image/") && !ext) return { reject: "imageConvert" };
+  // 扩展名不在表里、但系统说它是图片（.jp2、相机原片…）
+  if (type.startsWith("image/")) return { reject: "imageConvert" };
   return { reject: "format" };
 }
 

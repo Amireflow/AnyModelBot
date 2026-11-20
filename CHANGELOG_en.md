@@ -4,6 +4,14 @@
 
 This covers changes you'll notice in the app. For older versions, see the [GitHub releases](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.44 - 2026-11-20
+
+### Improvements and fixes
+
+- **Image attachments:** several kinds of images were rejected as an unsupported format when dragged or pasted into a chat and are now accepted: images whose extension does not match their real format (a PNG or WebP saved as .jpg, for example), phone JPEGs with extra data after the image and motion photos (only the still frame is used), and images with a .jfif or .jpe extension. An image that really cannot be added now asks you to convert it to PNG or JPG instead of telling you to use Markdown, HTML or TXT.
+- **Preview security:** when you preview a web page a bot generated, the page's scripts can no longer read the contents of other files in the same folder (fetch is blocked); styles, scripts, images and fonts load as before. Data files such as JSON are no longer served to previewed pages, so inline the data in the HTML or ship it as a script.
+- **In-app updates:** on macOS, the "AnyModelBot ran into a problem" window no longer appears during installation after you click Restart and update. The fix takes effect from 0.1.44 on: the window can still appear once while updating to 0.1.44 from an older version, and the update completes normally.
+
 ## 0.1.43 - 2026-11-20
 
 ### New

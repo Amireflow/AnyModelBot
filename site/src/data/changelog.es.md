@@ -4,6 +4,14 @@
 
 Aquí se recogen los cambios que notarás en la app. Para versiones anteriores, consulta las [versiones publicadas en GitHub](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.44 - 2026-11-20
+
+### Mejoras y correcciones
+
+- **Imágenes adjuntas:** algunas imágenes se rechazaban como formato no compatible al arrastrarlas o pegarlas en el chat y ahora se aceptan: imágenes cuya extensión no coincide con su formato real (por ejemplo, un PNG o WebP guardado como .jpg), JPEG de móvil con datos adicionales después de la imagen y fotos en movimiento (solo se usa la imagen fija), e imágenes con extensión .jfif o .jpe. Si una imagen realmente no se puede añadir, ahora se te pide convertirla a PNG o JPG en lugar de usar Markdown, HTML o TXT.
+- **Seguridad de la vista previa:** al previsualizar una página web generada por un bot, los scripts de la página ya no pueden leer el contenido de otros archivos de la misma carpeta (fetch está bloqueado); los estilos, scripts, imágenes y fuentes se cargan como antes. Los archivos de datos como JSON ya no se sirven a las páginas en vista previa: incluye los datos en el HTML o entrégalos como script.
+- **Actualizaciones en la app:** en macOS, la ventana «AnyModelBot tuvo un problema» ya no aparece durante la instalación tras pulsar «Reiniciar y actualizar». La corrección se aplica a partir de 0.1.44: todavía puede aparecer una vez al actualizar a 0.1.44 desde una versión anterior, y la actualización termina con normalidad.
+
 ## 0.1.43 - 2026-11-20
 
 ### Novedades

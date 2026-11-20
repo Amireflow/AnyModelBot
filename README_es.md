@@ -60,7 +60,7 @@ Las conversaciones, la memoria, los archivos y las claves de API se quedan en tu
 
 Listo para usar desde la instalación: las tareas en segundo plano, las reglas programadas y los asuntos que esperan tu visto bueno ya vienen integrados.
 
-**0.1.43:** pasa imágenes y archivos directamente a un bot: pega una captura o arrastra imágenes y archivos Markdown, HTML o TXT al chat y envíalos con tu mensaje; «Comentarios» pasa a ser «Solicitudes y comentarios». [Historial de cambios](./CHANGELOG_es.md#0143---2026-11-20)
+**0.1.44:** las imágenes que se rechazaban por error como formato no compatible (extensión incorrecta, fotos del móvil, .jfif) ya se pueden añadir al chat; una página web en vista previa ya no puede leer otros archivos de su carpeta. [Historial de cambios](./CHANGELOG_es.md#0144---2026-11-20)
 
 📥 [Descargar](#-descargar-y-ejecutar) · 🌠 [Capturas](#-capturas-de-pantalla) · 🌟 [Funciones](#-funciones-principales) · 🆚 [Comparativa](#-anymodelbot-frente-a-grok-bot-openai-dots-y-claude-duet) · 🔐 [Privacidad](#-cómo-funciona-y-privacidad)
 

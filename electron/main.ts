@@ -37,10 +37,20 @@ let entryUrl = "";
 let quitting = false;
 let stopped = false;
 let stopping: Promise<void> | undefined;
+/** 停掉防睡眠的定时器和电源监听（启动完成后才有）；关库之前调，可以重复调 */
+let stopKeepAwake: (() => void) | undefined;
 
 function stopCore(): Promise<void> {
   if (stopped || !core) return Promise.resolve();
   return stopping ??= core.stop().finally(() => { stopped = true; });
+}
+
+/**
+ * 还能用的 core：开始关闭之后就是 undefined。更新换包时库先关、进程还要活一阵（macOS 上 Squirrel 从本进程拉完安装包才退出），
+ * 这段时间里主进程自己的定时器和系统回调不能再去读数据库（database is not open）。
+ */
+function liveCore(): App | undefined {
+  return stopped || stopping ? undefined : core;
 }
 
 function showUpdates(): void {
@@ -264,9 +274,10 @@ function onAttention(items: AttentionItem[]): void {
   app.setBadgeCount(needsCount);
   if (isWin) win?.setOverlayIcon(needsCount ? overlayDot() : null, needsCount ? `${needsCount} 件事需要你` : "");
   renderTray?.();
-  const fresh = core?.attention.takeNew(items) ?? [];
+  const live = liveCore();
+  const fresh = live?.attention.takeNew(items) ?? [];
   const looking = !!win && win.isVisible() && win.isFocused();
-  if (looking || !fresh.length || !Notification.isSupported() || core?.store.getKV("desktop.notify") !== "true") return;
+  if (looking || !fresh.length || !Notification.isSupported() || live?.store.getKV("desktop.notify") !== "true") return;
   // 一下来好几件时只发最早的两条，其余在「需要你」里
   for (const it of fresh.slice(0, 2)) {
     const n = new Notification({ ...notificationOf(it), icon: windowIconPath() });
@@ -365,6 +376,8 @@ async function boot(): Promise<void> {
       prepareInstall: async () => {
         if (core?.busyForUpdate()) throw new UpdateActionError("busy");
         quitting = true;
+        // before-quit 要等 Squirrel 拉完安装包才来，防睡眠的定时器不能留到那时：库马上就关
+        stopKeepAwake?.();
         await stopCore();
       },
       onReady: (version) => {
@@ -442,7 +455,7 @@ async function boot(): Promise<void> {
     appLink: `${APP_SCHEME}://login-complete`,
     cuPermissions: macPermissions(),
     ruleNotification: (botId, title, text) => {
-      if (core?.store.getKV("desktop.notify") !== "true" || win?.isFocused() || !Notification.isSupported()) return;
+      if (liveCore()?.store.getKV("desktop.notify") !== "true" || win?.isFocused() || !Notification.isSupported()) return;
       const n = new Notification({ title, body: text.split(/\r?\n/)[0].slice(0, 200), icon: windowIconPath() });
       n.on("click", () => { showWindow(); void win?.webContents.executeJavaScript(`location.hash = ${JSON.stringify(`/chat/${encodeURIComponent(botId)}`)}`); });
       n.show();
@@ -456,19 +469,26 @@ async function boot(): Promise<void> {
   startup.record("core_started");
   if (!core.web) throw new Error(t("desktop.uiNotStarted"));
   // 规则的定时器：电脑醒来、解锁时马上重新看一遍（睡着时错过的按宽限期补跑一次或记为跳过）
-  powerMonitor.on("resume", () => core?.tasks.wakeRules());
-  powerMonitor.on("unlock-screen", () => core?.tasks.scheduler.wake());
+  powerMonitor.on("resume", () => liveCore()?.tasks.wakeRules());
+  powerMonitor.on("unlock-screen", () => liveCore()?.tasks.scheduler.wake());
   let awakeId: number | undefined;
   const keepAwake = () => {
+    const store = liveCore()?.store;
+    if (!store) return; // 正在关或已经关了：库不能再读，防睡眠由 stopKeepAwake 收掉
     const now = Date.now();
-    const enabled = core?.store.getKV("rules.keepAwake") === "true" && !powerMonitor.isOnBatteryPower();
-    const wanted = enabled && core?.store.listRules().some((r) => r.mode !== "off" && !r.pausedReason && !core?.store.getBot(r.botId)?.settings.paused && ((r.nextRunAt > now && r.nextRunAt - now <= 5 * 60_000) || core?.store.listRuns({ ruleId: r.id, states: ["queued", "running", "settling"], limit: 1 }).length));
+    const enabled = store.getKV("rules.keepAwake") === "true" && !powerMonitor.isOnBatteryPower();
+    const wanted = enabled && store.listRules().some((r) => r.mode !== "off" && !r.pausedReason && !store.getBot(r.botId)?.settings.paused && ((r.nextRunAt > now && r.nextRunAt - now <= 5 * 60_000) || store.listRuns({ ruleId: r.id, states: ["queued", "running", "settling"], limit: 1 }).length));
     if (wanted && awakeId === undefined) awakeId = powerSaveBlocker.start("prevent-app-suspension");
     if (!wanted && awakeId !== undefined) { powerSaveBlocker.stop(awakeId); awakeId = undefined; }
   };
   const awakeTimer = setInterval(keepAwake, 10_000); awakeTimer.unref();
   powerMonitor.on("on-ac", keepAwake); powerMonitor.on("on-battery", keepAwake);
-  app.once("before-quit", () => { clearInterval(awakeTimer); if (awakeId !== undefined) powerSaveBlocker.stop(awakeId); });
+  stopKeepAwake = () => {
+    clearInterval(awakeTimer);
+    powerMonitor.off("on-ac", keepAwake); powerMonitor.off("on-battery", keepAwake);
+    if (awakeId !== undefined) { powerSaveBlocker.stop(awakeId); awakeId = undefined; }
+  };
+  app.once("before-quit", stopKeepAwake);
   entryUrl = `${core.web.url.replace(/\/$/, "")}/?token=${encodeURIComponent(config.ui.token)}`;
   log.info(`数据目录：${dataDir}`);
   log.info(`管理界面：${core.web.url}`);
@@ -517,6 +537,8 @@ process.on("uncaughtException", (e) => {
   startup.record("uncaught_exception", { error: err?.stack || String(e) });
   log.error(`uncaught exception: ${err?.stack || String(e)}`);
   if (["EPIPE", "EBADF", "EOF", "ERR_STREAM_DESTROYED"].includes(String(err?.code))) return;
+  // 正在退出或更新换包（服务和库已经在关）：只记日志。这时的错多半是收尾中的回调碰到已关闭的东西，弹框只会打断退出和更新
+  if (quitting || stopped) return;
   if (Date.now() - lastErrorBox < 60_000 || !app.isReady()) return;
   lastErrorBox = Date.now();
   void dialog

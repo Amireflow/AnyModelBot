@@ -60,7 +60,7 @@ Conversations, memory, files, and API keys stay on your device. Models can come 
 
 Ready to use after install: background tasks, scheduled rules, and items waiting for your OK are built in.
 
-**0.1.43:** hand images and files straight to a bot: paste a screenshot, or drag images and Markdown, HTML or TXT files into the chat and send them with your message; Feedback is now Requests & Feedback. [Changelog](./CHANGELOG_en.md#0143---2026-11-20)
+**0.1.44:** images that were wrongly rejected as an unsupported format can now be added to a chat (wrong file extension, phone photos, .jfif); a previewed web page can no longer read other files in its folder. [Changelog](./CHANGELOG_en.md#0144---2026-11-20)
 
 📥 [Download](#-download-and-run) · 🌠 [Screenshots](#-screenshots) · 🌟 [Features](#-key-features) · 🆚 [Compare](#-anymodelbot-vs-grok-bot-openai-dots-and-claude-duet) · 🔐 [Privacy](#-how-it-works--privacy)
 

@@ -11,7 +11,7 @@ const MIB = 1024 * 1024;
 /** 服务端的数字读到之前先用这一份（和 src/attachments/limits.ts 一致，读到后以服务端为准） */
 const DEFAULTS = { maxItems: 8, maxImages: 4, maxFileBytes: 10 * MIB, maxTotalBytes: 50 * MIB, maxTextChars: 100000, maxTextCharsTotal: 200000 };
 const TEXT_EXT = ["md", "markdown", "html", "htm", "txt", "csv", "json", "log", "yaml", "yml", "xml", "css", "js", "ts", "py", "sh", "ps1", "bat", "cmd"];
-const IMAGE_EXT = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
+const IMAGE_EXT = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif", jfif: "image/jpeg", jpe: "image/jpeg" };
 const IMAGE_CONVERT = ["heic", "heif", "avif", "bmp", "tif", "tiff", "svg", "svgz", "ico", "apng", "jxl", "psd"];
 
 const newId = () => {
@@ -27,7 +27,10 @@ const extOf = (name) => {
   return i > 0 ? base.slice(i + 1).toLowerCase() : "";
 };
 
-/** 和服务端同一套分类（名字 + MIME）：{ kind } 或 { reject } */
+/**
+ * 和服务端同一套分类（名字 + MIME）：{ kind } 或 { reject }。
+ * 是图片但收不了的回 imageConvert，不回 format——那一句只列了文本格式，会让人以为图片都不支持。
+ */
 export function classifyFile(name, mime, formats) {
   const ext = extOf(name);
   const type = String(mime || "").toLowerCase().split(";")[0].trim();
@@ -36,6 +39,8 @@ export function classifyFile(name, mime, formats) {
   if (IMAGE_CONVERT.includes(ext)) return { reject: "imageConvert" };
   if (text.includes(ext)) return /^(image|audio|video)\//.test(type) ? { reject: "format" } : { kind: "text" };
   if (!ext && type.startsWith("image/")) return Object.values(IMAGE_EXT).includes(type) ? { kind: "image" } : { reject: "imageConvert" };
+  // 扩展名不在表里、但系统说它是图片（.jp2、相机原片…）
+  if (type.startsWith("image/")) return { reject: "imageConvert" };
   return { reject: "format" };
 }
 
@@ -157,14 +162,15 @@ const PUT = async (botId, id, what, body, signal) => {
 /**
  * 图片规范化：按 EXIF 纠正方向、不裁剪不拉伸、最长边超过 4096 时等比缩小（小图不放大），重新编码后元信息就没了。
  * JPEG 出 JPEG，其余出 PNG（保留透明）；PNG 超过单份上限而图片又没有透明区域时改出 JPEG。
- * want：服务端按原图文件头算好的目标尺寸（已经考虑了方向）。
+ * want：服务端按原图文件头算好的目标尺寸（已经考虑了方向）和真实格式（扩展名可能写错，以它为准）。
  */
 async function normalizeImage(file, want, maxBytes) {
   let bitmap;
   try {
     bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
   } catch {
-    throw Object.assign(new Error("decode"), { code: "format" });
+    // 解不开的图片：回图片那一句提示（转成 PNG / JPG 再加）
+    throw Object.assign(new Error("decode"), { code: "imageConvert" });
   }
   try {
     const w = want?.width || bitmap.width;
@@ -175,7 +181,7 @@ async function normalizeImage(file, want, maxBytes) {
     g.imageSmoothingQuality = "high";
     g.drawImage(bitmap, 0, 0, w, h);
     const encode = (type, quality) => (canvas.convertToBlob ? canvas.convertToBlob({ type, quality }) : new Promise((r) => canvas.toBlob(r, type, quality)));
-    const jpeg = /jpe?g$/i.test(file.type) || /\.jpe?g$/i.test(file.name || "");
+    const jpeg = want?.format ? /^jpe?g$/.test(want.format) : /jpe?g$/i.test(file.type) || /\.(jpe?g|jpe|jfif)$/i.test(file.name || "");
     let out = await encode(jpeg ? "image/jpeg" : "image/png", 0.92);
     if (out && !jpeg && out.size > maxBytes) {
       const data = g.getImageData(0, 0, w, h).data;
@@ -183,7 +189,7 @@ async function normalizeImage(file, want, maxBytes) {
       for (let i = 3; i < data.length; i += 4) if (data[i] !== 255) { opaque = false; break; }
       if (opaque) out = await encode("image/jpeg", 0.9);
     }
-    if (!out) throw Object.assign(new Error("encode"), { code: "format" });
+    if (!out) throw Object.assign(new Error("encode"), { code: "imageConvert" });
     if (out.size > maxBytes) throw Object.assign(new Error("size"), { code: "size" });
     return out;
   } finally {

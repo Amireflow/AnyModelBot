@@ -60,7 +60,7 @@ Sohbetler, bellek, dosyalar ve API anahtarları cihazında kalır. Modeller [Mod
 
 Kurulumdan sonra kullanıma hazır: arka plan görevleri, zamanlanmış kurallar ve onayını bekleyen öğeler yerleşiktir.
 
-**0.1.43:** görselleri ve dosyaları doğrudan bota ver: ekran görüntüsü yapıştır ya da görselleri ve Markdown, HTML, TXT dosyalarını sohbete sürükleyip mesajınla birlikte gönder; "Geri bildirim" artık "İstekler ve Geri Bildirim". [Değişiklik günlüğü](./CHANGELOG_tr.md#0143---2026-11-20)
+**0.1.44:** yanlışlıkla desteklenmeyen biçim sayılıp reddedilen görseller (yanlış uzantı, telefon fotoğrafları, .jfif) artık sohbete eklenebiliyor; önizlenen bir web sayfası kendi klasöründeki diğer dosyaları artık okuyamıyor. [Değişiklik günlüğü](./CHANGELOG_tr.md#0144---2026-11-20)
 
 📥 [İndir](#-paketi-indir-ve-çalıştır) · 🌠 [Ekran görüntüleri](#-ekran-görüntüleri) · 🌟 [Özellikler](#-temel-özellikler) · 🆚 [Karşılaştır](#-anymodelbot-vs-grok-bot-openai-dots-ve-claude-duet) · 🔐 [Gizlilik](#-nasıl-çalışır-ve-gizlilik)
 

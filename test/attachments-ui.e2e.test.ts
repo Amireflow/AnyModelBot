@@ -283,4 +283,63 @@ describe.skipIf(!browserAvailable)("消息附件界面", () => {
       await page.close();
     }
   }, 120_000);
+
+  it("扩展名写错、带尾部数据、.jfif 的图片照常加入；收不了的图片给图片那一句提示，不说成只支持文本", async () => {
+    app.store.createBot({ id: "pic", name: "小图", defaultModel: "gpt-4o-mock" });
+    const page = await browser.newPage({ viewport: { width: 1280, height: 860 }, locale: "zh-CN" });
+    const errors: string[] = [];
+    page.on("pageerror", (e: Error) => errors.push(e.message));
+    await page.addInitScript(() => { try { localStorage.setItem("amb-lang", "zh-CN"); } catch { /* 私密窗口 */ } });
+    /** 在页面里画一张真的图（左上角透明），编码成 type，再按 name / mime 当成系统文件拖进来；tail 是拼在文件后面的字节数 */
+    const dragImage = (o: { name: string; mime: string; type: "image/png" | "image/jpeg"; tail?: number }) =>
+      page.evaluate(async ({ name, mime, type, tail }: any) => {
+        const c = document.createElement("canvas");
+        c.width = 64; c.height = 40;
+        const g = c.getContext("2d")!;
+        g.fillStyle = "#c33"; g.fillRect(16, 10, 48, 30);
+        const blob: Blob = await new Promise((r) => c.toBlob((b) => r(b!), type, 0.9));
+        const dt = new DataTransfer();
+        dt.items.add(new File(tail ? [blob, new Uint8Array(tail).fill(0x41)] : [blob], name, { type: mime }));
+        const el = document.querySelector("section.chat")!;
+        for (const t of ["dragenter", "dragover", "drop"]) el.dispatchEvent(new DragEvent(t, { dataTransfer: dt, bubbles: true, cancelable: true }));
+      }, { tail: 0, ...o });
+    try {
+      await page.goto(`${base}/#/chat/pic`);
+      await page.waitForSelector(".composer textarea", { timeout: 15_000 });
+      const ready = (n: number) => page.waitForFunction((n: number) => document.querySelectorAll(".att-tray .att-image.ready img").length === n, n);
+      // 内容是 PNG、扩展名写成 .jpg：照收，按真实格式规范化（存下的还是 PNG，透明没有丢）
+      await dragImage({ name: "网页另存.jpg", mime: "image/jpeg", type: "image/png" });
+      await ready(1);
+      const first = (await (await fetch(`${base}/amb/api/bots/pic/attachments/state`)).json()).items[0];
+      const stored = await fetch(`${base}/amb/api/bots/pic/attachments/${first.id}/content`);
+      expect(stored.headers.get("content-type")).toBe("image/png");
+      // 内容是 JPEG、扩展名写成 .png
+      await dragImage({ name: "聊天导出.png", mime: "image/png", type: "image/jpeg" });
+      await ready(2);
+      // 手机照片：JPEG 结束标记后面还拖着几百字节
+      await dragImage({ name: "IMG_0001.jpg", mime: "image/jpeg", type: "image/jpeg", tail: 600 });
+      await ready(3);
+      // Windows 上浏览器另存出来的 .jfif
+      await dragImage({ name: "下载.jfif", mime: "image/jpeg", type: "image/jpeg" });
+      await ready(4);
+      expect(await page.locator(".att-tray .att.failed").count()).toBe(0);
+      for (let left = 4; left > 0; left--) {
+        await page.locator(".att-tray .att-x").first().click();
+        await page.waitForFunction((n: number) => document.querySelectorAll(".att-tray .att").length === n, left - 1);
+      }
+
+      // 系统认作图片、但不在直接接收之列：整批不加，提示转成 PNG / JPG
+      const note = (text: string) => page.waitForFunction((text: string) => document.querySelector(".composer-note")?.textContent === text, text);
+      await dragFiles(page, [{ name: "扫描件.jp2", type: "image/jp2", text: "jp2" }]);
+      await note("暂不支持此图片格式，请转为PNG或JPG后再添加");
+      expect(await page.locator(".att-tray .att").count()).toBe(0);
+      // 扩展名是图片、内容不是：这一项标成失败，说的也是图片那一句
+      await dragFiles(page, [{ name: "坏掉的图.png", type: "image/png", text: "not an image at all" }]);
+      await page.waitForSelector(".att-tray .att.failed");
+      await note("暂不支持此图片格式，请转为PNG或JPG后再添加");
+      expect(errors).toEqual([]);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
 });

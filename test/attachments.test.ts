@@ -36,6 +36,19 @@ function png(width: number, height: number, extra: Array<[string, Buffer]> = [])
   return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), ...extra.map(([t, d]) => chunk(t, d)), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
 }
 
+/** 一张结构完整的最小 JPEG（SOI、JFIF、SOF0、SOS、几个字节的扫描数据、EOI）：只给文件头核对用，不保证能解码 */
+function jpeg(width: number, height: number): Buffer {
+  const seg = (marker: number, data: Buffer) => {
+    const head = Buffer.from([0xff, marker, 0, 0]);
+    head.writeUInt16BE(data.length + 2, 2);
+    return Buffer.concat([head, data]);
+  };
+  const sof = Buffer.from([8, 0, 0, 0, 0, 1, 1, 0x11, 0]);
+  sof.writeUInt16BE(height, 1);
+  sof.writeUInt16BE(width, 3);
+  return Buffer.concat([Buffer.from([0xff, 0xd8]), seg(0xe0, Buffer.from("JFIF\0\x01\x01\0\0\x01\0\x01\0\0", "latin1")), seg(0xc0, sof), seg(0xda, Buffer.from([1, 1, 0, 0, 0x3f, 0])), Buffer.from([0x12, 0x34, 0x56]), Buffer.from([0xff, 0xd9])]);
+}
+
 const api = async (p: string, init: RequestInit = {}) => {
   const res = await fetch(`${base}/amb/api${p}`, { ...init, headers: { ...(init.body && !(init.body instanceof Uint8Array) ? { "content-type": "application/json" } : {}), ...(init.headers ?? {}) } });
   return { status: res.status, body: (await res.json().catch(() => ({}))) as any };
@@ -93,7 +106,13 @@ describe("附件的格式与上限（纯函数）", () => {
     expect(classify("run.ps1", "")).toEqual({ kind: "text", ext: "ps1" });
     expect(classify("image.png", "image/png")).toEqual({ kind: "image", ext: "png" });
     expect(classify("", "image/jpeg")).toEqual({ kind: "image", ext: "jpg" });
+    // JPEG 的另外两种扩展名（Windows 上的浏览器另存图片时常见）
+    expect(classify("下载.jfif", "image/jpeg")).toEqual({ kind: "image", ext: "jfif" });
+    expect(classify("photo.JPE", "")).toEqual({ kind: "image", ext: "jpe" });
     for (const n of ["a.heic", "a.avif", "a.bmp", "a.tiff", "a.svg"]) expect(classify(n, "")).toEqual({ reject: "imageConvert" });
+    // 扩展名不在表里、但系统说它是图片：给图片那一句提示，不说成"请用 Markdown"
+    expect(classify("a.jp2", "image/jp2")).toEqual({ reject: "imageConvert" });
+    expect(classify("raw.dng", "image/x-adobe-dng")).toEqual({ reject: "imageConvert" });
     for (const n of ["a.pdf", "a.docx", "a.xlsx", "a.pptx", "a.odt", "a.zip", "a.rar", "a.7z", "a.tar", "a.exe", "a.msi", "a.dmg", "a.dll", "a.so", "a.lnk", "a.mp4", "a.mp3", "noext"]) expect(classify(n, "")).toEqual({ reject: "format" });
   });
 
@@ -117,6 +136,15 @@ describe("附件的格式与上限（纯函数）", () => {
     expect(sniffImage(gif)).toMatchObject({ format: "gif", width: 1, height: 1, animated: false });
     const twoFrames = Buffer.concat([gif.subarray(0, gif.length - 1), gif.subarray(19)]);
     expect(sniffImage(twoFrames)?.animated).toBe(true);
+    // JPEG 的 EOI 后面还拖着数据（手机相机的尾部元数据、动态照片里的视频、补零）照样认；图像数据被截断的不认
+    const jpg = jpeg(32, 20);
+    expect(sniffImage(jpg)).toMatchObject({ format: "jpeg", width: 32, height: 20 });
+    for (const tail of [Buffer.concat([Buffer.from("SEFH"), Buffer.alloc(300, 0x41), Buffer.from("SEFT")]), Buffer.concat([Buffer.from("\0\0\0\x18ftypmp42"), Buffer.alloc(50_000, 0x42)]), Buffer.alloc(512)])
+      expect(sniffImage(Buffer.concat([jpg, tail]))).toMatchObject({ format: "jpeg", width: 32, height: 20 });
+    expect(sniffImage(jpg.subarray(0, jpg.length - 2))).toBeUndefined();
+    // 规范化的那一份是界面刚编码的：后面拖着数据的不收
+    expect(cleanRendition(jpg)).toMatchObject({ mime: "image/jpeg", width: 32, height: 20 });
+    expect(cleanRendition(Buffer.concat([jpg, Buffer.alloc(512)]))).toBeUndefined();
     const withText = png(8, 6, [["tEXt", Buffer.from("Author\0someone")], ["eXIf", Buffer.alloc(12)]]);
     const clean = cleanRendition(withText)!;
     expect(clean.mime).toBe("image/png");
@@ -183,7 +211,7 @@ describe("附件接口", () => {
     const [bin, ok, fake, anim, gbk, big] = r.body.items;
     expect((await put("c", bin.id, "content", Buffer.from("%PDF-1.7 fake"))).body.item).toMatchObject({ status: "failed", error: "format" });
     expect((await put("c", ok.id, "content", Buffer.from("# 标题"))).body.item).toMatchObject({ status: "ready", textChars: 4 });
-    expect((await put("c", fake.id, "content", Buffer.from("not an image at all"))).body.item).toMatchObject({ status: "failed", error: "format" });
+    expect((await put("c", fake.id, "content", Buffer.from("not an image at all"))).body.item).toMatchObject({ status: "failed", error: "imageConvert" });
     expect((await put("c", anim.id, "content", png(4, 4, [["acTL", Buffer.alloc(8)]]))).body.item).toMatchObject({ status: "failed", error: "imageConvert" });
     expect((await put("c", gbk.id, "content", Buffer.from([0xc4, 0xe3, 0xba, 0xc3]))).body.item).toMatchObject({ status: "failed", error: "encoding" });
     expect((await put("c", big.id, "content", Buffer.from("字".repeat(100_001)))).body.item).toMatchObject({ status: "failed", error: "content" });
@@ -202,7 +230,7 @@ describe("附件接口", () => {
     const [wide, other] = r.body.items;
     expect((await put("d", wide.id, "content", data)).body.item).toMatchObject({ status: "rendition", origWidth: 8192, origHeight: 16, want: { width: 4096, height: 8 } });
     // 拉伸过的不收
-    expect((await put("d", wide.id, "rendition", png(4096, 100))).body.item).toMatchObject({ status: "failed", error: "format" });
+    expect((await put("d", wide.id, "rendition", png(4096, 100))).body.item).toMatchObject({ status: "failed", error: "imageConvert" });
     await put("d", other.id, "content", png(10, 10));
     const done = (await put("d", other.id, "rendition", png(10, 10, [["tEXt", Buffer.from("Comment\0secret-meta")]]))).body.item;
     expect(done).toMatchObject({ status: "ready", width: 10, height: 10, name: "" });
@@ -215,6 +243,25 @@ describe("附件接口", () => {
     expect((await fetch(`${base}/amb/api/bots/a/attachments/${other.id}/content`)).status).toBe(404);
     expect((await fetch(`${base}/amb/api/bots/d/attachments/${other.id}/content`, { headers: { "sec-fetch-site": "cross-site" } })).status).toBe(403);
     expect((await fetch(`${base}/amb/api/bots/d/attachments/state`, { headers: { origin: "https://evil.example" } })).status).toBe(403);
+  });
+
+  it("图片扩展名和真实内容对不上、JPEG 后面带数据、.jfif 都照收：按文件头认格式并告诉界面", async () => {
+    app.store.createBot({ id: "x", name: "x", defaultModel: "gpt-4o-mock" });
+    const realPng = png(8, 6);
+    const realJpeg = Buffer.concat([jpeg(8, 6), Buffer.from("SEFH"), Buffer.alloc(300, 0x41), Buffer.from("SEFT")]);
+    const r = await reserve("x", [
+      { name: "其实是PNG.jpg", mime: "image/jpeg", size: realPng.length },
+      { name: "其实是JPEG.png", mime: "image/png", size: realJpeg.length },
+      { name: "下载.jfif", mime: "image/jpeg", size: realJpeg.length },
+    ]);
+    expect(r.status).toBe(200);
+    const [a, b, c] = r.body.items;
+    expect((await put("x", a.id, "content", realPng)).body.item).toMatchObject({ status: "rendition", want: { width: 8, height: 6, format: "png" } });
+    expect((await put("x", b.id, "content", realJpeg)).body.item).toMatchObject({ status: "rendition", want: { width: 8, height: 6, format: "jpg" } });
+    expect((await put("x", c.id, "content", realJpeg)).body.item).toMatchObject({ status: "rendition", want: { width: 8, height: 6, format: "jpg" } });
+    // 交上规范化的那一份就就绪，和扩展名写对的图片一样
+    expect((await put("x", a.id, "rendition", png(8, 6))).body.item).toMatchObject({ status: "ready", width: 8, height: 6 });
+    expect((await put("x", b.id, "rendition", jpeg(8, 6))).body.item).toMatchObject({ status: "ready", width: 8, height: 6 });
   });
 
   it("移除立即释放名额、幂等，迟到的内容不让它复活", async () => {

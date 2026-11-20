@@ -60,7 +60,7 @@ Conversas, memória, arquivos e chaves de API ficam no seu dispositivo. Os model
 
 Pronto para usar logo após a instalação: tarefas em segundo plano, regras agendadas e os itens que aguardam o seu OK já vêm integrados.
 
-**0.1.43:** entregue imagens e arquivos direto a um bot: cole uma captura de tela ou arraste imagens e arquivos Markdown, HTML ou TXT para a conversa e envie com a mensagem; "Feedback" agora é "Solicitações e feedback". [Registro de alterações](./CHANGELOG_pt.md#0143---2026-11-20)
+**0.1.44:** imagens que eram recusadas por engano como formato não compatível (extensão errada, fotos do celular, .jfif) agora podem ser adicionadas à conversa; uma página web em pré-visualização não consegue mais ler outros arquivos da pasta dela. [Registro de alterações](./CHANGELOG_pt.md#0144---2026-11-20)
 
 📥 [Baixar](#-baixar-e-executar) · 🌠 [Capturas de tela](#-capturas-de-tela) · 🌟 [Recursos](#-principais-recursos) · 🆚 [Comparação](#-anymodelbot-vs-grok-bot-openai-dots-e-claude-duet) · 🔐 [Privacidade](#-como-funciona-e-privacidade)
 
