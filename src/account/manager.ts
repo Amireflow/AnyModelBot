@@ -14,6 +14,7 @@ import { AccountRevokedError, AccountSession, ApiError, ROUTING_STRATEGIES, type
 import type { AccountRecord, AccountVault } from "./vault.js";
 
 import { accountProfile } from "./profile.js";
+import type { CapsFetch } from "../tools/media/capabilities.js";
 
 const log = logger("account");
 
@@ -485,6 +486,19 @@ export class AccountManager {
 
   notifications(): Promise<unknown> {
     return this.call((s) => s.notifications());
+  }
+
+  // ---------- 型号能力（消息图片用作生图参考，tools/media/capabilities.ts）----------
+
+  /**
+   * 当前账户在某条线路上可用型号的能力：只读，不发图、不收费。404 / 405 / 501 = 后台还没有这个接口（按未知处理），
+   * 其他非 2xx、不是 JSON 都算读取失败；网络错误抛出（调用方按失败处理）。
+   */
+  async modelCapabilities(line: string): Promise<CapsFetch> {
+    const r = await this.call((s) => s.raw("GET", `/model-capabilities?line=${encodeURIComponent(line)}`, undefined, 10_000));
+    if ([404, 405, 501].includes(r.status)) return { ok: false, reason: "unsupported" };
+    if (r.status < 200 || r.status >= 300 || !r.isJson) return { ok: false, reason: "failed" };
+    return { ok: true, json: r.json };
   }
 
   // ---------- 需求与反馈（src/feedback/）：schema 2 工单 ----------

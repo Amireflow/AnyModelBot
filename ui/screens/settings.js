@@ -479,7 +479,8 @@ export function SettingsScreen({ tab, query: q, onQuery: setQ, onTab, focusRow, 
       { tab: "modelflare", group: "models", id: "default-model", name: t("settings.rows.defaultModel.name"), sub: t("settings.rows.defaultModel.sub"), keys: t("settings.rows.defaultModel.keys"),
         ctl: html`<${PickModel} value=${s.defaultModel} models=${models} modelsError=${modelsError} reloadModels=${reloadModels} resetLabel=${t("settings.rows.defaultModel.auto")}
           onChange=${(m) => put({ defaultModel: m }, { defaultModel: m })} />` },
-      managed && mf.connected && { tab: "modelflare", group: "models", id: "image-model", name: t("settings.rows.imageModel.name"), sub: t("settings.rows.imageModel.sub"), keys: t("settings.rows.imageModel.keys"),
+      // 账号登录时生图只用对话里右下角选的那个型号（PRD 2026-11-23 R1），不另存一个隐形的默认生图型号；只填 Key 时照旧
+      managed && mf.connected && !signedIn && { tab: "modelflare", group: "models", id: "image-model", name: t("settings.rows.imageModel.name"), sub: t("settings.rows.imageModel.sub"), keys: t("settings.rows.imageModel.keys"),
         ctl: html`<${PickModel} value=${s.imageModel} models=${media ? media.image : null} modelsError=${media && media.error} reloadModels=${loadMedia}
           resetLabel=${media && media.recommended.image ? t("settings.rows.autoModel", { model: shortModel(media.recommended.image) }) : t("common.auto")} label=${t("settings.rows.imageModel.name")}
           onChange=${(m) => put({ imageModel: m }, { imageModel: m })} />` },

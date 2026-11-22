@@ -75,6 +75,11 @@ export interface AgentManagerOptions {
   media?: MediaService;
   /** 生图 / 生视频现在能不能用（要连着 Modelflare：只填了官方 Key 时不能）。缺省 = 有 media 就能用 */
   mediaReady?: () => boolean;
+  /**
+   * 生图（generate_image）用哪个型号的门槛：账号登录时只能用这条会话当前选的精确型号（返回 { model }），
+   * 它不能生图、能力不明或代理要换型号时返回 { error }（不生成、不扣费）；undefined = 不管（自定义 Key 照旧）。
+   */
+  imageGate?: (botId: string, conversationId: string, requested: string) => Promise<{ model: string } | { error: string } | undefined>;
   /** 技能安装卡片（amb-skills 插件的 install_skill 经 bridge 调用）；缺省时工具返回不可用 */
   skillInstalls?: SkillInstalls;
   /** 这个会话是不是主人的（渠道里只有主人能装技能）；缺省都算 */
@@ -1323,9 +1328,20 @@ export class AgentManager {
           if (turn) turn.media--;
         }
       }
-      const plan = await media.prepare(botId, op, args);
       const sessionId = String(b?.sessionId ?? "");
       const conv = this.resolveConversation(botId, sessionId);
+      // 账号登录：只用当前所选的精确型号，确认时也不列别的型号让人换
+      let locked = false;
+      if (op === "image" && this.o.imageGate) {
+        const gate = await this.o.imageGate(botId, conv, String(args.model ?? ""));
+        if (gate && "error" in gate) return { error: gate.error };
+        if (gate) {
+          args.model = gate.model;
+          locked = true;
+        }
+      }
+      const plan = await media.prepare(botId, op, args);
+      if (locked) plan.candidates = [];
       const tool = plan.kind === "image" ? "generate_image" : "generate_video";
       let model = plan.model;
       const grant = conv ? this.mediaGrants.get(conv) : undefined;
@@ -1337,6 +1353,7 @@ export class AgentManager {
         const r = await this.confirmMedia(botId, conv, sessionId, plan, tool, why);
         if (r.cancel) return { text: "用户取消了这次生成（或没有及时确认），没有生成文件，也没有扣费。不要自行重试；需要的话问用户想怎么改。" };
         if (r.reply !== undefined) return { text: `用户没有确认，而是回复：「${r.reply}」。按用户的意思调整后再调用 ${tool}。` };
+        if (r.model && r.model.id !== model.id && locked) return { error: t("media.agentWrongModel", { model: model.id }) };
         if (r.model && r.model.id !== model.id) {
           if (plan.custom) {
             // 请求体是按原模型的文档写的，换了模型就得按新模型的文档重写；重写后的那一次不再确认

@@ -113,6 +113,13 @@ export interface Message {
   errorContext?: { model: string; groupId: string; input: string };
   /** 用户随这条消息发的附件（图片、文本文件）的引用；内容在受管副本里（attachments/service.ts） */
   attachments?: MessageAttachment[];
+  /** 这条用户消息是一次生图（imagegen/）：当时实际用的精确型号和用途（reference 参考图 / text 纯文字），之后换选择器不改写 */
+  generation?: MessageGeneration;
+}
+
+export interface MessageGeneration {
+  model: string;
+  mode: "reference" | "text";
 }
 
 /** 一条助手消息除了正文之外的东西：回合中间说的话、交付的文件 */
@@ -123,6 +130,7 @@ export interface MessageExtra {
   permissionWait?: boolean;
   errorContext?: Message["errorContext"];
   attachments?: MessageAttachment[];
+  generation?: MessageGeneration;
 }
 
 export interface WeixinAccount {
@@ -700,6 +708,8 @@ const COLUMNS: Array<[string, string, string]> = [
   ["messages", "error_context", "TEXT NOT NULL DEFAULT ''"],
   // 用户消息带的附件引用（JSON 数组，见 attachments/service.ts）
   ["messages", "attachments", "TEXT NOT NULL DEFAULT ''"],
+  // 生图消息（imagegen/）：实际型号和用途（JSON）；空 = 普通消息
+  ["messages", "generation", "TEXT NOT NULL DEFAULT ''"],
   // 保留与清理（3f）：任务文件夹定在什么时候清理
   ["tasks", "cleanup_at", "INTEGER NOT NULL DEFAULT 0"],
   // 机器人之间发消息（collab/）：别的机器人发来的这件事（handoffs.id）；这件事每次运行最长多久（0 = 任务的默认上限）
@@ -1020,7 +1030,7 @@ export class Store {
     const replies = convs.length ? ` OR (conversation_id IN (${convs.map(() => "?").join(", ")}) AND role = 'assistant')` : "";
     const rows = this.db
       .prepare(
-        `SELECT * FROM (SELECT id, conversation_id, role, content, created_at, interim, files, rule_source, permission_wait, error_context, attachments, CASE WHEN json_valid(activity) THEN json_array_length(activity) ELSE 0 END AS steps, ${USES_SQL} FROM messages WHERE id > ? AND (conversation_id = ?${replies}) ORDER BY id DESC LIMIT ?) ORDER BY id`,
+        `SELECT * FROM (SELECT id, conversation_id, role, content, created_at, interim, files, rule_source, permission_wait, error_context, attachments, generation, CASE WHEN json_valid(activity) THEN json_array_length(activity) ELSE 0 END AS steps, ${USES_SQL} FROM messages WHERE id > ? AND (conversation_id = ?${replies}) ORDER BY id DESC LIMIT ?) ORDER BY id`,
       )
       .all(afterId, groupPeer(groupId), ...convs.map((c) => c.id), limit) as Row[];
     return rows.map((r) => ({ ...this.toMessage(r), botId: botOf.get(String(r.conversation_id)) ?? "" }));
@@ -1043,8 +1053,8 @@ export class Store {
     const now = Date.now();
     const json = (a: unknown[] | undefined) => (a?.length ? JSON.stringify(a) : "");
     const res = this.db
-      .prepare("INSERT INTO messages(conversation_id, role, content, created_at, activity, interim, files, rule_source, permission_wait, error_context, attachments) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(conversationId, role, content, now, json(activity), json(extra.interim), json(extra.files), extra.ruleSource ? JSON.stringify(extra.ruleSource) : "", extra.permissionWait ? 1 : 0, extra.errorContext ? JSON.stringify(extra.errorContext) : "", json(extra.attachments));
+      .prepare("INSERT INTO messages(conversation_id, role, content, created_at, activity, interim, files, rule_source, permission_wait, error_context, attachments, generation) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(conversationId, role, content, now, json(activity), json(extra.interim), json(extra.files), extra.ruleSource ? JSON.stringify(extra.ruleSource) : "", extra.permissionWait ? 1 : 0, extra.errorContext ? JSON.stringify(extra.errorContext) : "", json(extra.attachments), extra.generation ? JSON.stringify(extra.generation) : "");
     this.db.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(now, conversationId);
     return Number(res.lastInsertRowid);
   }
@@ -1068,7 +1078,7 @@ export class Store {
   listMessages(conversationId: string, limit = 500): Message[] {
     const rows = this.db
       .prepare(
-        `SELECT * FROM (SELECT id, conversation_id, role, content, created_at, interim, files, rule_source, permission_wait, error_context, attachments, CASE WHEN json_valid(activity) THEN json_array_length(activity) ELSE 0 END AS steps, ${USES_SQL} FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?) ORDER BY id ASC`,
+        `SELECT * FROM (SELECT id, conversation_id, role, content, created_at, interim, files, rule_source, permission_wait, error_context, attachments, generation, CASE WHEN json_valid(activity) THEN json_array_length(activity) ELSE 0 END AS steps, ${USES_SQL} FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?) ORDER BY id ASC`,
       )
       .all(conversationId, limit) as Row[];
     return rows.map((r) => this.toMessage(r));
@@ -1090,6 +1100,7 @@ export class Store {
       ...(Number(r.permission_wait) ? { permissionWait: true } : {}),
       ...(r.error_context ? { errorContext: parseJson<Message["errorContext"]>(r.error_context) } : {}),
       ...(r.attachments ? { attachments: parseJson<MessageAttachment[]>(r.attachments) ?? [] } : {}),
+      ...(r.generation ? { generation: parseJson<MessageGeneration>(r.generation) } : {}),
     };
   }
   /** 全部历史中的新手事实；不依赖界面曾加载过哪一页，也不把错误或命令回复算成对话。 */

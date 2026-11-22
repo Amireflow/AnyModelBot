@@ -89,8 +89,42 @@ export function rejectedText(list, allRejected) {
   return t(allRejected ? "attach.noneAdded" : "attach.someAdded", { files: names });
 }
 
+// —— 用作生图参考（PRD 2026-11-23）：原因码 → 文案。带「切换模型」文字操作的那几句由输入框换成按钮（refParts） ——
+const REF_TEXT = {
+  ref_unauthorized: "attach.refUnauthorized", ref_loading: "attach.refLoading", ref_caps_failed: "attach.refCapsFailed", ref_caps_stale: "attach.refCapsStale",
+  ref_caps_unknown: "attach.refCapsUnknown", ref_limits_unknown: "attach.refLimitsUnknown", ref_no_generation: "attach.refNoGeneration", ref_no_reference: "attach.refNoReference",
+  ref_adapter: "attach.refAdapter", ref_other_files: "attach.refOtherFiles", ref_count: "attach.refCount", ref_local_count: "attach.refLocalCount", ref_format: "attach.refFormat",
+  ref_limit: "attach.refLimit", ref_no_text: "attach.refNoText", ref_custom_key: "attach.refCustomKey", ref_account: "attach.refAccount",
+  img_model_images: "attach.imgModelImages", img_model_files: "attach.imgModelFiles", gen_adapter: "attach.genAdapter",
+};
+export const isRefCode = (code) => code in REF_TEXT;
+
+/** {limit}：每边 240–8000px、宽高比 1:8–8:1、单张不超过 50 MB、整次请求不超过 64 MB */
+export function limitText(l) {
+  if (!l) return "";
+  const range = (f) => (l.min && l.max ? `${f(l.min)}–${f(l.max)}` : l.max ? `≤${f(l.max)}` : l.min ? `≥${f(l.min)}` : "");
+  const mb = (n) => `${+(n / 1e6).toFixed(1)} MB`;
+  const ratio = (r) => (r >= 1 ? `${+r.toFixed(2)}:1` : `1:${+(1 / r).toFixed(2)}`);
+  if (l.kind === "edge") return t("attach.refLimitEdge", { range: range(String) });
+  if (l.kind === "aspect") return t("attach.refLimitAspect", { range: range(ratio) });
+  if (l.kind === "bytes") return t("attach.refLimitBytes", { max: mb(l.max || 0) });
+  return t("attach.refLimitRequest", { max: mb(l.max || 0) });
+}
+
+/**
+ * 参考相关的一句；sw 给了就是「切换模型」那段的替代（输入框里是一个打开原选择器的文字按钮），不给就是纯文字。
+ * switch 用在句首、switchInline 用在句中（有的语言大小写不同），switchImages 是「切换可处理图片的模型」。
+ */
+export function refText(code, params = {}, sw) {
+  const key = REF_TEXT[code];
+  if (!key) return "";
+  const label = (k) => (sw ? sw(t(k)) : t(k));
+  return t(key, { count: params.count ?? 0, limit: limitText(params.limit), switch: label("attach.refSwitch"), switchInline: label("attach.refSwitchInline"), switchImages: label("attach.refSwitchImages") });
+}
+
 /** 原因码 → 一句短提示（同一个位置只显示最相关的一句） */
-export function reasonText(code) {
+export function reasonText(code, params) {
+  if (isRefCode(code)) return refText(code, params);
   const map = {
     count: "attach.limitCount", size: "attach.limitSize", format: "attach.format", imageConvert: "attach.imageConvert", empty: "attach.empty",
     archive: "attach.archive", agentOff: "attach.agentOff", storage: "attach.storageFull", dir: "attach.dropDir", folderChanged: "attach.sendChanged",
@@ -121,10 +155,10 @@ const patch = (botId, fn) => draftStore(botId).set((s) => ({ ...s, ...fn(s) }));
 const patchItem = (botId, cid, change) => patch(botId, (s) => ({ items: s.items.map((a) => (a.cid === cid ? { ...a, ...change } : a)) }));
 
 /** 一句会自己消失的提示（没加进去的文件、粘贴不了…）；不抢正在挡发送的那句。text 给了就显示它（汇总了文件名的那种） */
-export function notify(botId, code, text) {
+export function notify(botId, code, text, params) {
   const x = side.get(botId) || (draftStore(botId), side.get(botId));
   clearTimeout(x.noticeTimer);
-  patch(botId, () => ({ notice: { code, text, at: Date.now() } }));
+  patch(botId, () => ({ notice: { code, text, params, at: Date.now() } }));
   x.noticeTimer = setTimeout(() => patch(botId, () => ({ notice: null })), text ? 9000 : 6000);
 }
 
@@ -145,12 +179,13 @@ function fromServer(botId, r, local) {
  * 读一次服务端的能力和当前输入：上限、格式、模型看图三态、通路、上下文预算、修订。
  * 本地还没拿到 id 的占位留着；服务端已经没有的（过期被清）标成过期。旧服务没有这个接口时标成不支持。
  */
-export function refresh(botId) {
+export function refresh(botId, { force = false } = {}) {
   const x = side.get(botId) || (draftStore(botId), side.get(botId));
-  if (x.refreshing) return x.refreshing;
+  if (x.refreshing && !force) return x.refreshing;
   x.refreshing = (async () => {
     try {
-      const d = await api(`/bots/${encodeURIComponent(botId)}/attachments/state`);
+      // force：从原选择器重新打开时只读地重新取一次型号能力（不发图、不生成）
+      const d = await api(`/bots/${encodeURIComponent(botId)}/attachments/state${force ? "?refresh=1" : ""}`);
       if (d.protocol !== ATTACH_PROTOCOL) return patch(botId, () => ({ unsupported: true, offline: false }));
       patch(botId, (s) => {
         const mine = new Map(s.items.map((a) => [a.cid, a]));
@@ -355,6 +390,25 @@ export function removeItem(botId, cid) {
   if (item.id) api(`/bots/${encodeURIComponent(botId)}/attachments/${encodeURIComponent(item.id)}`, { method: "DELETE" }).then(() => refresh(botId)).catch(() => {});
 }
 
+/**
+ * 「用作生图参考」开关：只设这条草稿里图片的用途（不发消息、不生成、不换型号），服务端记着（刷新后恢复）。
+ * 先显示再保存；服务端拒绝（比如换成了自定义 Key）时按它的状态回退，并给一句原因。
+ */
+export async function setReference(botId, on) {
+  const s = draftStore(botId).get();
+  if (!s.server) return;
+  // 等服务端核对的这一下：发送先不可用，但校验条不闪一句「正在确认」（pending）
+  patch(botId, (cur) => ({ server: cur.server && { ...cur.server, reference: { ...cur.server.reference, on, notice: "", verdict: on ? { code: "ref_loading", pending: true } : { code: "" } } } }));
+  try {
+    const d = await api(`/bots/${encodeURIComponent(botId)}/attachments/reference`, { method: "PUT", body: { on, segment: s.server.segment } });
+    patch(botId, (cur) => ({ server: cur.server && { ...cur.server, reference: d.reference } }));
+  } catch (e) {
+    const code = e instanceof ApiError ? e.data?.code : "network";
+    if (code && code !== "changed") notify(botId, code, undefined, e?.data);
+  }
+  void refresh(botId);
+}
+
 /** 开始新对话：上一段没发出的附件不带过来（服务端同时清掉） */
 export function clearDraft(botId) {
   const x = side.get(botId);
@@ -402,7 +456,8 @@ export function sendCheck(s, { text = "", generating = false } = {}) {
   if (!items.length) {
     const sv = s.server;
     // 没有待发附件：只说明历史图片这一轮看不看得见（不挡发送）
-    if (sv?.history?.images > 0 && sv.model?.vision !== "supported") return { blocked: "", hint: "historyNoVision" };
+    // 纯图片生成型号不读聊天记录（生图只用这条消息），这句说明对它不成立
+    if (sv?.history?.images > 0 && sv.model?.vision !== "supported" && !sv.reference?.model?.pure) return { blocked: "", hint: "historyNoVision" };
     return { blocked: "", hint: "" };
   }
   if (s.offline || !s.server) return { blocked: "network", hint: "" };
@@ -412,6 +467,15 @@ export function sendCheck(s, { text = "", generating = false } = {}) {
   if (generating || s.server.busy) return { blocked: "busy", hint: "" };
   const { limits, model, usage, history } = s.server;
   const images = items.filter((a) => a.kind === "image").length;
+  // 用作生图参考：服务端按当前型号的真实能力和限制核对过（未知不当成支持）；文字是否为空在这里看
+  const ref = s.server.reference;
+  if (ref?.available && ref.on && images) {
+    if (ref.verdict?.code) return { blocked: ref.verdict.code, hint: "", params: ref.verdict };
+    if (!text.trim()) return { blocked: "ref_no_text", hint: "" };
+    return { blocked: "", hint: "" };
+  }
+  // 选的是纯图片生成型号：普通图片不会被忽略（开参考或换型号），别的文件开参考也绕不过
+  if (ref?.available && ref.model?.pure) return { blocked: items.some((a) => a.kind !== "image") ? "img_model_files" : "img_model_images", hint: "" };
   if (images) {
     if (model.channel === "closed") return { blocked: "vision_closed", hint: "" };
     if (model.vision === "unsupported") return { blocked: "vision_unsupported", hint: "" };
@@ -441,7 +505,9 @@ export async function submit(botId, text, clientMessageId, folder = "", retried 
       method: "POST",
       headers: { "content-type": "application/json", "x-amb-lang": getLang() },
       // folder：点发送那一刻输入框上方选的工作文件夹（"" = 没选）；和服务端的对不上就不受理
-      body: JSON.stringify({ version: s.server.sendVersion, clientMessageId, text, segment: s.server.segment, revision: s.server.revision, modelRevision: s.server.model.revision, attachments: items.map((a) => ({ id: a.id, version: a.version })), folder }),
+      // reference：点发送那一刻的参考用途和能力修订（服务端对不上就不受理，不按普通附件悄悄发出去）
+      body: JSON.stringify({ version: s.server.sendVersion, clientMessageId, text, segment: s.server.segment, revision: s.server.revision, modelRevision: s.server.model.revision, attachments: items.map((a) => ({ id: a.id, version: a.version })), folder,
+        ...(s.server.reference?.available && s.server.reference.on ? { reference: { on: true, revision: s.server.reference.revision } } : {}) }),
     });
   } catch {
     return { unknown: true, cids: items.map((a) => a.cid) };
@@ -452,8 +518,8 @@ export async function submit(botId, text, clientMessageId, folder = "", retried 
   if (res.status >= 500 || !data) return { unknown: true, cids: items.map((a) => a.cid) };
   // 修订刚好在这一刻变了（没有受理）：重新读一次当前输入，核对后用同一个消息 id 再交一次
   if (data.code === "changed" && !retried) return submit(botId, text, clientMessageId, folder, true);
-  if (data.code === "changed" || data.code === "expired") void refresh(botId);
-  return { ok: false, code: data.code || "changed" };
+  if (data.code === "changed" || data.code === "expired" || isRefCode(data.code)) void refresh(botId);
+  return { ok: false, code: data.code || "changed", params: { count: data.count, limit: data.limit } };
 }
 
 /** 查原请求有没有被受理：accepted（带回执）/ pending / none（确认未受理）/ offline（还是连不上） */

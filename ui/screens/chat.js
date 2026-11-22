@@ -34,7 +34,7 @@ import { AboutMeNotes, aboutMeByItem } from "../components/about-me.js";
 import { CollabItem, collabByItem, useCollabView } from "../components/collab.js";
 import { botById, replyAfter } from "../lib/collab.js";
 import { addFiles, clearDraft, draftStore, droppedFiles, isFileDrag, newMessageId, notify as attachNotify, querySend, refresh as refreshAttachments, sendCheck, setSending, setUnknown, settleSent, submit as submitAttachments, useDraft } from "../lib/attachments.js";
-import { DropOverlay, ImageLightbox, SentAttachments } from "../components/attachments.js";
+import { DropOverlay, GenerationNote, ImageLightbox, SentAttachments } from "../components/attachments.js";
 import { WorkFolder } from "../components/work-folder.js";
 import { folderIdOf, refreshFolder, resetFolder, useFolder } from "../lib/folder.js";
 
@@ -51,7 +51,7 @@ function toItems(messages) {
   return messages.map((m) =>
     m.role === "assistant" && isError(m.content)
       ? { kind: "error", id: "m" + m.id, mid: m.id, text: errText(m.content), at: m.createdAt, steps: m.steps, used: m.used, interim: m.interim, files: m.files, ruleSource: m.ruleSource, permissionWait: m.permissionWait }
-      : { kind: "msg", id: "m" + m.id, mid: m.id, role: m.role === "user" ? "user" : "assistant", text: m.content, at: m.createdAt, steps: m.steps, used: m.used, interim: m.interim, files: m.files, ruleSource: m.ruleSource, permissionWait: m.permissionWait, attachments: m.attachments },
+      : { kind: "msg", id: "m" + m.id, mid: m.id, role: m.role === "user" ? "user" : "assistant", text: m.content, at: m.createdAt, steps: m.steps, used: m.used, interim: m.interim, files: m.files, ruleSource: m.ruleSource, permissionWait: m.permissionWait, attachments: m.attachments, generation: m.generation },
   );
 }
 
@@ -333,10 +333,11 @@ function userMessage(it, botId, ta, onLoad, canSave) {
   if (it.attachments?.length) {
     return html`<${SentAttachments} botId=${botId} list=${it.attachments} fallback=${ta} onLoad=${onLoad} canSave=${canSave} />
       ${it.text && html`<div class="msg"><${Linkified} text=${it.text} /></div>`}
+      <${GenerationNote} generation=${it.generation} />
       ${it.text ? html`<${MsgActions} text=${it.text} at=${it.at} />` : html`<div class="msg-actions">${it.at && html`<span class="when num">${fmtClock(it.at)}</span>`}</div>`}`;
   }
   const ua = uiActionOf(it.text);
-  if (!ua) return html`<div class="msg"><${Linkified} text=${it.text} /></div><${MsgActions} text=${it.text} at=${it.at} />`;
+  if (!ua) return html`<div class="msg"><${Linkified} text=${it.text} /></div><${GenerationNote} generation=${it.generation} /><${MsgActions} text=${it.text} at=${it.at} />`;
   return html`<div class="msg">${ua.text ? html`<${Linkified} text=${ua.text} />` : html`<span class="tone-muted">${t("firstUse.errors.uiAction")}</span>`}</div><${MsgActions} text=${ua.text || it.text} at=${it.at} />`;
 }
 
@@ -801,7 +802,7 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
   const sendWithAttachments = async (msg) => {
     if (sendingAtt.current) return;
     const check = sendCheck(draftStore(bot.id).get(), { text: msg, generating: generating || !!following.current });
-    if (check.blocked) return attachNotify(bot.id, check.blocked);
+    if (check.blocked) return attachNotify(bot.id, check.blocked, undefined, check.params);
     sendingAtt.current = true;
     setSending(bot.id, true);
     const clientMessageId = newMessageId();
@@ -813,7 +814,7 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
         setUnknown(bot.id, { clientMessageId, text: msg, cids: r.cids });
         return;
       }
-      attachNotify(bot.id, r.code);
+      attachNotify(bot.id, r.code, undefined, r.params);
       // 工作文件夹的选择在别处变了：重新读一次，让人看清楚再发
       if (r.code === "folderChanged") void refreshFolder(bot.id);
     } finally {

@@ -60,7 +60,7 @@ Sohbetler, bellek, dosyalar ve API anahtarları cihazında kalır. Modeller [Mod
 
 Kurulumdan sonra kullanıma hazır: arka plan görevleri, zamanlanmış kurallar ve onayını bekleyen öğeler yerleşiktir.
 
-**0.1.46:** masaüstü uygulamasında mesaj kutusunun üstünden bir çalışma klasörü seçin, bot dosyalarla yerinde çalışsın; bir ZIP'i sohbete sürükleyin, istediğinizde bot onu güvenle açsın. [Değişiklik günlüğü](./CHANGELOG_tr.md#0146---2026-11-22)
+**0.1.47:** Modelflare'e giriş yaptığınızda sohbetteki görseller, sağ altta seçili modelle görsel oluşturmada referans olarak kullanılabilir; model seçici görsel oluşturma modellerini de listeler. [Değişiklik günlüğü](./CHANGELOG_tr.md#0147---2026-11-23)
 
 📥 [İndir](#-paketi-indir-ve-çalıştır) · 🌠 [Ekran görüntüleri](#-ekran-görüntüleri) · 🌟 [Özellikler](#-temel-özellikler) · 🆚 [Karşılaştır](#-anymodelbot-vs-grok-bot-openai-dots-ve-claude-duet) · 🔐 [Gizlilik](#-nasıl-çalışır-ve-gizlilik)
 
@@ -202,6 +202,7 @@ Bir bot bir sohbet penceresinden fazlasıdır: bir kişiliği, bir varsayılan m
 - **Birbirine mesaj atan botlar.** Uygulamada bir bota “bunu B'ye ver” de: B kendi modeli, izinleri ve bütçesiyle arka planda çalışır ve bitince yanıtlar; ilk bot sonucu sana söylemeden önce denetler. B onayları aynı sohbette kendi adıyla ister ve konuşmalarını istediğin zaman okuyabilirsin. Modelflare'de oturum açmak gerekir ve iki bot da Modelflare modellerinde olmalıdır.
 - **Sohbet geçmişinde ara.** Kenar çubuğundan cihazında kayıtlı tüm mesajlarda ara, bota, sohbete, kanala veya tarihe göre süz ve özgün mesaja atla. `Ctrl/Cmd+Shift+F` genel aramayı açar; `Ctrl/Cmd+F` geçerli sohbeti arar. Aramalar bir model çağırmaz. Yazmadan önce arama iletişim kutusu son sohbetleri tarihe göre listeler.
 - **Çalışma klasörleri ve ZIP.** Masaüstü uygulamasında mesaj kutusunun üstünden bir klasör seçin; bot dosyaları yerinde okur ve düzenler (çalışma alanı erişimiyle bu klasördeki değişiklikler her seferinde onay istemez). Bir ZIP'i sohbete sürükleyin; ne yapılacağını söyleyince bot onu güvenle açar.
+- **Görseller oluşturma referansı olarak.** Modelflare'e giriş yapıp sohbete görsel ekleyin ve “Görsel oluşturmada referans olarak kullan”ı açın: sağ altta seçili model bunlardan yeni bir görsel oluşturur. Bir görsel oluşturma modeli seçip tek cümleyle de görsel oluşturabilirsiniz. Bir engel olduğunda mesaj kutusunun üstündeki not nedenini söyler.
 - **Eğik çizgi komutları** olan `/model` ve `/reset` uygulamada ve her sohbet kanalında çalışır. Bir sohbet kanalında `/bot` başka bir bota geçer.
 
 <p align="center">

@@ -634,6 +634,40 @@ button.task-origin:hover { color: var(--fg); }
   background: linear-gradient(var(--pill), var(--pill)), var(--surface-solid); color: var(--fg); font-size: var(--fs-sm); line-height: var(--lh-normal);
   overflow-wrap: anywhere; animation: fade-in var(--dur-base) var(--ease-out);
 }
+/* —— 用作生图参考（components/composer.js）：附件统计和开关是一组，窄了整组换到自己的一行，不挤权限、模型和发送 —— */
+.composer { container-type: inline-size; }
+.att-group { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; flex: 0 1 auto; }
+.ref-toggle { display: inline-flex; align-items: center; gap: var(--space-1-5); flex: none; padding: 0 var(--space-1); font-size: var(--fs-xs); color: var(--fg-2); white-space: nowrap; }
+.ref-toggle label { cursor: pointer; }
+.ref-toggle .switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }   /* 微调：聚焦环离开关 2 */
+.ref-hint { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@container (max-width: 600px) {
+  .composer-bar:has(.att-group.with-ref) { flex-wrap: wrap; row-gap: var(--space-1); }
+  .att-group.with-ref { order: -1; flex-basis: 100%; padding-left: var(--space-1); }
+}
+/* 缩略图上的「参考1」：左下角一块小标，不挡移除钮 */
+.att-ref {
+  position: absolute; left: var(--space-1); bottom: var(--space-1); padding: 0 var(--space-1-5); border-radius: var(--r-ctl);
+  background: var(--surface-solid); color: var(--fg); font-size: var(--fs-2xs); line-height: 1.6; pointer-events: none;
+  box-shadow: 0 0 0 var(--hairline) var(--line-strong);   /* 描边：小标压在图片上，要一道边才分得出 */
+}
+.att-open { position: relative; }
+/* 校验条：圆角输入框外、紧贴上边缘（有工作文件夹时在它和输入框之间），占位推动布局，不浮在历史上；长了自然换行 */
+.ref-check {
+  pointer-events: auto; width: var(--col, auto); margin: 0 auto var(--space-1-5); box-sizing: border-box;
+  padding: var(--space-1-5) var(--space-4); border-radius: var(--r-card);
+  background: linear-gradient(var(--pill), var(--pill)), var(--surface-solid); color: var(--fg); font-size: var(--fs-sm); line-height: var(--lh-normal);
+  overflow-wrap: anywhere;
+}
+.ref-switch {
+  display: inline; border: 0; padding: 0; margin: 0; background: none; font: inherit; color: var(--accent); cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px;
+}
+.ref-switch:hover { color: var(--fg); }
+.ref-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }   /* 微调：聚焦环离文字 1 */
+/* 生图消息下面那行小字：当时用的型号和用途 */
+.msg-gen { align-self: flex-end; margin-top: var(--space-1); font-size: var(--fs-xs); color: var(--muted); }
+
 /* 已发消息：附件组在正文气泡上方，整组右对齐，按添加顺序从左到右、再换行 */
 .msg-atts { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2-5); max-width: 100%; }
 .msg-atts + .msg { margin-top: var(--space-2); }

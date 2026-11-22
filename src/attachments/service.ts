@@ -437,9 +437,11 @@ export class Attachments {
     return { status: "none" };
   }
 
-  static digest(req: { text: string; segment: string; attachments: Array<{ id: string; version: string }>; folder?: string }): string {
+  static digest(req: { text: string; segment: string; attachments: Array<{ id: string; version: string }>; folder?: string; reference?: boolean }): string {
     const base: unknown[] = [req.text, req.segment, req.attachments.map((a) => [a.id, a.version])];
     if (req.folder !== undefined) base.push(req.folder);
+    // 用作生图参考：用途也固定进这个消息 id（同一个 id 换了用途算冲突）
+    if (req.reference) base.push(["reference", true]);
     return crypto.createHash("sha256").update(JSON.stringify(base)).digest("hex");
   }
 
@@ -494,11 +496,13 @@ export class Attachments {
    * 原子绑定：一个事务里存下用户消息、把这些附件绑到它上面（改成 30 天后到期）、记下回执。
    * 绑定前再核一次每一项仍是就绪的待发状态；有一项不对就整个回滚，不会留下没有附件的空壳消息。
    */
-  bind(botId: string, conversationId: string, clientMessageId: string, digest: string, text: string, atts: Attachment[], turnId: string): SendReceipt {
+  bind(botId: string, conversationId: string, clientMessageId: string, digest: string, text: string, atts: Attachment[], turnId: string, generation?: { model: string; mode: "reference" | "text" }): SendReceipt {
     return this.tx(() => {
       const now = this.now();
-      const refs: MessageAttachment[] = atts.map((a) => ({ id: a.id, kind: a.kind, name: a.name, size: a.bytes, version: a.version, ...(a.kind === "image" ? { width: a.width, height: a.height } : {}) }));
-      const messageId = this.store.addMessage(conversationId, "user", text, undefined, { attachments: refs });
+      // 用作生图参考：图片按显示顺序编号（参考1、参考2…），之后换选择器、改草稿都不改写
+      let ref = 0;
+      const refs: MessageAttachment[] = atts.map((a) => ({ id: a.id, kind: a.kind, name: a.name, size: a.bytes, version: a.version, ...(a.kind === "image" ? { width: a.width, height: a.height } : {}), ...(generation?.mode === "reference" && a.kind === "image" ? { ref: ++ref } : {}) }));
+      const messageId = this.store.addMessage(conversationId, "user", text, undefined, { attachments: refs, ...(generation ? { generation } : {}) });
       for (const a of atts) {
         const r = this.store.db
           .prepare("UPDATE attachments SET message_id = ?, expires_at = ? WHERE id = ? AND bot_id = ? AND message_id = 0 AND status = 'ready' AND version = ?")

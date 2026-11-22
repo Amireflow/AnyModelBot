@@ -60,7 +60,7 @@ Conversas, memória, arquivos e chaves de API ficam no seu dispositivo. Os model
 
 Pronto para usar logo após a instalação: tarefas em segundo plano, regras agendadas e os itens que aguardam o seu OK já vêm integrados.
 
-**0.1.46:** no app de desktop, escolha uma pasta de trabalho acima da caixa de mensagem e o bot trabalha nos arquivos onde estão; arraste um ZIP para a conversa e o bot o extrai com segurança quando você pedir. [Registro de alterações](./CHANGELOG_pt.md#0146---2026-11-22)
+**0.1.47:** com a conta do Modelflare conectada, as imagens de um chat podem servir de referência para gerar imagens com o modelo escolhido no canto inferior direito; o seletor também lista modelos de geração de imagens. [Registro de alterações](./CHANGELOG_pt.md#0147---2026-11-23)
 
 📥 [Baixar](#-baixar-e-executar) · 🌠 [Capturas de tela](#-capturas-de-tela) · 🌟 [Recursos](#-principais-recursos) · 🆚 [Comparação](#-anymodelbot-vs-grok-bot-openai-dots-e-claude-duet) · 🔐 [Privacidade](#-como-funciona-e-privacidade)
 
@@ -202,6 +202,7 @@ Um bot é mais do que uma janela de chat: ele tem uma persona, um modelo padrão
 - **Bots que trocam mensagens.** No app, diga a um bot «passa isso para B»: B trabalha em segundo plano com o próprio modelo, permissões e orçamento e responde ao terminar, e o primeiro bot confere o resultado antes de contar para você. B pede aprovações na mesma conversa com o nome dele, e você pode ler a troca entre eles quando quiser. É preciso entrar na Modelflare, com os dois bots em modelos da Modelflare.
 - **Pesquise o histórico de conversas.** Pesquise pela barra lateral todas as mensagens salvas no seu dispositivo, filtre por bot, conversa, canal ou data e vá direto à mensagem original. `Ctrl/Cmd+Shift+F` abre a pesquisa global; `Ctrl/Cmd+F` pesquisa no chat atual. As pesquisas não chamam nenhum modelo. Antes de você digitar, a janela de pesquisa lista os chats recentes por data.
 - **Pastas de trabalho e ZIP.** No app de desktop, escolha uma pasta acima da caixa de mensagem e o bot lê e edita os arquivos onde estão (com acesso ao espaço de trabalho, mudanças dentro dessa pasta não pedem aprovação a cada vez); arraste um ZIP para a conversa e o bot o extrai com segurança quando você disser o que fazer.
+- **Imagens como referências para gerar.** Com a conta do Modelflare conectada, adicione imagens a um chat e ligue “Usar como referências para gerar imagens”: o modelo escolhido no canto inferior direito gera uma nova imagem a partir delas. Você também pode escolher um modelo de geração de imagens e criar uma imagem com uma frase. Se algo impedir, uma nota acima da caixa de mensagem explica o motivo.
 - **Comandos de barra** como `/model` e `/reset` funcionam no app e em todos os canais de chat. Em um canal de chat, `/bot` troca para outro bot.
 
 <p align="center">

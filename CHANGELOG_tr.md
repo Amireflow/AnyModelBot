@@ -4,6 +4,17 @@
 
 Uygulamada fark edeceğin değişiklikler burada. Daha eski sürümler için [GitHub sürümlerine](https://github.com/modelflare-ai/AnyModelBot/releases) bak.
 
+## 0.1.47 - 2026-11-23
+
+### Yenilikler
+
+- **Görselleri görsel oluşturmada referans olarak kullanma:** Modelflare hesabıyla giriş yapıp bir botla birebir sohbete görsel eklediğinizde, ek sayısının yanında varsayılan olarak kapalı “Görsel oluşturmada referans olarak kullan” anahtarı görünür. Açtığınızda o mesajdaki görseller gösterilen sırayla referans olur; sağ altta seçili model görseli oluşturur ve sonuç aynı sohbete gelir. Yalnızca görsel eklemek hiçbir zaman ücretli bir oluşturma başlatmaz. Geçerli model bunu yapamıyorsa, yetenekleri henüz doğrulanamıyorsa ya da görseller modelin sayı, biçim veya boyut sınırlarını aşıyorsa mesaj kutusunun üstündeki bir not nedenini açıklar; içindeki “Model değiştirin” bağlantısı her zamanki model seçiciyi açar. Ücret onayı eskisi gibi çalışır (her seferinde ya da tahmin $0.5'i aştığında) ve sonucu doğrulanamayan bir istek asla kendiliğinden yeniden denenmez. Modelflare'in model yetenek bilgisini sağlaması gerekir; doğrulanamazsa hiçbir şey gönderilmez. Kendi API anahtarlarınızla henüz kullanılamaz.
+- **Model seçiciden görsel oluşturma modeli seçme:** giriş yaptığınızda sağ alttaki model seçici, hesabınızın kullanabildiği görsel oluşturma modellerini de listeler. Birini seçip istediğiniz görseli tarif etmeniz yeterli; hiçbir sohbet modeli devreye girmez.
+
+### İyileştirmeler ve düzeltmeler
+
+- **Görsel oluşturma yalnızca seçili modeli kullanır:** giriş yapmışken bir bottan sözle görsel istediğinizde yalnızca sağ altta seçili model kullanılır. O model görsel oluşturamıyorsa ya da yetenekleri doğrulanamıyorsa bot nedenini söyler ve model değiştirmenizi ister; ayrı bir varsayılan görsel modeline geçmez (giriş yapılmışken ayarlardaki “Varsayılan görsel modeli” gizlenir). Yalnızca API anahtarıyla bağlandığınızda hiçbir şey değişmez.
+
 ## 0.1.46 - 2026-11-22
 
 ### Yenilikler

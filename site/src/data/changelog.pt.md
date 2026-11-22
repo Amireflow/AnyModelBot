@@ -4,6 +4,17 @@
 
 Aqui estão as mudanças que você vai notar no app. Para versões mais antigas, veja as [versões no GitHub](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.47 - 2026-11-23
+
+### Novidades
+
+- **Imagens como referências para gerar imagens:** com a conta do Modelflare conectada, ao adicionar imagens em um chat individual com um bot, aparece ao lado da contagem de anexos o interruptor “Usar como referências para gerar imagens”, desligado por padrão. Ligado, as imagens dessa mensagem viram referências na ordem exibida; o modelo escolhido no canto inferior direito gera a imagem e o resultado volta para o mesmo chat. Só adicionar imagens nunca inicia uma geração paga. Se o modelo atual não puder fazer isso, se os recursos dele ainda não puderem ser verificados ou se as imagens passarem dos limites de quantidade, formato ou tamanho, uma nota acima da caixa de mensagem explica o motivo, e o link “Troque de modelo” abre o seletor de sempre. A confirmação de custo continua igual (sempre, ou quando a estimativa passa de $0.5), e um resultado não confirmado nunca é repetido sozinho. Requer que o Modelflare forneça as informações de recursos do modelo; sem verificação, nada é enviado. Ainda não disponível com chaves de API próprias.
+- **Escolher modelos de geração de imagens no seletor:** com a conta conectada, o seletor de modelos do canto inferior direito também lista os modelos de geração de imagens que sua conta pode usar. Escolha um e descreva a imagem que quer; nenhum modelo de chat é usado.
+
+### Melhorias e correções
+
+- **A geração de imagens usa só o modelo escolhido:** com a conta conectada, quando você pede uma imagem a um bot com suas palavras, ele usa só o modelo escolhido no canto inferior direito. Se esse modelo não gera imagens ou os recursos dele não podem ser verificados, o bot avisa e pede para trocar, em vez de usar outro modelo de imagem padrão (a configuração “Modelo de imagem padrão” fica oculta com a conta conectada). Nada muda se você se conecta só com uma chave de API.
+
 ## 0.1.46 - 2026-11-22
 
 ### Novidades

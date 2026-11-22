@@ -58,6 +58,10 @@ import { FolderService } from "./folders/service.js";
 import { acceptsImages } from "./llm/client.js";
 import { loadQualitySnapshot } from "./account/model-quality.js";
 import { MediaService, pickDefault } from "./tools/media/index.js";
+import { ModelCapabilities, capsFor, pureImageModel, type CapsSnapshot, type ModelCaps } from "./tools/media/capabilities.js";
+import { ImageGeneration, verdictText, type GenerationPlan } from "./imagegen/generate.js";
+import { modelVerdict } from "./imagegen/reference.js";
+import { sniffImage } from "./attachments/sniff.js";
 import { SearchService, loadWebSearch, saveWebSearch, type SearchProvider, type WebSearchSettings, type WebSearchView } from "./tools/search.js";
 import { ConnectionService } from "./tools/accounts/connections.js";
 import { AppService } from "./tools/apps/service.js";
@@ -243,6 +247,10 @@ export class App {
   readonly attachments: Attachments;
   /** 输入框上方选择的工作文件夹（folders/service.ts） */
   readonly folders: FolderService;
+  /** ModelFlare 账户的型号能力（生图、参考图、限制；tools/media/capabilities.ts） */
+  readonly modelCaps: ModelCapabilities;
+  /** 网页单聊里宿主直接执行的生图（参考图、纯图片型号的纯文字；imagegen/generate.ts）；没有内置网关时为空 */
+  readonly imageGen: ImageGeneration | undefined;
   web: WebServer | undefined;
   private catalogSweep: NodeJS.Timeout | undefined;
   desktop: DesktopHooks | undefined;
@@ -288,6 +296,12 @@ export class App {
     this.attachments = new Attachments(this.store, path.join(config.dataDir, "attachments"));
     // ZIP 默认解压到机器人工作区里的 extracted/（受管处理空间，随附件到期回收）
     this.attachments.managedRoot = (botId) => path.join(config.dataDir, "workspaces", botId, "extracted");
+    // 型号能力只认账号登录：账户摘要按 isolationKey（登录前后不变，换账户就变）；没登录、只填 Key 时为空
+    this.modelCaps = new ModelCapabilities({
+      account: () => this.capsAccount(),
+      line: () => this.config.modelflare.line,
+      fetch: (line) => this.account.modelCapabilities(line),
+    });
     this.folders = new FolderService({
       store: this.store,
       dataDir: config.dataDir,
@@ -399,9 +413,12 @@ export class App {
             workspace: (botId) => path.join(config.dataDir, "workspaces", botId),
             defaults: () => ({ image: this.config.media.imageModel, video: this.config.media.videoModel }),
             pricingUrl: () => `${modelflareIssuer()}/api/pricing`,
+            sniff: (data) => sniffImage(data),
           })
         : undefined,
       mediaReady: () => !!this.magpie?.modelflareInfo().connected,
+      // 账号登录时自然语言生图也只用这条会话当前选的精确型号（PRD 2026-11-23 R4）；自定义 Key 照旧
+      imageGate: (botId, conversationId, requested) => this.imageGate(botId, conversationId, requested),
       // install_skill 工具：卡片出在这个对话里；渠道里只有主人能装
       skillInstalls: this.skillInstalls,
       ownsConversation: (conversationId) => this.access.ownsConversation(conversationId),
@@ -498,6 +515,19 @@ export class App {
     this.agent.approvals.listen(() => this.attention.kick());
     // 出站队列的变化（结果留着等微信、发出去了、放弃了）：任务的"未送达"随之出现、消失
     this.delivery.onChange(() => this.attention.kick());
+    this.imageGen = this.agent.media
+      ? new ImageGeneration({
+          store: this.store,
+          media: this.agent.media,
+          caps: this.modelCaps,
+          attachments: this.attachments,
+          approvals: this.agent.approvals,
+          workspace: (botId) => path.join(config.dataDir, "workspaces", botId),
+          account: () => this.capsAccount(),
+          confirm: (botId) => this.agent.settings(botId).media.confirm,
+          approvalTtlMs: config.agent.approvalTtlMs,
+        })
+      : undefined;
     this.runtime = new BotRuntime({
       agent: this.agent,
       store: this.store,
@@ -519,7 +549,80 @@ export class App {
       vision: (model) => this.visionOf(model),
       attachments: this.attachments,
       folders: this.folders,
+      // 右下角选的是纯图片生成型号：纯文字消息由宿主直接走图片接口（不当聊天模型调用）
+      imageGen: this.imageGen && {
+        plan: (botId, conversationId, model, text, web) => this.textImagePlan(botId, conversationId, model, text, web),
+        run: (plan, out, signal) => this.imageGen!.run(plan, out, signal),
+      },
     });
+  }
+
+  /** 型号能力绑定的账户摘要：账号登录（不是只填 Key）时才有 */
+  capsAccount(): string {
+    if (!this.magpie || !this.account?.signedIn) return "";
+    const k = this.account.isolationKey;
+    return k && k !== "local" ? k : "";
+  }
+
+  /** 这个会话实际会用的模型（会话选的 → 机器人默认 → 全局默认），不去读列表 */
+  conversationModel(botId: string, conversationId: string): string {
+    return this.store.getConversation(conversationId)?.model || this.store.getBot(botId)?.defaultModel || this.config.llm.defaultModel || "";
+  }
+
+  /**
+   * 参考图生图的上下文（PRD 2026-11-23 R1）：当前型号是不是走这个账户授权的 ModelFlare 线路（账号登录、不是官方 API 的自定义 Key），
+   * 它在能力快照里的样子。waitMs 内取不到能力就先回 loading（界面不闪「不支持」）；force = 从原选择器重新打开时的只读重试。
+   */
+  async referenceContext(botId: string, conversationId: string, o: { waitMs?: number; force?: boolean } = {}): Promise<{ model: string; bare: string; accountLogin: boolean; account: string; snap: CapsSnapshot | undefined; caps: ModelCaps | undefined }> {
+    let model = this.conversationModel(botId, conversationId);
+    if (!model) model = (await this.runtime.listModels().catch(() => [] as string[]))[0] ?? "";
+    const account = this.capsAccount();
+    const accountLogin = !!account && !!model && !officialOf(model);
+    const bare = bareModel(model);
+    const snap = accountLogin ? await this.modelCaps.within(o.waitMs ?? 4000, o.force) : undefined;
+    return { model, bare, accountLogin, account, snap, caps: snap ? capsFor(snap, bare) : undefined };
+  }
+
+  /**
+   * 选了纯图片生成型号时的一条纯文字消息（R4）：只在网页单聊里由宿主直接生图；渠道里说明原因。不是纯图片型号返回 undefined（照常对话）。
+   */
+  private async textImagePlan(botId: string, conversationId: string, model: string, text: string, web: boolean): Promise<GenerationPlan | { refuse: string } | undefined> {
+    const account = this.capsAccount();
+    if (!account || officialOf(model)) return undefined;
+    const bare = bareModel(model);
+    // 每条消息都会经过这里：能力还没取到时只等一小会儿（纯图片型号是在原选择器里选的，那时能力已经取过）
+    const snap = await this.modelCaps.within(3000);
+    const m = capsFor(snap, bare);
+    if (!pureImageModel(m)) return undefined;
+    if (!web) return { refuse: t("media.directNotHere") };
+    const v = modelVerdict(snap, m);
+    if (v.code === "ref_unauthorized" || v.code === "ref_loading" || v.code === "ref_caps_failed" || v.code === "ref_caps_stale") return { refuse: `⚠️ ${verdictText(v)}` };
+    if (!m!.generationEndpoint) return { refuse: `⚠️ ${t("attachments.err_gen_adapter")}` };
+    if (!text.trim()) return { refuse: `⚠️ ${verdictText({ code: "ref_no_text" })}` };
+    return {
+      botId, conversationId, operationId: `gen-${crypto.randomBytes(9).toString("base64url")}`, account, model: bare, line: m!.line,
+      mode: "text", encoding: m!.generationEndpoint, prompt: text.trim(), refs: [], capsRevision: snap.revision,
+    };
+  }
+
+  /**
+   * 代理的 generate_image（自然语言生图）在账号登录时的门槛：只能用这条会话当前选的精确型号，它得明确能生图；
+   * 不沿默认生图型号或别的供应商暗换。自定义 Key（没登录、官方 API 的型号）返回 undefined，原有行为不变。
+   */
+  private async imageGate(botId: string, conversationId: string, requested: string): Promise<{ model: string } | { error: string } | undefined> {
+    const account = this.capsAccount();
+    const model = this.conversationModel(botId, conversationId);
+    if (!account || !model || officialOf(model)) return undefined;
+    const bare = bareModel(model);
+    if (requested && bareModel(requested) !== bare) return { error: t("media.agentWrongModel", { model: bare }) };
+    const snap = await this.modelCaps.within(8000);
+    const m = capsFor(snap, bare);
+    const v = modelVerdict(snap, m);
+    if (snap.status !== "ok") return { error: t("media.agentCapsUnknown", { reason: verdictText(v) }) };
+    if (v.code === "ref_unauthorized") return { error: verdictText(v) };
+    if (m!.generation === "unsupported") return { error: t("media.agentNoGeneration", { model: bare }) };
+    if (m!.generation !== "supported") return { error: t("media.agentCapsUnknown", { reason: verdictText({ code: "ref_caps_unknown" }) }) };
+    return { model: bare };
   }
 
   /**

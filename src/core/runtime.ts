@@ -111,6 +111,14 @@ export interface RuntimeOptions {
   attachments?: Attachments;
   /** 工作文件夹（folders/service.ts）：回合开始时核对消息绑定的目录还在不在 */
   folders?: FolderService;
+  /**
+   * 宿主直接生图（imagegen/generate.ts）：plan 判断选的是不是纯图片生成型号（是就把这条纯文字做成文生图计划，
+   * 渠道里给一句说明 refuse；不是返回 undefined 照常对话）；run 执行计划。没有内置网关时不给。
+   */
+  imageGen?: {
+    plan(botId: string, conversationId: string, model: string, text: string, web: boolean): Promise<import("../imagegen/generate.js").GenerationPlan | { refuse: string } | undefined>;
+    run(plan: import("../imagegen/generate.js").GenerationPlan, out: ReplySession, signal: AbortSignal): Promise<void>;
+  };
   /** 这个模型该带的推理强度（用户选了、模型也支持时）；纯对话路径用，代理路径由 AgentHost 自己带 */
   reasoningEffort?: (model: string) => Promise<string | undefined>;
   /** DSH 代理宿主；缺省或不可用时走纯对话路径 */
@@ -464,6 +472,18 @@ export class BotRuntime {
       return;
     }
 
+    // 参考图生图（网页单聊受理时冻结的计划）：由宿主直接执行，不交给聊天模型或代理
+    if (ev.generate && pre) {
+      if (this.opts.imageGen) await this.opts.imageGen.run(ev.generate, out, signal);
+      else {
+        const msg = `⚠️ ${t("attachments.changed")}`;
+        store.addMessage(conv.id, "assistant", msg);
+        await out.apply({ type: "text", text: msg });
+      }
+      this.answered(conv.id, run);
+      return;
+    }
+
     // /skill：等同于说「把刚才做的事存成技能」（后面的文字是补充说明），交给机器人整理成草稿卡；不能存时
     // （渠道群、不是主人、群里该别的机器人出、没有可存的事）直接回一句。用户消息照原样记下
     const skillCmd = pre ? null : /^\/skill(?:\s+([\s\S]*))?$/i.exec(text.trim());
@@ -497,6 +517,24 @@ export class BotRuntime {
       return "";
     });
     if (!model) return;
+    // 右下角选的是纯图片生成型号：这条文字就是文生图指令，直接走图片接口（不当聊天模型调用、不拼聊天记录）
+    if (!pre && this.opts.imageGen) {
+      const web = ev.channel === "web" && ev.conversation.kind !== "group" && ev.conversation.id === "console";
+      const plan = await this.opts.imageGen.plan(bot.id, conv.id, model, text, web).catch((e: Error) => {
+        log.warn("image model check failed", { message: e.message.slice(0, 200) });
+        return undefined;
+      });
+      if (plan) {
+        if (!run.userStored) store.addMessage(conv.id, "user", text, undefined, "refuse" in plan ? {} : { generation: { model: plan.model, mode: "text" } });
+        run.userStored = true;
+        if ("refuse" in plan) {
+          store.addMessage(conv.id, "assistant", plan.refuse);
+          await out.apply({ type: "text", text: plan.refuse });
+        } else await this.opts.imageGen.run(plan, out, signal);
+        this.answered(conv.id, run);
+        return;
+      }
+    }
     const routed = this.opts.route ? this.opts.route(bot.id, model) : model;
     // 只有能看图的模型才收到图片本身；其余模型只看到文字里的“[图片 …]”
     const canSee = await this.sees(routed);

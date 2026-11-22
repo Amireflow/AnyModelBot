@@ -177,7 +177,7 @@ function FileFace({ a, label, why, status, save }) {
  * 输入框里文字上方的待发区。按加入顺序排，窄了换行，最多两行、再多在区内滚动。
  * 键盘：Tab 能到每个附件和它的移除钮；附件聚焦时 Delete / Backspace 移除这一个（长按不连删），焦点回到输入框。
  */
-export function AttachmentTray({ botId, items, taRef }) {
+export function AttachmentTray({ botId, items, taRef, refs = false }) {
   if (!items.length) return null;
   let image = 0;
   const cardKey = (a) => (e) => {
@@ -207,10 +207,13 @@ export function AttachmentTray({ botId, items, taRef }) {
       const x = html`<button type="button" class="att-x" aria-label=${t("attach.remove")} onClick=${remove(a)}><${Icon} name="close" size="xs" /></button>`;
       if (a.kind === "image") {
         const n = ++image;
+        // 用作生图参考且通过校验：按当前显示顺序标「参考1／参考2」（删掉一张后重新编号）
+        const tag = refs && a.status === "ready" ? t("attach.refLabel", { n }) : "";
         return html`<div class=${`att att-image ${a.status}`} role="listitem" key=${a.cid}>
           <div class="att-open" role="button" tabindex="0" data-att=${a.cid} aria-disabled=${a.status !== "ready"} title=${why || undefined}
-            aria-label=${a.status === "ready" ? t("attach.imageName", { n }) : why || t("attach.processing")} onClick=${(e) => open(a, e.currentTarget)} onKeyDown=${cardKey(a)}>
+            aria-label=${a.status === "ready" ? (tag ? `${tag}, ${t("attach.imageName", { n })}` : t("attach.imageName", { n })) : why || t("attach.processing")} onClick=${(e) => open(a, e.currentTarget)} onKeyDown=${cardKey(a)}>
             ${a.status === "ready" ? html`<img src=${a.url} alt="" draggable=${false} />` : bad ? html`<${Icon} name="warning" size="md" />` : html`<${Spinner} />`}
+            ${tag && html`<span class="att-ref" aria-hidden="true">${tag}</span>`}
           </div>
           ${x}
         </div>`;
@@ -245,7 +248,7 @@ export function SentAttachments({ botId, list, fallback, onLoad, canSave }) {
   let image = 0;
   return html`<div class="msg-atts" role="group" aria-label=${t("attach.sentLabel")}>
     ${withSerial(list).map((a) => (a.kind === "image"
-      ? html`<${SentImage} key=${a.id} src=${sentImageUrl(botId, a)} n=${++image} fallback=${fallback} onLoad=${onLoad} w=${a.width} h=${a.height} />`
+      ? html`<${SentImage} key=${a.id} src=${sentImageUrl(botId, a)} n=${++image} refN=${a.ref} fallback=${fallback} onLoad=${onLoad} w=${a.width} h=${a.height} />`
       : a.kind === "zip"
         ? html`<${SentZip} key=${a.id} botId=${botId} a=${a} canSave=${canSave} />`
         : html`<div class="att att-file sent" key=${a.id} title=${a.label} data-kind=${a.kind}><div class="att-card"><${FileFace} a=${a} label=${a.label} status="ready" /></div></div>`))}
@@ -290,14 +293,23 @@ function SentZip({ botId, a, canSave }) {
   </div>`;
 }
 
-function SentImage({ src, n, fallback, onLoad, w, h }) {
+function SentImage({ src, n, refN, fallback, onLoad, w, h }) {
   const [gone, setGone] = useState(false);
-  if (gone) return html`<div class="att att-image sent expired" role="img" aria-label=${t("attach.unavailable")} title=${t("attach.unavailable")}><div class="att-open"><${Icon} name="photo" size="md" /></div></div>`;
+  // 发出时用作生图参考的：序号随消息存下，之后换选择器、改草稿都不变
+  const tag = refN ? t("attach.refLabel", { n: refN }) : "";
+  if (gone) return html`<div class="att att-image sent expired" role="img" aria-label=${tag ? `${tag}, ${t("attach.unavailable")}` : t("attach.unavailable")} title=${t("attach.unavailable")}><div class="att-open"><${Icon} name="photo" size="md" />${tag && html`<span class="att-ref" aria-hidden="true">${tag}</span>`}</div></div>`;
   return html`<div class="att att-image sent ready">
-    <button type="button" class="att-open" aria-label=${t("attach.imageName", { n })} onClick=${(e) => openImage(src, e.currentTarget, fallback?.current)}>
+    <button type="button" class="att-open" aria-label=${tag ? `${tag}, ${t("attach.imageName", { n })}` : t("attach.imageName", { n })} onClick=${(e) => openImage(src, e.currentTarget, fallback?.current)}>
       <img src=${src} alt="" loading="lazy" draggable=${false} style=${w && h ? `aspect-ratio: ${w} / ${h}` : undefined} onLoad=${onLoad} onError=${() => setGone(true)} />
+      ${tag && html`<span class="att-ref" aria-hidden="true">${tag}</span>`}
     </button>
   </div>`;
+}
+
+/** 生图消息下面一行小字：当时实际用的型号和用途（不随当前选择器变化） */
+export function GenerationNote({ generation }) {
+  if (!generation?.model) return null;
+  return html`<div class="msg-gen">${t(generation.mode === "reference" ? "attach.refSentVia" : "attach.genSentVia", { model: generation.model })}</div>`;
 }
 
 // —— 拖入遮罩 ——

@@ -15,4 +15,6 @@ export interface MessageAttachment {
   /** 图片规范化后的尺寸 */
   width?: number;
   height?: number;
+  /** 用作生图参考时的序号（1 起，按显示顺序）；普通附件没有 */
+  ref?: number;
 }

@@ -4,6 +4,17 @@
 
 Aquí se recogen los cambios que notarás en la app. Para versiones anteriores, consulta las [versiones publicadas en GitHub](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.47 - 2026-11-23
+
+### Novedades
+
+- **Imágenes como referencias para generar imágenes:** con la sesión de Modelflare iniciada, al añadir imágenes en un chat individual con un bot aparece junto al contador de adjuntos el interruptor «Usar como referencias para generar imágenes», apagado por defecto. Al activarlo, las imágenes de ese mensaje son referencias en el orden mostrado; el modelo elegido abajo a la derecha genera la imagen y el resultado vuelve al mismo chat. Añadir imágenes por sí solo nunca inicia una generación de pago. Si el modelo actual no puede hacerlo, sus capacidades aún no se pueden verificar o las imágenes superan sus límites de cantidad, formato o tamaño, una nota encima del cuadro de mensaje explica el motivo y su enlace «Cambia de modelo» abre el selector de siempre. La confirmación de costo funciona igual (siempre, o cuando la estimación supera $0.5) y un resultado sin confirmar nunca se reintenta solo. Requiere que Modelflare proporcione la información de capacidades del modelo; si no se puede verificar, no se envía nada. Aún no disponible con claves de API propias.
+- **Elegir modelos de generación de imágenes en el selector:** con la sesión iniciada, el selector de modelos de abajo a la derecha también muestra los modelos de generación de imágenes que puede usar tu cuenta. Elige uno y describe la imagen que quieres; no interviene ningún modelo de chat.
+
+### Mejoras y correcciones
+
+- **La generación de imágenes usa solo el modelo elegido:** con la sesión iniciada, si pides una imagen a un bot con tus palabras, usa solo el modelo elegido abajo a la derecha. Si ese modelo no genera imágenes o no se pueden verificar sus capacidades, el bot lo dice y te pide cambiarlo, en lugar de usar otro modelo de imagen predeterminado (el ajuste «Modelo de imagen predeterminado» se oculta con la sesión iniciada). Si te conectas solo con una clave de API, nada cambia.
+
 ## 0.1.46 - 2026-11-22
 
 ### Novedades

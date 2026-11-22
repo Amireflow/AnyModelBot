@@ -60,7 +60,7 @@ Conversations, memory, files, and API keys stay on your device. Models can come 
 
 Ready to use after install: background tasks, scheduled rules, and items waiting for your OK are built in.
 
-**0.1.46:** choose a work folder above the message box in the desktop app and the bot works on the files in place; drag a ZIP into a chat and the bot extracts it safely when you ask. [Changelog](./CHANGELOG_en.md#0146---2026-11-22)
+**0.1.47:** when you're signed in to Modelflare, images in a chat can serve as references for image generation with the model selected at the bottom right; the model picker also lists image-generation models. [Changelog](./CHANGELOG_en.md#0147---2026-11-23)
 
 📥 [Download](#-download-and-run) · 🌠 [Screenshots](#-screenshots) · 🌟 [Features](#-key-features) · 🆚 [Compare](#-anymodelbot-vs-grok-bot-openai-dots-and-claude-duet) · 🔐 [Privacy](#-how-it-works--privacy)
 
@@ -202,6 +202,7 @@ A bot is more than a chat window: it has a persona, a default model, its own wor
 - **Bots that message each other.** In the app, tell a bot "hand this to B": B works in the background with its own model, permissions and budget and replies when done, and the first bot checks the result before telling you. B asks for approvals in the same chat under its own name, and you can read their conversation any time. Requires signing in to Modelflare, with both bots on Modelflare models.
 - **Search chat history.** Search all messages saved on your device from the sidebar, filter by bot, conversation, channel or date, and jump to the original message. `Ctrl/Cmd+Shift+F` opens global search; `Ctrl/Cmd+F` searches the current chat. Searches do not call a model. Before you type, the search dialog lists recent chats by date.
 - **Work folders and ZIP files.** In the desktop app, choose a folder above the message box and the bot reads and edits the files in place (with Workspace access, changes inside that folder need no approval each time); drag a ZIP into a chat and the bot extracts it safely once you say what to do.
+- **Images as generation references.** Signed in to Modelflare, add images to a chat and turn on “Use as image-generation references”: the model selected at the bottom right generates a new image from them. You can also pick an image-generation model and generate from a sentence. When something blocks it, a note above the message box says why.
 - **Slash commands** such as `/model` and `/reset` work in the app and in every chat channel. In a chat channel, `/bot` switches to another bot.
 
 <p align="center">

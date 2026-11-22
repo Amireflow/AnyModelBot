@@ -4,6 +4,17 @@
 
 This covers changes you'll notice in the app. For older versions, see the [GitHub releases](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.47 - 2026-11-23
+
+### New
+
+- **Images as image-generation references:** when you're signed in to Modelflare and add images in a one-on-one chat with a bot, a “Use as image-generation references” switch appears next to the attachment count, off by default. Turn it on and the images in that message become references in display order; the model selected at the bottom right generates the image and the result comes back to the same chat. Adding images alone never starts a paid generation. If the current model can't do it, its capabilities can't be verified yet, or the images exceed the model's count, format or size limits, a note above the message box explains why, and its “Switch models” link opens the usual model picker. Cost confirmation works as before (every time, or when the estimate is above $0.5), and an unconfirmed result is never retried automatically. Requires model capability information from Modelflare; nothing is sent when it can't be verified. Not available with custom API keys yet.
+- **Pick image-generation models in the model picker:** when you're signed in, the model picker at the bottom right also lists the image-generation models your account can use. Select one and just describe the picture you want; no chat model is involved.
+
+### Improvements and fixes
+
+- **Image generation uses the selected model only:** when you're signed in and ask a bot in plain words for an image, it uses only the model selected at the bottom right. If that model can't generate images or its capabilities can't be verified, the bot says so and asks you to switch, instead of using a separate default image model (the “Default image model” setting is hidden while signed in). Nothing changes when you connect with an API key only.
+
 ## 0.1.46 - 2026-11-22
 
 ### New

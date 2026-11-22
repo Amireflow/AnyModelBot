@@ -65,6 +65,11 @@ export interface InboundEvent {
    * 排队、等批准、重试都只认它，不读之后的选择；其他渠道没有（默认工作区）。
    */
   folder?: FolderBinding | null;
+  /**
+   * 网页单聊里由宿主直接执行的生图（参考图生图，imagegen/generate.ts）：受理时冻结的计划。用户消息已经存好（prepared），
+   * 不交给聊天模型或代理。
+   */
+  generate?: import("../imagegen/generate.js").GenerationPlan;
 }
 
 export type OutboundOp =
