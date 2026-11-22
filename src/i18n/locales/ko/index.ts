@@ -28,4 +28,5 @@ import aboutMe from "./aboutMe.js";
 import collab from "./collab.js";
 import feedback from "./feedback.js";
 import attachments from "./attachments.js";
-export default { attachments, aboutMe, collab, feedback, connections, apps, skills, mySkills, media, activity, magpie, app, cu, approvals, pwsh, desktop, tasks, channel, web, cli, rules, delivery, access, diag, account, agent, runtime, modelflare, official } satisfies TranslatedCatalog;
+import folders from "./folders.js";
+export default { folders, attachments, aboutMe, collab, feedback, connections, apps, skills, mySkills, media, activity, magpie, app, cu, approvals, pwsh, desktop, tasks, channel, web, cli, rules, delivery, access, diag, account, agent, runtime, modelflare, official } satisfies TranslatedCatalog;

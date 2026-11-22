@@ -31,6 +31,8 @@ import type { TaskHost, TaskService } from "../tasks/service.js";
 import type { CollabService } from "../collab/service.js";
 import { DEFAULT_SETTINGS, type BotSettings, type MediaConfirm } from "./settings.js";
 import { t, tl, t as tr, TARGET_LANGS, lang as currentLang } from "../i18n/index.js";
+import type { Attachments } from "../attachments/service.js";
+import { zipTool } from "../attachments/zip-tools.js";
 import {
   HANDOFF_SYSTEM,
   REVIEW_SYSTEM,
@@ -67,6 +69,8 @@ export interface AgentManagerOptions {
   complete?: (botId: string, model: string, system: string, user: string) => Promise<string>;
   /** 回合后记忆整理的防抖延迟 */
   reviewDelayMs?: number;
+  /** 用户随消息发的附件（ZIP 的 zip_list / zip_extract 要核对归属、读原文件）；缺省时 zip 工具不可用 */
+  attachments?: Attachments;
   /** 生图 / 生视频（amb-media 插件经 bridge 调用）；缺省时工具返回不可用 */
   media?: MediaService;
   /** 生图 / 生视频现在能不能用（要连着 Modelflare：只填了官方 Key 时不能）。缺省 = 有 media 就能用 */
@@ -124,6 +128,9 @@ export interface TurnProgress {
   media: number;
   /** 模型在这一轮中间说过的话（信息面板里和步骤一起显示；步骤里不再重复这些文字） */
   interim: string[];
+  /** 这一轮绑定的工作文件夹（PRD R2）：id 用来判断后来的消息能不能并进来；root 是核对过的真实路径（不可用时没有） */
+  folderId?: string;
+  folderRoot?: string;
 }
 
 /** 生成确认里"取消"那一项（问题建好后界面语言可能变了：两种语言的都认） */
@@ -248,6 +255,7 @@ export class AgentManager {
       skills: (b) => this.skillOp(b),
       search: (b, signal) => this.searchOp(b, signal),
       apps: (b, signal) => this.appOp(b, signal),
+      zip: (b, signal) => this.zipOp(b, signal),
       cuPermission: async (b) => this.cuPermissionOp(b),
       // amb-control 插件按机器人取指令；不认识的机器人（已删除、已停止）让它别再来
       control: {
@@ -455,7 +463,8 @@ export class AgentManager {
 
   private async track(botId: string, input: TurnInput & { onStep?: (step: ActivityStep) => void }, run: (input: TurnInput) => Promise<TurnResult>): Promise<TurnResult> {
     const conv = input.conversationId;
-    const t: TurnProgress = { botId, senderId: input.senderId, since: Date.now(), lastProgress: 0, activity: new ActivityLog(input.onStep, input.model, { chat: true, uses: this.usesFor(botId) }), abort: new AbortController(), tools: new Set(), jobs: new Set(), media: 0, interim: [] };
+    const t: TurnProgress = { botId, senderId: input.senderId, since: Date.now(), lastProgress: 0, activity: new ActivityLog(input.onStep, input.model, { chat: true, uses: this.usesFor(botId) }), abort: new AbortController(), tools: new Set(), jobs: new Set(), media: 0, interim: [],
+      ...(input.folder ? { folderId: input.folder.id, ...(input.folder.root ? { folderRoot: input.folder.root } : {}) } : {}) };
     this.turnsInProgress.set(conv, t);
     // 看门狗：代理已经在处理，却长时间没有进展（模型不回、只在重试），又不是在等用户批准或回答、
     // 也没有工具、命令或生成任务在跑（生视频、转到后台的长命令、子代理里的工具）→ 中止
@@ -1654,6 +1663,7 @@ export class AgentManager {
       workspace: (botId) => this.host(botId).workspace,
       settings: (botId) => this.settings(botId),
       memoryPrefix: (botId, conv) => this.memoryPrefix(botId, conv),
+      folderOf: (botId, sessionId) => this.folderOf(botId, sessionId),
       prompt: (botId, o) => {
         if (!this.available) return Promise.reject(new Error(tr("agent.agentModeUnavailable")));
         return this.host(botId).promptTask(o);
@@ -1676,6 +1686,49 @@ export class AgentManager {
   /** 规则会话或它的子代理属于哪条规则、哪次运行 */
   private ruleOf(botId: string, sessionId: string) {
     return this.tasks?.ruleOfSession(sessionId, this.hosts.get(botId)?.taskRootOf(sessionId));
+  }
+
+  /**
+   * 发起这次调用的会话这一轮能写的工作文件夹（后台任务继承、zip 工具的「解压到工作文件夹」用）：
+   * 聊天会话看进行中那一轮绑定的目录，任务会话看宿主给它绑定的目录；没有就是 undefined（默认工作区）。
+   */
+  folderOf(botId: string, sessionId: string): string | undefined {
+    const direct = this.o.store.conversationForSession(sessionId);
+    if (direct) return this.turnsInProgress.get(direct)?.folderRoot;
+    const bound = this.hosts.get(botId)?.boundRoot(sessionId);
+    if (bound) return bound;
+    // 任务会话的子代理：看它所在的任务会话；聊天会话的子代理：落到它所属的会话
+    const root = this.hosts.get(botId)?.taskRootOf(sessionId);
+    if (root) return this.hosts.get(botId)?.boundRoot(root);
+    const conv = this.resolveConversation(botId, sessionId);
+    return conv ? this.turnsInProgress.get(conv)?.folderRoot : undefined;
+  }
+
+  /** amb-zip 插件：查看 / 安全解压用户随消息发的 ZIP（attachments/zip-tools.ts）；解到可写目录之外要先问用户 */
+  private zipOp(b: any, signal: AbortSignal): Promise<{ text?: string; error?: string }> {
+    const attachments = this.o.attachments;
+    if (!attachments) return Promise.resolve({ error: "ZIP attachments are not available here." });
+    return zipTool(
+      {
+        attachments,
+        dataDir: this.o.dataDir,
+        workspace: (botId) => this.host(botId).workspace,
+        // 目录 Bot 没声明写工作区：按只读（只能解到受管空间）
+        permission: (botId) => {
+          const ref = this.o.store.getBot(botId)?.app;
+          return ref && !ref.permissions.includes("workspace-write") ? "readonly" : this.settings(botId).permission;
+        },
+        conversationOf: (botId, sessionId) => this.resolveConversation(botId, sessionId),
+        folderOf: (botId, sessionId) => this.folderOf(botId, sessionId),
+        approve: async (botId, sessionId, detail, sig) => {
+          const ctx = this.askContext(botId, sessionId);
+          const row = this.approvals.create({ kind: "approval", botId, conversationId: ctx.conversationId, sessionId, tool: "zip_extract", detail, reason: "", ...ctx.fields });
+          return (await this.awaitRow(row.id, sig))?.status === "allowed";
+        },
+      },
+      b,
+      signal,
+    );
   }
 
   private resolveConversation(botId: string, sessionId: string): string {

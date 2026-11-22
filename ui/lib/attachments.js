@@ -1,5 +1,5 @@
-// 消息附件的当前输入（粘贴图片、拖入图片和文本文件）：每个机器人的对话一份，换页回来还在，不同机器人互不相干。
-// 流程：整批硬校验 → 本地同步占位 → 服务端原子预约 → 传真实字节 → 图片在这里解码规范化后再传一份 → 就绪。
+// 消息附件的当前输入（粘贴图片、拖入图片、文本文件和 ZIP）：每个机器人的对话一份，换页回来还在，不同机器人互不相干。
+// 流程：逐项硬校验（合格的加入、不合格的汇总成一句）→ 本地同步占位 → 服务端逐项预约 → 传真实字节 → 图片在这里解码规范化后再传一份 → 就绪。
 // 加入不等于发送，就绪不等于模型已读；发送由对话页走原来的发送按钮（screens/chat.js）。
 // 这里只在内存里记状态和预览用的 Blob 地址：刷新页面后从服务端取回还在的那些，不承诺重启后一定能恢复。
 import { api, ApiError } from "./api.js";
@@ -9,10 +9,12 @@ import { getLang, t } from "./i18n.js";
 export const ATTACH_PROTOCOL = 1;
 const MIB = 1024 * 1024;
 /** 服务端的数字读到之前先用这一份（和 src/attachments/limits.ts 一致，读到后以服务端为准） */
-const DEFAULTS = { maxItems: 8, maxImages: 4, maxFileBytes: 10 * MIB, maxTotalBytes: 50 * MIB, maxTextChars: 100000, maxTextCharsTotal: 200000 };
+const DEFAULTS = { maxItems: 8, maxImages: 4, maxFileBytes: 10 * MIB, maxZipBytes: 50 * MIB, maxTotalBytes: 50 * MIB, maxTextChars: 100000, maxTextCharsTotal: 200000 };
 const TEXT_EXT = ["md", "markdown", "html", "htm", "txt", "csv", "json", "log", "yaml", "yml", "xml", "css", "js", "ts", "py", "sh", "ps1", "bat", "cmd"];
 const IMAGE_EXT = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif", jfif: "image/jpeg", jpe: "image/jpeg" };
 const IMAGE_CONVERT = ["heic", "heif", "avif", "bmp", "tif", "tiff", "svg", "svgz", "ico", "apng", "jxl", "psd"];
+/** 别的压缩格式：提示「压缩包仅支持 ZIP」（和 src/attachments/limits.ts 一致） */
+const OTHER_ARCHIVES = ["rar", "7z", "tar", "gz", "tgz", "bz2", "tbz", "tbz2", "xz", "txz", "zst", "lz", "lzma", "cab", "arj", "z", "001"];
 
 const newId = () => {
   const b = new Uint8Array(12);
@@ -35,6 +37,9 @@ export function classifyFile(name, mime, formats) {
   const ext = extOf(name);
   const type = String(mime || "").toLowerCase().split(";")[0].trim();
   const text = formats?.text || TEXT_EXT;
+  // ZIP 只认扩展名 .zip；.docx / .jar 这类内部也是 ZIP 的照原规则不收
+  if (ext === "zip") return { kind: "zip" };
+  if (OTHER_ARCHIVES.includes(ext) || /\.tar\.[a-z0-9]+$/i.test(String(name || ""))) return { reject: "archive" };
   if (ext in IMAGE_EXT) return type && !type.startsWith("image/") ? { reject: "format" } : { kind: "image" };
   if (IMAGE_CONVERT.includes(ext)) return { reject: "imageConvert" };
   if (text.includes(ext)) return /^(image|audio|video)\//.test(type) ? { reject: "format" } : { kind: "text" };
@@ -44,27 +49,52 @@ export function classifyFile(name, mime, formats) {
   return { reject: "format" };
 }
 
-/** 整批的硬条件，有一项不合格整批不加；返回最相关的原因码或 null */
-export function batchProblem(files, items, limits = DEFAULTS, formats) {
-  if (!files.length) return "unreadable";
-  const kinds = [];
-  for (const f of files) {
+/** 这一类单份最多多少字节：ZIP 50 MiB，其余 10 MiB */
+const maxBytesOf = (kind, limits) => (kind === "zip" ? limits.maxZipBytes ?? DEFAULTS.maxZipBytes : limits.maxFileBytes);
+
+/**
+ * 一批文件逐项核对（PRD R4）：按原顺序核算剩余的数量、图片数和合计字节，合格的依次占名额，不合格的各给原因，
+ * 后面还放得下的合格项照收；已有的待发项不动。zipOk = false：代理模式关着，ZIP 不收。和服务端同一套（服务端最终核对）。
+ */
+export function planBatch(files, items, limits = DEFAULTS, formats, zipOk = true) {
+  let count = items.length;
+  let images = items.filter((a) => a.kind === "image").length;
+  let bytes = items.reduce((n, a) => n + a.size, 0);
+  return files.map((f) => {
     const c = classifyFile(f.name, f.type, formats);
-    if (c.reject) return c.reject;
-    kinds.push(c.kind);
-  }
-  if (files.some((f) => !(f.size > 0))) return "empty";
-  if (files.some((f) => f.size > limits.maxFileBytes)) return "size";
-  const images = items.filter((a) => a.kind === "image").length + kinds.filter((k) => k === "image").length;
-  if (items.length + files.length > limits.maxItems || images > limits.maxImages) return "count";
-  if (items.reduce((n, a) => n + a.size, 0) + files.reduce((n, f) => n + f.size, 0) > limits.maxTotalBytes) return "size";
-  return null;
+    if (c.reject) return { ok: false, code: c.reject };
+    if (c.kind === "zip" && !zipOk) return { ok: false, code: "agentOff" };
+    if (!(f.size > 0)) return { ok: false, code: "empty" };
+    if (f.size > maxBytesOf(c.kind, limits)) return { ok: false, code: "size" };
+    const image = c.kind === "image" ? 1 : 0;
+    if (count + 1 > limits.maxItems || images + image > limits.maxImages) return { ok: false, code: "count" };
+    if (bytes + f.size > limits.maxTotalBytes) return { ok: false, code: "size" };
+    count++;
+    images += image;
+    bytes += f.size;
+    return { ok: true, kind: c.kind };
+  });
+}
+
+/** 一项没加进去的短原因（汇总在「部分文件未添加：名字（原因）、…」里） */
+export function whyText(code) {
+  const map = { format: "attach.whyFormat", archive: "attach.whyArchive", empty: "attach.whyEmpty", size: "attach.whySize", count: "attach.whyCount", agentOff: "attach.whyAgentOff", dir: "attach.whyDir", imageConvert: "attach.whyImageConvert", storage: "attach.whyStorage" };
+  return t(map[code] || "attach.whyUnreadable");
+}
+
+/** 没加进去的那几项汇总成一句：只有一项时就用那一项的完整提示 */
+export function rejectedText(list, allRejected) {
+  if (list.length === 1 && allRejected) return reasonText(list[0].code);
+  const names = list.map((r) => t("attach.fileWhy", { name: r.name, why: whyText(r.code) })).join(t("attach.listSep"));
+  return t(allRejected ? "attach.noneAdded" : "attach.someAdded", { files: names });
 }
 
 /** 原因码 → 一句短提示（同一个位置只显示最相关的一句） */
 export function reasonText(code) {
   const map = {
     count: "attach.limitCount", size: "attach.limitSize", format: "attach.format", imageConvert: "attach.imageConvert", empty: "attach.empty",
+    archive: "attach.archive", agentOff: "attach.agentOff", storage: "attach.storageFull", dir: "attach.dropDir", folderChanged: "attach.sendChanged",
+    uploadFailed: "attach.uploadFailed", sourceChanged: "attach.sourceChanged",
     unreadable: "attach.unreadable", encoding: "attach.encoding", content: "attach.content", context: "attach.context", expired: "attach.expired",
     busy: "attach.busy", changed: "attach.changed", vision_unsupported: "attach.visionUnsupported", vision_unknown: "attach.visionUnknown",
     vision_closed: "attach.visionClosed", conflict: "attach.changed", rejected: "attach.network", not_found: "attach.expired", rate: "attach.batchRejected",
@@ -90,12 +120,12 @@ export const useDraft = (botId) => useStore(draftStore(botId));
 const patch = (botId, fn) => draftStore(botId).set((s) => ({ ...s, ...fn(s) }));
 const patchItem = (botId, cid, change) => patch(botId, (s) => ({ items: s.items.map((a) => (a.cid === cid ? { ...a, ...change } : a)) }));
 
-/** 一句会自己消失的提示（批次被拒、粘贴不了…）；不抢正在挡发送的那句 */
-export function notify(botId, code) {
+/** 一句会自己消失的提示（没加进去的文件、粘贴不了…）；不抢正在挡发送的那句。text 给了就显示它（汇总了文件名的那种） */
+export function notify(botId, code, text) {
   const x = side.get(botId) || (draftStore(botId), side.get(botId));
   clearTimeout(x.noticeTimer);
-  patch(botId, () => ({ notice: { code, at: Date.now() } }));
-  x.noticeTimer = setTimeout(() => patch(botId, () => ({ notice: null })), 6000);
+  patch(botId, () => ({ notice: { code, text, at: Date.now() } }));
+  x.noticeTimer = setTimeout(() => patch(botId, () => ({ notice: null })), text ? 9000 : 6000);
 }
 
 const contentUrl = (botId, a) => `/amb/api/bots/${encodeURIComponent(botId)}/attachments/${encodeURIComponent(a.id)}/content?v=${encodeURIComponent(a.version || "")}`;
@@ -105,7 +135,7 @@ export const sentImageUrl = contentUrl;
 function fromServer(botId, r, local) {
   const status = r.status === "ready" ? "ready" : r.status === "failed" ? "failed" : r.status === "expired" ? "expired" : local?.status || "processing";
   return {
-    cid: r.clientId, id: r.id, batch: r.batch, order: r.order, kind: r.kind, name: local?.name || r.name, size: r.size, status,
+    cid: r.clientId, id: r.id, batch: r.batch, order: r.order, kind: r.kind, name: local?.name || r.name, size: r.size, status, messageId: r.messageId,
     error: r.status === "expired" ? "expired" : r.error || "", version: r.version, width: r.width, height: r.height, textChars: r.textChars || 0,
     url: r.kind === "image" && r.status === "ready" ? local?.url || contentUrl(botId, r) : "",
   };
@@ -211,7 +241,8 @@ async function upload(botId, item, file) {
       throw Object.assign(new Error("read"), { code: "unreadable" });
     }
     if (ac.signal.aborted) return;
-    if (bytes.byteLength !== file.size) throw Object.assign(new Error("changed"), { code: "unreadable" });
+    // 读的时候文件变了（大小对不上）：这一项失败，不交半份
+    if (bytes.byteLength !== file.size) throw Object.assign(new Error("changed"), { code: "sourceChanged" });
     let r = await PUT(botId, item.id, "content", bytes, ac.signal);
     if (r.status === "rendition") {
       const blob = await normalizeImage(file, r.want, limits.maxFileBytes);
@@ -230,7 +261,8 @@ async function upload(botId, item, file) {
     patchItem(botId, item.cid, fromServer(botId, r, { name: item.name }));
   } catch (e) {
     if (ac.signal.aborted || e?.name === "AbortError") return;
-    const code = e?.code || (e instanceof ApiError ? e.data?.code || "unreadable" : "network");
+    // 断网、连接中断：上传失败，移除后重新拖入（不在后台续传）
+    const code = e?.code || (e instanceof ApiError ? e.data?.code || "unreadable" : "uploadFailed");
     patchItem(botId, item.cid, { status: "failed", error: code });
   } finally {
     x.aborts.delete(item.cid);
@@ -238,23 +270,33 @@ async function upload(botId, item, file) {
 }
 
 /**
- * 加一批文件（一次粘贴或一次投放）。先整批核硬条件，不合格一个都不加、已有输入不动；
- * 通过后同步占位（处理中的也占名额），再向服务端原子预约；之后各项各自读取，某一项出问题只标这一项。
- * 返回有没有加进去。
+ * 加一批文件（一次粘贴或一次投放）。逐项核对：合格的加入（同步占位，处理中的也占名额），不合格的汇总成一句提示，
+ * 已有输入不动；再向服务端逐项预约（服务端按真实名额最终核对，它拒绝的也并进提示）；之后各项各自读取，某一项出问题只标这一项。
+ * dirs：投放里的文件夹名（不加入、不展开，提示用上方的选择文件夹）。返回有没有加进去任何一项。
  */
-export async function addFiles(botId, files) {
+export async function addFiles(botId, files, dirs = []) {
   const store = draftStore(botId);
   if (!store.get().server && !store.get().unsupported) await refresh(botId);
   let s = store.get();
   if (s.unsupported) return notify(botId, "protocol"), false;
   if (s.sending || s.unknown) return notify(botId, s.unknown ? "unknown" : "processing"), false;
   if (!s.server) return notify(botId, "network"), false;
-  const problem = batchProblem(files, s.items, s.server.limits, s.server.formats);
-  if (problem) return notify(botId, problem), false;
+  if (!files.length && !dirs.length) return notify(botId, "unreadable"), false;
+  const plan = planBatch(files, s.items, s.server.limits, s.server.formats, s.server.zip !== false);
+  const rejected = [...dirs.map((name) => ({ name, code: "dir" })), ...plan.map((r, i) => (r.ok ? null : { name: files[i].name || "image", code: r.code })).filter(Boolean)];
+  const take = files.map((f, i) => ({ f, kind: plan[i].kind })).filter((_, i) => plan[i].ok);
+  const tell = (extra = []) => {
+    const all = [...rejected, ...extra];
+    if (!all.length) return;
+    // 只有文件夹：直接说用上方的选择文件夹
+    if (all.every((r) => r.code === "dir") && !take.length) return notify(botId, "dir");
+    notify(botId, "partial", rejectedText(all, !take.length || take.length === extra.length));
+  };
+  if (!take.length) return tell(), false;
   const batch = newId();
   const base = Math.max(0, ...s.items.map((a) => a.order || 0));
-  const placed = files.map((f, i) => ({
-    cid: newId(), id: "", batch, order: base + 1 + i, kind: classifyFile(f.name, f.type, s.server.formats).kind, name: f.name || "", size: f.size,
+  const placed = take.map(({ f, kind }, i) => ({
+    cid: newId(), id: "", batch, order: base + 1 + i, kind, name: f.name || "", size: f.size,
     status: "processing", error: "", version: "", url: "", width: 0, height: 0, textChars: 0,
   }));
   // 同步占位：紧接着再来的一批按占了位的数量核算
@@ -264,7 +306,7 @@ export async function addFiles(botId, files) {
   try {
     reserved = await api(`/bots/${encodeURIComponent(botId)}/attachments/batches`, {
       method: "POST",
-      body: { protocol: ATTACH_PROTOCOL, segment: s.server.segment, batch, items: placed.map((a, i) => ({ clientId: a.cid, name: a.name || `image.${(files[i].type.split("/")[1] || "png").replace("jpeg", "jpg")}`, mime: files[i].type || "", size: a.size })) },
+      body: { protocol: ATTACH_PROTOCOL, segment: s.server.segment, batch, items: placed.map((a, i) => ({ clientId: a.cid, name: a.name || `image.${(take[i].f.type.split("/")[1] || "png").replace("jpeg", "jpg")}`, mime: take[i].f.type || "", size: a.size })) },
     });
   } catch (e) {
     dropBatch();
@@ -275,6 +317,13 @@ export async function addFiles(botId, files) {
     return false;
   }
   const byCid = new Map(reserved.items.map((r) => [r.clientId, r]));
+  // 服务端按真实名额拒绝的（别的窗口刚占了名额）：拿掉占位，并进提示
+  const late = (reserved.rejected || []).map((r) => ({ cid: r.clientId, code: r.code }));
+  if (late.length) {
+    const gone = new Set(late.map((r) => r.cid));
+    patch(botId, (cur) => ({ items: cur.items.filter((a) => !gone.has(a.cid)) }));
+  }
+  tell(late.map((r) => ({ name: placed.find((a) => a.cid === r.cid)?.name || "image", code: r.code })));
   // 预约期间被移除的那几项：告诉服务端释放
   const alive = new Set(store.get().items.filter((a) => a.batch === batch).map((a) => a.cid));
   const jobs = [];
@@ -283,7 +332,7 @@ export async function addFiles(botId, files) {
     if (!r) return;
     if (!alive.has(a.cid)) return void api(`/bots/${encodeURIComponent(botId)}/attachments/${encodeURIComponent(r.id)}`, { method: "DELETE" }).catch(() => {});
     patchItem(botId, a.cid, { id: r.id, order: r.order });
-    jobs.push(() => upload(botId, { ...a, id: r.id }, files[i]));
+    jobs.push(() => upload(botId, { ...a, id: r.id }, take[i].f));
   });
   // 同时最多传 3 项（服务端每个机器人同时收 4 个）
   const worker = async () => {
@@ -291,7 +340,7 @@ export async function addFiles(botId, files) {
   };
   await Promise.all([worker(), worker(), worker()]);
   void refresh(botId);
-  return true;
+  return byCid.size > 0;
 }
 
 /** 移除一项待发的附件：立刻消失、释放名额，取消还在进行的读取和上传（迟到的结果不会让它回来）；原文件不动 */
@@ -379,7 +428,7 @@ export function sendCheck(s, { text = "", generating = false } = {}) {
  * 发送带附件的消息：冻结这一刻的文字和有序的内容版本，交给服务端原子受理。
  * 返回 { ok, receipt } | { ok: false, code } | { unknown: true }（断线，结果不明：之后只查原请求，不发第二次）。
  */
-export async function submit(botId, text, clientMessageId, retried = false) {
+export async function submit(botId, text, clientMessageId, folder = "", retried = false) {
   const fresh = await refresh(botId);
   const s = fresh || draftStore(botId).get();
   if (s.offline || !s.server) return { ok: false, code: "network" };
@@ -391,7 +440,8 @@ export async function submit(botId, text, clientMessageId, retried = false) {
     res = await fetch(`/amb/api/bots/${encodeURIComponent(botId)}/chat/send`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-amb-lang": getLang() },
-      body: JSON.stringify({ version: s.server.sendVersion, clientMessageId, text, segment: s.server.segment, revision: s.server.revision, modelRevision: s.server.model.revision, attachments: items.map((a) => ({ id: a.id, version: a.version })) }),
+      // folder：点发送那一刻输入框上方选的工作文件夹（"" = 没选）；和服务端的对不上就不受理
+      body: JSON.stringify({ version: s.server.sendVersion, clientMessageId, text, segment: s.server.segment, revision: s.server.revision, modelRevision: s.server.model.revision, attachments: items.map((a) => ({ id: a.id, version: a.version })), folder }),
     });
   } catch {
     return { unknown: true, cids: items.map((a) => a.cid) };
@@ -401,7 +451,7 @@ export async function submit(botId, text, clientMessageId, retried = false) {
   // 网关超时、连接中断的应答：受理与否不明
   if (res.status >= 500 || !data) return { unknown: true, cids: items.map((a) => a.cid) };
   // 修订刚好在这一刻变了（没有受理）：重新读一次当前输入，核对后用同一个消息 id 再交一次
-  if (data.code === "changed" && !retried) return submit(botId, text, clientMessageId, true);
+  if (data.code === "changed" && !retried) return submit(botId, text, clientMessageId, folder, true);
   if (data.code === "changed" || data.code === "expired") void refresh(botId);
   return { ok: false, code: data.code || "changed" };
 }
@@ -424,17 +474,23 @@ export function isFileDrag(dt) {
   return types.includes("Files") && !types.includes("text/html");
 }
 
-/** 投放里的文件：目录不展开（整批按不支持的格式拒绝） */
+/** 投放里的文件和文件夹：文件夹不加入、不展开（只记名字，提示用上方的选择文件夹） */
 export function droppedFiles(dt) {
   const items = [...(dt?.items || [])].filter((i) => i.kind === "file");
-  const hasDir = items.some((i) => {
+  const all = [...(dt?.files || [])];
+  const dirs = [];
+  const files = [];
+  all.forEach((f, i) => {
+    let dir = false;
     try {
-      return (i.webkitGetAsEntry?.() || i.getAsEntry?.())?.isDirectory;
+      dir = !!(items[i]?.webkitGetAsEntry?.() || items[i]?.getAsEntry?.())?.isDirectory;
     } catch {
-      return false;
+      dir = false;
     }
+    if (dir) dirs.push(f.name);
+    else files.push(f);
   });
-  return { files: [...(dt?.files || [])], hasDir };
+  return { files, dirs, hasDir: dirs.length > 0 };
 }
 
 /**

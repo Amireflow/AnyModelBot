@@ -423,6 +423,16 @@ async function boot(): Promise<void> {
       core?.store.setKV("desktop.saveAsDir", folder);
       return { path: r.filePath, folder: path.basename(folder) || folder };
     },
+    // 输入框上方的「选择文件夹…」：系统原生的目录选择器（只选，不读里面的内容；能不能用由 folders/service.ts 核对）。
+    // 默认打开上次选的那个文件夹的上一层，第一次是主目录
+    pickFolder: async () => {
+      const last = core?.store.getKV("desktop.pickFolderDir") || "";
+      const opts = { defaultPath: last && fs.existsSync(last) ? last : app.getPath("home"), properties: ["openDirectory", "createDirectory"] as Array<"openDirectory" | "createDirectory"> };
+      const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+      const p = r.canceled ? undefined : r.filePaths[0];
+      if (p) core?.store.setKV("desktop.pickFolderDir", path.dirname(p));
+      return p;
+    },
     // 右侧预览 HTML 的「在浏览器中打开」：交给系统默认浏览器（.html 的默认程序可能是编辑器）；查不到默认浏览器时（Linux）按文件类型打开
     openFileInBrowser: async (p) => {
       const fallback = () => void shell.openPath(p);

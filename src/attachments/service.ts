@@ -7,6 +7,8 @@
  * - 图片：服务端按文件头认真实格式（扩展名写错的照收）、尺寸、动画；规范化（纠正方向、去元信息、缩到 4096）由界面解码后交来，
  *   服务端再核对它是合法的 PNG / JPEG、尺寸与原图成比例，并去掉残留的元信息块。给模型的、预览的都是这一份。
  * - 文本：在这里完整解码（UTF-8 / 带 BOM 的 UTF-16），存成 UTF-8；只当资料读，不执行、不渲染、不联网。
+ * - ZIP：只核对签名和结尾记录、原样存下；不解码、不解压、不交内容给模型。用户发出指令后由代理经宿主的 zip 工具查看或
+ *   安全解压（attachments/zip-tools.ts、unzip.ts），解出来的目录记在 attachment_extractions，随这个附件到期或删除回收。
  * - 日志只记 id、类型、字节数和错误码，不记正文、文件名和路径。
  */
 import crypto from "node:crypto";
@@ -16,8 +18,9 @@ import type { Store } from "../store/db.js";
 import type { TurnImage } from "../agent/host.js";
 import { logger } from "../log.js";
 import { t } from "../i18n/index.js";
-import { LIMITS, TEXT_TYPES, checkBatch, estimateImageTokens, estimateTextTokens, normalizedSize, type AttachmentKind, type RejectCode } from "./limits.js";
+import { LIMITS, TEXT_TYPES, estimateImageTokens, estimateTextTokens, maxBytesOf, normalizedSize, planBatch, type AttachmentKind, type RejectCode } from "./limits.js";
 import { cleanRendition, decodeText, sniffImage } from "./sniff.js";
+import { looksLikeZip } from "./unzip.js";
 import type { MessageAttachment } from "../domain/attachments.js";
 
 const log = logger("attachments");
@@ -90,6 +93,10 @@ CREATE TABLE IF NOT EXISTS attachments (
   storage TEXT NOT NULL DEFAULT '', message_id INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);
 CREATE UNIQUE INDEX IF NOT EXISTS attachments_client ON attachments(bot_id, client_id);
 CREATE INDEX IF NOT EXISTS attachments_draft ON attachments(bot_id, conversation_id, message_id);
+CREATE TABLE IF NOT EXISTS attachment_extractions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, attachment_id TEXT NOT NULL, bot_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
+  dir TEXT NOT NULL, managed INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS attachment_extractions_att ON attachment_extractions(attachment_id);
 CREATE TABLE IF NOT EXISTS attachment_sends (
   bot_id TEXT NOT NULL, client_message_id TEXT NOT NULL, digest TEXT NOT NULL, message_id INTEGER NOT NULL,
   conversation_id TEXT NOT NULL, turn_id TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL,
@@ -176,35 +183,43 @@ export class Attachments {
   }
 
   /**
-   * 一个批次原子预约名额：整批的硬条件（类型、空文件、单份大小、数量、合计）有一项不合格就一个都不加。
-   * 同步完成（一个事务），两批同时来争最后一个名额只有一批成功。同一批重发（clientId 相同）返回原来那几项。
+   * 一个批次逐项预约名额（PRD R4）：按原顺序核算剩余的数量、图片数和合计字节，合格的依次加入，不合格的各自给出原因、
+   * 不影响后面还放得下的合格项，已有的待发项不动。同步完成（一个事务），两批同时来争最后一个名额只有一批拿到。
+   * 同一项重发（clientId 相同，网络重传）返回原来那一项，不新建、不重复占名额。zipOk = false：代理模式关着，ZIP 不收。
    */
-  reserve(botId: string, conversationId: string, req: { segment: string; batch: string; items: Array<{ clientId: string; name: string; mime: string; size: number }> }): Attachment[] {
+  reserve(botId: string, conversationId: string, req: { segment: string; batch: string; items: Array<{ clientId: string; name: string; mime: string; size: number }> }, opts: { zipOk?: boolean } = {}): { items: Attachment[]; rejected: Array<{ clientId: string; code: RejectCode }> } {
     this.throttle(botId);
-    if (!validClientId(req.batch) || !Array.isArray(req.items) || !req.items.length || req.items.length > LIMITS.maxItems || !req.items.every((i) => i && validClientId(i.clientId))) throw new AttachmentError("unreadable", 400);
+    if (!validClientId(req.batch) || !Array.isArray(req.items) || !req.items.length || req.items.length > 64 || !req.items.every((i) => i && validClientId(i.clientId))) throw new AttachmentError("unreadable", 400);
     if (new Set(req.items.map((i) => i.clientId)).size !== req.items.length) throw new AttachmentError("unreadable", 400);
     if (req.segment !== this.segmentOf(conversationId)) throw new AttachmentError("changed");
     return this.tx(() => {
-      const known = req.items.map((i) => this.store.db.prepare("SELECT * FROM attachments WHERE bot_id = ? AND client_id = ?").get(botId, i.clientId) as Row | undefined);
-      if (known.every(Boolean)) return known.map((r) => toAttachment(r!));
-      if (known.some(Boolean)) throw new AttachmentError("changed");
       const cur = this.draft(botId, conversationId);
-      const items = req.items.map((i) => ({ name: displayName(i.name), mime: String(i.mime ?? ""), size: Math.floor(Number(i.size)) }));
-      const checked = checkBatch(items, { items: cur.length, images: cur.filter((a) => a.kind === "image").length, bytes: cur.reduce((n, a) => n + a.bytes, 0) });
-      if (!checked.ok) throw new AttachmentError(checked.code);
+      const known = req.items.map((i) => this.store.db.prepare("SELECT * FROM attachments WHERE bot_id = ? AND client_id = ?").get(botId, i.clientId) as Row | undefined);
+      // 已经认识的那几项（重传）不再核算，别的照常按剩下的名额逐项看
+      const fresh = req.items.map((i, n) => ({ i, n })).filter(({ n }) => !known[n]);
+      const items = fresh.map(({ i }) => ({ name: displayName(i.name), mime: String(i.mime ?? ""), size: Math.floor(Number(i.size)) }));
+      const plan = planBatch(items, { items: cur.length, images: cur.filter((a) => a.kind === "image").length, bytes: cur.reduce((n, a) => n + a.bytes, 0) }, opts);
       const now = this.now();
       let ord = (cur.at(-1)?.order ?? 0) + 1;
       const out: Attachment[] = [];
-      items.forEach((f, i) => {
+      const rejected: Array<{ clientId: string; code: RejectCode }> = [];
+      const placed = new Map<number, Attachment>();
+      fresh.forEach(({ i, n }, k) => {
+        const r = plan[k];
+        if (!r.ok) return void rejected.push({ clientId: i.clientId, code: r.code });
         const id = newId();
         this.store.db
           .prepare("INSERT INTO attachments(id, bot_id, conversation_id, segment, client_id, batch, ord, kind, name, ext, bytes, status, created_at, expires_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?)")
-          .run(id, botId, conversationId, req.segment, req.items[i].clientId, req.batch, ord++, checked.kinds[i].kind, f.name, checked.kinds[i].ext, f.size, now, now + LIMITS.draftTtlMs);
-        out.push(this.get(botId, id)!);
+          .run(id, botId, conversationId, req.segment, i.clientId, req.batch, ord++, r.kind, items[k].name, r.ext, items[k].size, now, now + LIMITS.draftTtlMs);
+        placed.set(n, this.get(botId, id)!);
       });
-      this.bump(botId, conversationId);
-      log.info("attachments reserved", { bot: botId, count: out.length, bytes: items.reduce((n, f) => n + f.size, 0) });
-      return out;
+      req.items.forEach((_, n) => {
+        const a = known[n] ? toAttachment(known[n]!) : placed.get(n);
+        if (a) out.push(a);
+      });
+      if (placed.size) this.bump(botId, conversationId);
+      log.info("attachments reserved", { bot: botId, count: placed.size, rejected: rejected.length, bytes: [...placed.values()].reduce((n, a) => n + a.bytes, 0) });
+      return { items: out, rejected };
     });
   }
 
@@ -254,7 +269,7 @@ export class Attachments {
   receive(botId: string, id: string, data: Buffer): Attachment {
     const a = this.waiting(botId, id, "reserved");
     if (!data.length) return this.fail(a, "empty");
-    if (data.length > LIMITS.maxFileBytes) return this.fail(a, "size");
+    if (data.length > maxBytesOf(a.kind)) return this.fail(a, "size");
     // 实际字节和声明的不一样：按实际的重新核算合计
     const others = this.draft(botId, a.conversationId).filter((x) => x.id !== a.id).reduce((n, x) => n + x.bytes, 0);
     if (others + data.length > LIMITS.maxTotalBytes) return this.fail(a, "size");
@@ -271,6 +286,11 @@ export class Attachments {
         .run(IMAGE_FORMAT_EXT[info.format], data.length, turned ? info.height : info.width, turned ? info.width : info.height, a.id);
       this.bump(botId, a.conversationId);
       return this.get(botId, id)!;
+    }
+    // ZIP：按签名和结尾记录认（扩展名是 .zip、内容不是 ZIP 的按格式拒绝）；原样存下，接收不声称读懂了内容
+    if (a.kind === "zip") {
+      if (!looksLikeZip(data)) return this.fail(a, "format");
+      return this.store_(a, data, { bytes: data.length, mime: "application/zip" });
     }
     const decoded = decodeText(data);
     if (!decoded.ok) return this.fail(a, decoded.code);
@@ -299,8 +319,11 @@ export class Attachments {
     try {
       fs.writeFileSync(file, data, { mode: 0o600, flag: "wx" });
     } catch (e) {
-      log.warn("attachment save failed", { id: a.id, code: (e as NodeJS.ErrnoException).code });
-      return this.fail(a, "unreadable");
+      const code = (e as NodeJS.ErrnoException).code;
+      log.warn("attachment save failed", { id: a.id, code });
+      // 没写完的字节清掉，不标就绪；磁盘满了单独说明
+      fs.rmSync(file, { force: true });
+      return this.fail(a, code === "ENOSPC" || code === "EDQUOT" ? "storage" : "unreadable");
     }
     // 写盘期间被移除了：不留文件，也不复活
     const done = this.store.db
@@ -321,6 +344,7 @@ export class Attachments {
     if (!a || a.messageId || a.status === "removed") return;
     this.store.db.prepare("UPDATE attachments SET status = 'removed', storage = '' WHERE id = ? AND message_id = 0").run(id);
     if (a.storage) fs.rmSync(path.join(this.dir, a.storage), { force: true });
+    this.dropExtractions(a.id);
     this.bump(botId, a.conversationId);
   }
 
@@ -332,13 +356,60 @@ export class Attachments {
 
   /** 读一份就绪副本的字节（预览、交给模型）；不在了返回 undefined */
   read(a: Attachment | undefined): Buffer | undefined {
-    if (!a || a.status !== "ready" || !a.storage || !/^[0-9a-f]{36}$/.test(a.storage)) return undefined;
+    const file = this.fileOf(a);
+    if (!file) return undefined;
     try {
-      return fs.readFileSync(path.join(this.dir, a.storage));
+      return fs.readFileSync(file);
     } catch {
       return undefined;
     }
   }
+
+  /** 就绪副本在磁盘上的位置（ZIP 的查看、解压、另存为用；不给界面、不给代理）；不在了返回 undefined */
+  fileOf(a: Attachment | undefined): string | undefined {
+    if (!a || a.status !== "ready" || !a.storage || !/^[0-9a-f]{36}$/.test(a.storage) || a.expiresAt <= this.now()) return undefined;
+    const file = path.join(this.dir, a.storage);
+    return fs.existsSync(file) ? file : undefined;
+  }
+
+  // ---------- ZIP 的解压目录 ----------
+
+  /** 记下这个附件解出来的一个目录；managed = 在受管处理空间里（随附件回收），false = 用户指定的位置（永不由这里删） */
+  noteExtraction(a: Attachment, dir: string, managed: boolean): void {
+    this.store.db.prepare("INSERT INTO attachment_extractions(attachment_id, bot_id, conversation_id, dir, managed, created_at) VALUES(?, ?, ?, ?, ?, ?)").run(a.id, a.botId, a.conversationId, dir, managed ? 1 : 0, this.now());
+  }
+
+  /** 正在进行的解压（附件 id → 次数）：到期回收等它结束，不在半途删 */
+  private busyZips = new Map<string, number>();
+  hold(id: string): () => void {
+    this.busyZips.set(id, (this.busyZips.get(id) ?? 0) + 1);
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      const n = (this.busyZips.get(id) ?? 1) - 1;
+      if (n > 0) this.busyZips.set(id, n);
+      else this.busyZips.delete(id);
+    };
+  }
+
+  /** 受管处理空间里这个附件解出来的目录：删掉；用户指定位置的只删记录，不碰文件。还在解压的先留着，下一轮回收 */
+  private dropExtractions(attachmentId: string): boolean {
+    if (this.busyZips.has(attachmentId)) return false;
+    const rows = this.store.db.prepare("SELECT * FROM attachment_extractions WHERE attachment_id = ?").all(attachmentId) as Row[];
+    for (const r of rows) {
+      if (Number(r.managed) && this.managedRoot) {
+        const dir = String(r.dir);
+        const rel = path.relative(this.managedRoot(String(r.bot_id)), dir);
+        if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+      }
+    }
+    this.store.db.prepare("DELETE FROM attachment_extractions WHERE attachment_id = ?").run(attachmentId);
+    return true;
+  }
+
+  /** 受管处理空间的根（机器人工作区里的 attachments/），由 App 设置；回收只删这下面的目录 */
+  managedRoot?: (botId: string) => string;
 
   // ---------- 发送 ----------
 
@@ -366,8 +437,10 @@ export class Attachments {
     return { status: "none" };
   }
 
-  static digest(req: { text: string; segment: string; attachments: Array<{ id: string; version: string }> }): string {
-    return crypto.createHash("sha256").update(JSON.stringify([req.text, req.segment, req.attachments.map((a) => [a.id, a.version])])).digest("hex");
+  static digest(req: { text: string; segment: string; attachments: Array<{ id: string; version: string }>; folder?: string }): string {
+    const base: unknown[] = [req.text, req.segment, req.attachments.map((a) => [a.id, a.version])];
+    if (req.folder !== undefined) base.push(req.folder);
+    return crypto.createHash("sha256").update(JSON.stringify(base)).digest("hex");
   }
 
   /**
@@ -412,7 +485,7 @@ export class Attachments {
       if (a.status !== "ready" || !a.storage || !fs.existsSync(path.join(this.dir, a.storage))) throw new AttachmentError(a.status === "ready" ? "expired" : "changed");
     });
     if (cur.length > LIMITS.maxItems || cur.filter((a) => a.kind === "image").length > LIMITS.maxImages) throw new AttachmentError("count");
-    if (cur.some((a) => a.bytes > LIMITS.maxFileBytes || a.storedBytes > LIMITS.maxFileBytes) || cur.reduce((n, a) => n + a.bytes, 0) > LIMITS.maxTotalBytes) throw new AttachmentError("size");
+    if (cur.some((a) => a.bytes > maxBytesOf(a.kind) || a.storedBytes > maxBytesOf(a.kind)) || cur.reduce((n, a) => n + a.bytes, 0) > LIMITS.maxTotalBytes) throw new AttachmentError("size");
     if (cur.reduce((n, a) => n + a.textChars, 0) > LIMITS.maxTextCharsTotal) throw new AttachmentError("content");
     return cur;
   }
@@ -446,6 +519,8 @@ export class Attachments {
     let n = estimateTextTokens(text);
     for (const a of atts) {
       if (a.kind === "image") n += withImages ? estimateImageTokens(a.width, a.height) : 16;
+      // ZIP 只交一行引用，内容不进上下文
+      else if (a.kind === "zip") n += 64;
       else {
         // 按存下的全文估算，再加标记行
         const data = this.read(a);
@@ -467,6 +542,12 @@ export class Attachments {
     for (const ref of refs) {
       n++;
       const a = this.get(botId, ref.id);
+      // ZIP：一行引用（名字、大小、附件编号），不读内容；查看、解压由 zip 工具按编号取用
+      if (ref.kind === "zip") {
+        const ok = a && a.version === ref.version && this.fileOf(a);
+        lines.push(ok ? t("attachments.promptZip", { n, name: JSON.stringify(ref.name), size: sizeText(ref.size), id: ref.id }) : t("attachments.promptExpired", { n, name: ref.name }));
+        continue;
+      }
       const data = a && a.version === ref.version ? this.read(a) : undefined;
       if (ref.kind === "image") {
         if (data && opts.images && images.length < (opts.maxImages ?? LIMITS.maxImages)) {
@@ -484,7 +565,10 @@ export class Attachments {
       lines.push(`<<<FILE ${n} ${mark} name=${JSON.stringify(ref.name)} type=${type} chars=${a!.textChars}>>>`, data.toString("utf8"), `<<<END FILE ${n} ${mark}>>>`);
     }
     const head = refs.some((r) => r.kind === "text") ? t("attachments.promptIntro") : "";
-    return { text: [head, ...lines, userText].filter(Boolean).join("\n"), images };
+    const zips = refs.some((r) => r.kind === "zip");
+    // 只发了 ZIP、没说要做什么：先问用户，不自己解包、不推定可以运行里面的脚本
+    const ask = zips && !userText.trim() ? t("attachments.promptZipAsk") : zips ? t("attachments.promptZipRules") : "";
+    return { text: [head, ...lines, ask, userText].filter(Boolean).join("\n"), images };
   }
 
   // ---------- 回收 ----------
@@ -504,10 +588,15 @@ export class Attachments {
     const db = this.store.db;
     const due = db.prepare("SELECT * FROM attachments WHERE expires_at <= ? AND status NOT IN ('expired', 'removed')").all(now) as Row[];
     for (const r of due) {
+      // 正在解压的 ZIP：等这次解压结束（或停下）再回收，不在半途删；到期时间不因此重置
+      if (this.busyZips.has(String(r.id))) continue;
       const done = db.prepare("UPDATE attachments SET status = 'expired', storage = '' WHERE id = ? AND expires_at <= ?").run(String(r.id), now);
       if (Number(done.changes) && r.storage) fs.rmSync(path.join(this.dir, String(r.storage)), { force: true });
       if (Number(done.changes)) this.bump(String(r.bot_id), String(r.conversation_id));
     }
+    // 受管解压目录：所属附件已经不在（到期、移除、记录清掉）的回收
+    const orphans = db.prepare("SELECT DISTINCT e.attachment_id AS id FROM attachment_extractions e LEFT JOIN attachments a ON a.id = e.attachment_id WHERE a.id IS NULL OR a.status IN ('expired', 'removed')").all() as Row[];
+    for (const r of orphans) this.dropExtractions(String(r.id));
     const stale = db.prepare("SELECT * FROM attachments WHERE message_id = 0 AND status IN ('reserved', 'rendition') AND created_at <= ?").all(now - 10 * 60_000) as Row[];
     for (const r of stale) this.fail(toAttachment(r), "unreadable");
     db.prepare("DELETE FROM attachments WHERE message_id = 0 AND status IN ('removed', 'expired', 'failed') AND created_at <= ?").run(now - 2 * LIMITS.draftTtlMs);
@@ -545,9 +634,11 @@ export class Attachments {
   /** 删除机器人、清空对话时：副本和记录一起删 */
   dropBot(botId: string, conversationId?: string): void {
     const rows = (conversationId
-      ? this.store.db.prepare("SELECT storage FROM attachments WHERE bot_id = ? AND conversation_id = ?").all(botId, conversationId)
-      : this.store.db.prepare("SELECT storage FROM attachments WHERE bot_id = ?").all(botId)) as Row[];
+      ? this.store.db.prepare("SELECT id, storage FROM attachments WHERE bot_id = ? AND conversation_id = ?").all(botId, conversationId)
+      : this.store.db.prepare("SELECT id, storage FROM attachments WHERE bot_id = ?").all(botId)) as Row[];
     for (const r of rows) if (r.storage) fs.rmSync(path.join(this.dir, String(r.storage)), { force: true });
+    // 受管解压目录跟着删；用户工作文件夹里的不动（dropExtractions 只删受管空间里的）
+    for (const r of rows) this.dropExtractions(String(r.id));
     if (conversationId) {
       this.store.db.prepare("DELETE FROM attachments WHERE bot_id = ? AND conversation_id = ?").run(botId, conversationId);
       this.store.db.prepare("DELETE FROM attachment_sends WHERE bot_id = ? AND conversation_id = ?").run(botId, conversationId);
@@ -556,6 +647,13 @@ export class Attachments {
       this.store.db.prepare("DELETE FROM attachment_sends WHERE bot_id = ?").run(botId);
     }
   }
+}
+
+/** 给模型看的大小：12.3 MiB / 456 KiB / 789 B */
+function sizeText(n: number): string {
+  if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MiB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(1)} KiB`;
+  return `${n} B`;
 }
 
 /** 文件头认出的格式 → 记进 ext 的写法 */

@@ -7,6 +7,8 @@
  *   PUT    /bots/:id/attachments/:att/rendition       图片规范化后的那一份（同上）
  *   DELETE /bots/:id/attachments/:att                 移除待发的一项（幂等）
  *   GET    /bots/:id/attachments/:att/content         图片预览（规范化的那一份；待发和已发共用）
+ *   GET    /bots/:id/attachments/:att/download        已发的 ZIP 原文件（网页下载到当前操作的这台电脑）
+ *   POST   /bots/:id/attachments/:att/save            桌面版：用系统「另存为」保存已发的 ZIP 原文件
  *   POST   /bots/:id/chat/send                        带附件的消息：核验全部条件后原子受理，回执里是消息和回合
  *   GET    /bots/:id/chat/send/:clientMessageId       断线后查原请求有没有被受理（不发第二次）
  *
@@ -15,8 +17,10 @@
  */
 import crypto from "node:crypto";
 import type http from "node:http";
-import { ATTACHMENT_PROTOCOL, IMAGE_TYPES, LIMITS, SEND_VERSION, TEXT_TYPES, type RejectCode } from "../../attachments/limits.js";
+import path from "node:path";
+import { ATTACHMENT_PROTOCOL, IMAGE_TYPES, LIMITS, SEND_VERSION, TEXT_TYPES, ZIP_EXT, maxBytesOf, type RejectCode } from "../../attachments/limits.js";
 import { AttachmentError, Attachments, publicAttachment, validClientId, type AttachmentErrorCode } from "../../attachments/service.js";
+import { FolderError, type FolderBinding } from "../../folders/service.js";
 import { t, type MessageKey } from "../../i18n/index.js";
 import { logger } from "../../log.js";
 import { HttpError, consoleConvId, readJson, send, webEvent, type Route, type WebContext } from "../http.js";
@@ -100,6 +104,8 @@ export function attachmentsRoutes(ctx: WebContext): Route {
     return { id, routed, vision, channel, context, revision };
   }
 
+  const zipOk = () => app.agent.available;
+
   const busy = (botId: string) => {
     const conv = consoleConvId(botId);
     return live.list(conv).length > 0 || app.runtime.busySince(conv) !== undefined || app.agent.turnsInProgress.has(conv);
@@ -117,7 +123,9 @@ export function attachmentsRoutes(ctx: WebContext): Route {
       protocol: ATTACHMENT_PROTOCOL,
       sendVersion: SEND_VERSION,
       limits: LIMITS,
-      formats: { text: Object.keys(TEXT_TYPES), image: Object.keys(IMAGE_TYPES) },
+      formats: { text: Object.keys(TEXT_TYPES), image: Object.keys(IMAGE_TYPES), zip: [ZIP_EXT] },
+      /** ZIP 要靠代理的文件工具处理：代理模式关着时不收（界面提示开启代理模式） */
+      zip: zipOk(),
       /** 文本附件由运行机器人的这台设备完整解码后交给模型 */
       textReading: true,
       /** 副本存在哪：运行机器人的设备（数据目录），不是浏览器所在的电脑 */
@@ -150,16 +158,19 @@ export function attachmentsRoutes(ctx: WebContext): Route {
         const b = await readJson(req);
         if (Number(b.protocol) !== ATTACHMENT_PROTOCOL) throw new AttachmentError("protocol", 426);
         app.store.ensureConversation(botId, "web", "console", "控制台");
-        const items = svc.reserve(botId, conv, { segment: String(b.segment ?? ""), batch: String(b.batch ?? ""), items: Array.isArray(b.items) ? b.items : [] });
-        return send(res, 200, { items: items.map(publicAttachment), revision: svc.revision(botId, conv) });
+        const r = svc.reserve(botId, conv, { segment: String(b.segment ?? ""), batch: String(b.batch ?? ""), items: Array.isArray(b.items) ? b.items : [] }, { zipOk: zipOk() });
+        // 逐项：加进去的照常返回，不合格的各带原因（界面汇总成一句「部分文件未添加」）
+        return send(res, 200, { items: r.items.map(publicAttachment), rejected: r.rejected, revision: svc.revision(botId, conv) });
       }
 
       if (isAtt && seg.length === 5 && (seg[4] === "content" || seg[4] === "rendition") && m === "PUT") {
         const id = decodeURIComponent(seg[3]);
-        if (!svc.get(botId, id)) throw new AttachmentError("not_found", 404);
+        const target = svc.get(botId, id);
+        if (!target) throw new AttachmentError("not_found", 404);
         const release = svc.beginUpload(botId);
         try {
-          const data = await readBody(req, LIMITS.maxFileBytes);
+          // ZIP 原文件最多 50 MiB；图片 / 文本、规范化后的图片 10 MiB
+          const data = await readBody(req, seg[4] === "content" ? maxBytesOf(target.kind) : LIMITS.maxFileBytes);
           const item = data === "too_large" ? svc.reject(botId, id, "size") : seg[4] === "content" ? svc.receive(botId, id, data) : svc.rendition(botId, id, data);
           return send(res, 200, { item: publicAttachment(item), revision: svc.revision(botId, conv) });
         } finally {
@@ -188,6 +199,31 @@ export function attachmentsRoutes(ctx: WebContext): Route {
         return res.end(data);
       }
 
+      // 已发的 ZIP：保存原文件到当前操作的这台电脑（网页下载 / 桌面版另存为）；不解压、不执行。到期、无权只给一句原因
+      if (isAtt && seg.length === 5 && (seg[4] === "download" ? m === "GET" : seg[4] === "save" && m === "POST")) {
+        const a = svc.get(botId, decodeURIComponent(seg[3]));
+        if (!a || a.kind !== "zip" || !a.messageId) throw new AttachmentError("not_found", 404);
+        const file = svc.fileOf(a);
+        if (!file) throw new AttachmentError("expired", 410);
+        const name = a.name.toLowerCase().endsWith(".zip") ? a.name : `${a.name}.zip`;
+        if (seg[4] === "save") {
+          if (!app.desktop?.saveFileAs) throw new HttpError(400, t("web.desktopOnly"));
+          return send(res, 200, await app.desktop.saveFileAs(file, name));
+        }
+        const data = svc.read(a);
+        if (!data) throw new AttachmentError("expired", 410);
+        res.writeHead(200, {
+          "content-type": "application/zip",
+          "content-length": data.length,
+          "content-disposition": `attachment; filename="${name.replace(/[^\x20-\x7e]|["\\]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(path.basename(name))}`,
+          "cache-control": "private, no-store",
+          "x-content-type-options": "nosniff",
+          "content-security-policy": "default-src 'none'; sandbox",
+          "cross-origin-resource-policy": "same-origin",
+        });
+        return res.end(data);
+      }
+
       if (isSend && seg.length === 5 && m === "GET") {
         const id = decodeURIComponent(seg[4]);
         if (!validClientId(id)) throw new AttachmentError("not_found", 404);
@@ -203,13 +239,23 @@ export function attachmentsRoutes(ctx: WebContext): Route {
         const refs: Array<{ id: string; version: string }> = (Array.isArray(b.attachments) ? b.attachments : []).map((a: any) => ({ id: String(a?.id ?? ""), version: String(a?.version ?? "") }));
         if (!validClientId(clientMessageId) || !refs.length || refs.length > LIMITS.maxItems) throw new AttachmentError("changed", 400);
         const segment = String(b.segment ?? "");
-        const digest = Attachments.digest({ text, segment, attachments: refs });
+        // 工作文件夹的选择 id 也固定进这个消息 id：同一个 id 换了目录算冲突，网络重试不会读到之后的新选择
+        const folderId = "folder" in b ? String(b.folder ?? "") : undefined;
+        const digest = Attachments.digest({ text, segment, attachments: refs, folder: folderId });
         // 同一个消息 id：内容相同返回原回执（连点、断线重发都不会建第二条消息、不重复执行）
         const prior = svc.beginSend(botId, clientMessageId, digest);
         if (prior) return send(res, 200, { ...prior, duplicate: true, live: !!live.get(conv, prior.turnId) });
         try {
           // 正在回复：带附件的消息不并进这一轮，也不自动排队
           if (busy(botId)) throw new AttachmentError("busy");
+          // 点发送那一刻的工作文件夹：和服务端现在的选择对不上就不受理
+          let folder: FolderBinding | null;
+          try {
+            folder = folderId === undefined ? (app.folders.current(conv) ?? null) : app.folders.bind(conv, folderId);
+          } catch (e) {
+            if (e instanceof FolderError) return send(res, 409, { error: t("folders.err_changed"), code: "folderChanged" });
+            throw e;
+          }
           const atts = svc.verify(botId, conv, { segment, revision: String(b.revision ?? ""), attachments: refs });
           const model = await modelState(botId);
           if (String(b.modelRevision ?? "") !== model.revision) throw new AttachmentError("changed");
@@ -228,6 +274,8 @@ export function attachmentsRoutes(ctx: WebContext): Route {
           const composed = svc.compose(message?.attachments ?? [], botId, text, { images: true });
           const ev = webEvent(botId, text);
           ev.prepared = { messageId: receipt.messageId, text: composed.text, images: composed.images };
+          ev.folder = folder;
+          turn.folder = folder?.id ?? "";
           void runLive(turn, ev);
           return send(res, 200, { ...receipt, turnId: turn.id, live: true });
         } finally {

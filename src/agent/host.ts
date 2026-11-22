@@ -100,19 +100,25 @@ export const MAX_DELIVERABLE_BYTES = 50 * 1024 * 1024;
 /**
  * 只交付工作区内（解析符号链接后）真实存在的普通文件，去重，最多 8 个、单个 ≤ 50 MB。
  * 防止模型借 present 把工作区外的文件（如 ~/.ssh、数据目录）发到聊天里。
+ * folder：这一轮绑定的工作文件夹（PRD R7）：它里面的文件也能交付；相对路径以它为准（代理的工作目录就是它）。
  */
-export function deliverables(workspace: string, paths: string[]): string[] {
-  let root: string;
-  try {
-    root = fs.realpathSync(workspace);
-  } catch {
-    return [];
+export function deliverables(workspace: string, paths: string[], folder?: string): string[] {
+  const roots: string[] = [];
+  for (const r of [workspace, folder]) {
+    if (!r) continue;
+    try {
+      roots.push(fs.realpathSync(r));
+    } catch {
+      /* 不在了 */
+    }
   }
+  if (!roots.length) return [];
+  const base = folder && roots.length > 1 ? folder : workspace;
   const out: string[] = [];
   for (const p of paths) {
     try {
-      const real = fs.realpathSync(path.resolve(workspace, p));
-      if (real !== root && !real.startsWith(root + path.sep)) continue;
+      const real = fs.realpathSync(path.resolve(base, p));
+      if (!roots.some((root) => real === root || real.startsWith(root + path.sep))) continue;
       const st = fs.statSync(real);
       if (!st.isFile() || st.size === 0 || st.size > MAX_DELIVERABLE_BYTES) continue;
       if (!out.includes(real)) out.push(real);
@@ -490,8 +496,16 @@ export interface TurnImage {
   mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
 }
 
+/**
+ * 一条消息绑定的工作文件夹（PRD R2）：root = 宿主刚核对过的真实路径；unavailable = 原来选的目录不在了、换了或没有权限
+ * （这一轮按只读跑，不退回默认工作区、不去别处找）。null = 这条消息没有选目录（默认工作区）。
+ */
+export type TurnFolder = { id: string; root: string; name: string; unavailable?: false } | { id: string; root?: undefined; name: string; unavailable: true; reason: string } | null;
+
 export interface TurnInput {
   conversationId: string;
+  /** 网页对话的消息绑定的工作文件夹；不给（其他渠道、代理自己醒来的一轮）= 默认工作区 */
+  folder?: TurnFolder;
   /** 可信渠道入站的操作者，供宿主判断跨会话规则权限；不从模型工具参数读取。 */
   senderId?: string;
   text: string;
@@ -838,6 +852,12 @@ export class AgentHost {
       // 生图 / 生视频：宿主带着本机器人的 Key 调 Modelflare，文件存进工作区 media/；技能说明在 skills/media
       "    - id: amb-media",
       `      name: ${yamlStr(path.join(this.o.runtimeDir, "plugins", "amb-media.mjs"))}`,
+      // 用户随消息发的 ZIP：zip_list / zip_extract 经 bridge 由宿主核对归属后查看、安全解压（attachments/unzip.ts）
+      "    - id: amb-zip",
+      `      name: ${yamlStr(path.join(this.o.runtimeDir, "plugins", "amb-zip.mjs"))}`,
+      // 工作文件夹：每条消息绑定的目录成为这个会话（和它的子代理）的可写根（宿主经指令通道告诉它，见 bindFolder）
+      "    - id: amb-workfolder",
+      `      name: ${yamlStr(path.join(this.o.runtimeDir, "plugins", "amb-workfolder.mjs"))}`,
       // 按 GitHub 链接安装技能：install_skill 让宿主读取、预检并在对话里出确认卡片，用户点「安装」才写入（skills/installs.ts）
       "    - id: amb-skills",
       `      name: ${yamlStr(path.join(this.o.runtimeDir, "plugins", "amb-skills.mjs"))}`,
@@ -1545,6 +1565,7 @@ exec "$REAL" "$@"
         if (this.harness !== harness) return;
         this.harness = undefined;
         this.opened.clear();
+        this.boundFolders.clear();
         this.taskSessions.clear();
         this.taskBusy.clear();
         this.control.close();
@@ -1618,6 +1639,7 @@ exec "$REAL" "$@"
     const h = this.harness;
     this.harness = undefined;
     this.opened.clear();
+    this.boundFolders.clear();
     this.taskSessions.clear();
     this.taskBusy.clear();
     this.control.close(tr("agent.processRestarted"));
@@ -1732,6 +1754,35 @@ exec "$REAL" "$@"
     return isInit;
   }
 
+  /** 子进程里每个会话现在绑定的工作文件夹（amb-workfolder 记着的那份）：sessionId → 键；换了子进程清空、按需重发 */
+  private boundFolders = new Map<string, string>();
+
+  /**
+   * 告诉子进程这个会话这一轮的可写根（amb-workfolder 插件改写沙箱策略的工作区根），并把会话的工作目录换过去；
+   * folder = null 回到默认工作区，unavailable 时这一轮按只读跑。没变就不重发（工作目录每变一次模型会收到一条说明）。
+   * undefined（其他渠道、代理自己醒来的一轮）：沿用会话现在的绑定。失败就抛错，这一轮不跑。
+   */
+  private async bindFolder(sessionId: string, folder: TurnFolder | undefined, h?: SdkHarness): Promise<void> {
+    if (folder === undefined) return;
+    const key = folder === null ? "" : folder.unavailable ? `!${folder.id}` : `${folder.id}\n${folder.root}`;
+    if ((this.boundFolders.get(sessionId) ?? "") === key) return;
+    const harness = h ?? this.harness;
+    if (!harness) throw new Error(tr("agent.processNotRunning"));
+    if (!this.control.connected && !(await this.control.ready(5000))) throw new Error(tr("agent.processNoResponse", { op: "folder" }));
+    // 先改可写根、再改工作目录：中间失败时只会更保守（可写根已经收紧或换好）
+    await this.control.send("folder", folder === null ? { sessionId, root: null } : folder.unavailable ? { sessionId, unavailable: true } : { sessionId, root: folder.root }, 10_000);
+    this.boundFolders.set(sessionId, key);
+    await harness.session(sessionId).setWorkingDirectory(folder?.root ?? this.workspace);
+    log.info("work folder bound", { bot: this.o.botId, session: sessionId, folder: folder === null ? "default" : folder.unavailable ? "unavailable" : "chosen" });
+  }
+
+  /** 这个会话现在绑定的目录（后台任务继承、zip 工具的目标用）：没绑或回到默认工作区时 undefined */
+  boundRoot(sessionId: string): string | undefined {
+    const k = this.boundFolders.get(sessionId);
+    if (!k || k.startsWith("!")) return undefined;
+    return k.slice(k.indexOf("\n") + 1);
+  }
+
   private async runEntered(input: TurnInput): Promise<TurnResult> {
     const conv = input.conversationId;
     // 这个会话正在交给代理：期间代理自己醒来（后台命令结束）不另开一轮跟踪，这一轮的 run 会收下它的事件
@@ -1762,6 +1813,10 @@ exec "$REAL" "$@"
     const woke = this.wakes.get(s.id);
     if (woke && !woke.ended) await withTimeoutOr(woke.done.catch(() => undefined), this.o.turnTimeoutMs ?? 30 * 60_000, undefined);
     if (input.signal?.aborted) throw stopReason(input.signal);
+    // 这一轮绑定的工作文件夹：可写根和工作目录换成它（或回到默认工作区）；告诉不了子进程就不跑这一轮（fail closed：
+    // 不能让上一条消息的目录还开着写权限）
+    await this.bindFolder(s.id, input.folder);
+    if (input.signal?.aborted) throw stopReason(input.signal);
     this.active++;
     this.known.add(input.model);
     this.model = input.model;
@@ -1772,6 +1827,8 @@ exec "$REAL" "$@"
     this.turns.set(input.conversationId, turn);
     this.claimed.delete(input.conversationId);
     const images = this.imageInput ? (input.images ?? []) : [];
+    let text = input.text;
+    if (input.folder?.unavailable) text = `${tr("folders.promptFolderGone", { name: input.folder.name, reason: tr(input.folder.reason === "system" ? "folders.reasonSystem" : input.folder.reason === "notAllowed" ? "folders.reasonNotAllowed" : "folders.reasonUnavailable") })}\n\n${text}`;
     // 这一轮：用的接口、上游拒绝过本机器人的哪些模型请求
     const api = route.api;
     const trk = this.tracker(s.id, route, input.observer, accept);
@@ -1781,7 +1838,7 @@ exec "$REAL" "$@"
         if (r.bot === this.o.botId && /\/v1\/(responses|messages)$/.test(r.path)) rejections.push(r);
       }) ?? (() => {});
     try {
-      const prompt = images.length ? [{ type: "text", text: input.text }, ...images.map((i) => ({ type: "image", data: i.data, mimeType: i.mimeType }))] : input.text;
+      const prompt = images.length ? [{ type: "text", text }, ...images.map((i) => ({ type: "image", data: i.data, mimeType: i.mimeType }))] : text;
       input.observer?.onStart?.();
       const run = s.run(prompt, { onNotification: trk.onNotification });
       const r = await this.awaitTurn(turn, run, input.signal);
@@ -1794,7 +1851,7 @@ exec "$REAL" "$@"
         if (rejected) throw new ApiRejected(turnError, api, rejected, toolCalls === 0 && presented.length === 0);
         throw new Error(turnError);
       }
-      return { text: answers.length > 1 ? answers.join("\n\n") : r.finalResponse, sessionId: s.id, files: deliverables(this.workspace, presented), usage };
+      return { text: answers.length > 1 ? answers.join("\n\n") : r.finalResponse, sessionId: s.id, files: deliverables(this.workspace, presented, input.folder?.root), usage };
     } catch (e) {
       if (e instanceof TurnStopped) {
         log.warn("agent turn stopped", { bot: this.o.botId, reason: e.reason, ms: e.ms, restarted: e.restarted, otherTurns: this.active - 1 });
@@ -1841,7 +1898,7 @@ exec "$REAL" "$@"
         if (data.name === "present") {
           const paths = presentPaths(String(data.arguments ?? ""));
           st.presented.push(...paths);
-          const files = deliverables(this.workspace, paths);
+          const files = deliverables(this.workspace, paths, this.boundRoot(sessionId));
           if (files.length) observer?.onPresent?.(files);
         }
         observer?.onProgress?.(`🔧 ${summarizeCall(String(data.name), String(data.arguments ?? "")).split(this.workspace + "/").join("")}`);
@@ -1981,7 +2038,7 @@ exec "$REAL" "$@"
    * 这一轮的事件经 onTaskEvent 交给任务服务。会话第一次用时建出来（工作目录是任务文件夹，在工作区里，沙箱根仍是工作区）；
    * 在新的子进程里先 resume（失败抛 ResumeFailed）。任务用它自己的模型（按会话选，和聊天一样不用重启）。
    */
-  async promptTask(o: { sessionId: string; folder: string; model: string; text: string; resume: boolean }): Promise<string> {
+  async promptTask(o: { sessionId: string; folder: string; model: string; text: string; resume: boolean; root?: string }): Promise<string> {
     if (!o.model) throw new Error(tr("agent.noModelAvailable"));
     const route = await this.routeFor(o.model);
     const h = await this.ensure(o.model);
@@ -1995,9 +2052,19 @@ exec "$REAL" "$@"
         }
       } else {
         fs.mkdirSync(o.folder, { recursive: true });
-        await h.session(o.sessionId).setWorkingDirectory(o.folder);
+        if (!o.root) await h.session(o.sessionId).setWorkingDirectory(o.folder);
       }
       this.opened.add(o.sessionId);
+    }
+    // 从绑定了工作文件夹的聊天里开始的任务（PRD R2「派生工作」）：可写根和工作目录是那个文件夹；它不在了就按只读跑
+    if (o.root) {
+      let ok = false;
+      try {
+        ok = fs.statSync(o.root).isDirectory();
+      } catch {
+        /* 不在了 */
+      }
+      await this.bindFolder(o.sessionId, ok ? { id: `task:${o.root}`, root: o.root, name: path.basename(o.root) } : { id: `task:${o.root}`, name: path.basename(o.root), unavailable: true, reason: "unavailable" }, h);
     }
     if (!(await this.useRoute(o.sessionId, route))) throw new Error(tr("agent.cantUseModel", { model: o.model }));
     this.known.add(o.model);
@@ -2093,7 +2160,7 @@ exec "$REAL" "$@"
       await this.awaitTurn(turn, w.done, input.signal);
       const { turnError, answers, presented, usage } = trk.st;
       if (!answers.length && turnError) throw new Error(turnError);
-      return { text: answers.join("\n\n"), sessionId: w.sessionId, files: deliverables(this.workspace, presented), usage };
+      return { text: answers.join("\n\n"), sessionId: w.sessionId, files: deliverables(this.workspace, presented, this.boundRoot(w.sessionId)), usage };
     } catch (e) {
       if (e instanceof TurnStopped) log.warn("agent wake-up turn stopped", { bot: this.o.botId, reason: e.reason, restarted: e.restarted });
       throw e;

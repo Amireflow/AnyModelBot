@@ -60,7 +60,7 @@ Las conversaciones, la memoria, los archivos y las claves de API se quedan en tu
 
 Listo para usar desde la instalación: las tareas en segundo plano, las reglas programadas y los asuntos que esperan tu visto bueno ya vienen integrados.
 
-**0.1.45:** en Linux, los comandos que ejecuta un bot solo se ejecutan dentro del sandbox de bubblewrap y, si no está disponible, se rechazan indicando el motivo; la consola local de la versión de línea de comandos (`npm start`) ahora también necesita un token de acceso, y la terminal muestra un enlace con él al iniciar. [Historial de cambios](./CHANGELOG_es.md#0145---2026-11-22)
+**0.1.46:** en la app de escritorio, elige una carpeta de trabajo encima del cuadro de mensaje y el bot trabaja con los archivos donde están; arrastra un ZIP al chat y el bot lo extrae de forma segura cuando se lo pidas. [Historial de cambios](./CHANGELOG_es.md#0146---2026-11-22)
 
 📥 [Descargar](#-descargar-y-ejecutar) · 🌠 [Capturas](#-capturas-de-pantalla) · 🌟 [Funciones](#-funciones-principales) · 🆚 [Comparativa](#-anymodelbot-frente-a-grok-bot-openai-dots-y-claude-duet) · 🔐 [Privacidad](#-cómo-funciona-y-privacidad)
 
@@ -201,6 +201,7 @@ Un bot es más que una ventana de chat: tiene una personalidad, un modelo predet
 - **Chats grupales.** Crea un grupo y agrega algunos bots. Responde el bot al que mencionas con @; si no mencionas a ninguno, continúa el último que respondió. Los bots también pueden mencionar con @ a otro miembro para pasarle el relevo. Cada bot conserva su propio modelo, espacio de trabajo y memoria, y los costos se registran por bot.
 - **Bots que se envían mensajes.** En la app, dile a un bot «pásale esto a B»: B trabaja en segundo plano con su propio modelo, permisos y presupuesto y responde al terminar, y el primer bot revisa el resultado antes de avisarte. B pide aprobaciones en el mismo chat con su nombre, y puedes leer su conversación cuando quieras. Requiere iniciar sesión en Modelflare y que ambos bots usen modelos de Modelflare.
 - **Búsqueda en el historial de chats.** Desde la barra lateral, busca en todos los mensajes guardados en tu dispositivo, filtra por bot, conversación, canal o fecha, y salta al mensaje original. `Ctrl/Cmd+Shift+F` abre la búsqueda global; `Ctrl/Cmd+F` busca en el chat actual. Las búsquedas no llaman a ningún modelo. Antes de que escribas, el cuadro de búsqueda muestra los chats recientes por fecha.
+- **Carpetas de trabajo y ZIP.** En la app de escritorio, elige una carpeta encima del cuadro de mensaje y el bot lee y edita los archivos donde están (con acceso de espacio de trabajo, los cambios dentro de esa carpeta no piden aprobación cada vez); arrastra un ZIP al chat y el bot lo extrae de forma segura cuando digas qué hacer.
 - **Los comandos con barra**, como `/model` y `/reset`, funcionan en la app y en todos los canales de chat. En un canal de chat, `/bot` cambia a otro bot.
 
 <p align="center">

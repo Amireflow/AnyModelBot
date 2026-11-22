@@ -54,6 +54,7 @@ import { AccountManager } from "./account/manager.js";
 import { AccountVault, type LegacySecretBox } from "./account/vault.js";
 import { gatewayModelInfo, loadModelInfo, type ModelInfo, type Rates } from "./account/model-info.js";
 import { Attachments } from "./attachments/service.js";
+import { FolderService } from "./folders/service.js";
 import { acceptsImages } from "./llm/client.js";
 import { loadQualitySnapshot } from "./account/model-quality.js";
 import { MediaService, pickDefault } from "./tools/media/index.js";
@@ -98,6 +99,8 @@ export interface DesktopHooks {
    * 把磁盘上的原文件复制过去。取消返回 { canceled: true }；复制失败抛错
    */
   saveFileAs?(src: string, name: string): Promise<{ canceled: true } | { canceled?: false; path: string; folder: string }>;
+  /** 输入框上方的「选择文件夹…」：弹出系统的目录选择器，返回选中的路径；取消返回 undefined（folders/service.ts） */
+  pickFolder?(): Promise<string | undefined>;
   /** 右侧预览 HTML 的「在浏览器中打开」：用系统默认浏览器打开本机网页（.html 的默认程序可能是编辑器） */
   openFileInBrowser?(p: string): Promise<void>;
   openInBrowser(): void;
@@ -238,6 +241,8 @@ export class App {
   readonly skillDrafts: SkillDrafts;
   /** 网页对话的消息附件（粘贴图片、拖入文件）的受管副本 */
   readonly attachments: Attachments;
+  /** 输入框上方选择的工作文件夹（folders/service.ts） */
+  readonly folders: FolderService;
   web: WebServer | undefined;
   private catalogSweep: NodeJS.Timeout | undefined;
   desktop: DesktopHooks | undefined;
@@ -281,6 +286,14 @@ export class App {
     this.store = new Store(path.join(config.dataDir, "anymodel.db"));
     this.cuPermissions.bindStore(this.store);
     this.attachments = new Attachments(this.store, path.join(config.dataDir, "attachments"));
+    // ZIP 默认解压到机器人工作区里的 extracted/（受管处理空间，随附件到期回收）
+    this.attachments.managedRoot = (botId) => path.join(config.dataDir, "workspaces", botId, "extracted");
+    this.folders = new FolderService({
+      store: this.store,
+      dataDir: config.dataDir,
+      segmentOf: (c) => this.attachments.segmentOf(c),
+      picker: () => this.desktop?.pickFolder,
+    });
     // "更新了什么"：全新安装第一次启动不弹，直接记成当前版本；升级上来的（库已经在）还没有记录时弹一次这一版
     if (freshData && !this.store.getKV(WHATS_NEW_SEEN) && appVersion()) this.store.setKV(WHATS_NEW_SEEN, appVersion());
     // 旧版仅有默认会话的库仍需补齐默认机器人；用户删光机器人时会话也已删除，不重新创建。
@@ -341,6 +354,7 @@ export class App {
       },
     });
     this.agent = new AgentManager({
+      attachments: this.attachments,
       store: this.store,
       dataDir: config.dataDir,
       runtimeDir: config.agent.mode === "dsh" ? locateDshRuntime(findAppRoot()) : undefined,
@@ -504,6 +518,7 @@ export class App {
       skillDrafts: this.skillDrafts,
       vision: (model) => this.visionOf(model),
       attachments: this.attachments,
+      folders: this.folders,
     });
   }
 
@@ -851,6 +866,7 @@ export class App {
     this.userSkills.mine.dropBot(botId);
     this.skillDrafts.dropBot(botId);
     this.attachments.dropBot(botId);
+    this.folders.dropBot(botId);
     if (bot?.settings.budget.enabled && this.account.signedIn) {
       await this.account.setBotBudget(botId, bot.name, { ...bot.settings.budget, enabled: false }).catch((e) => log.warn("remove bot key failed", { message: (e as Error).message }));
     }

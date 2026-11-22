@@ -4,6 +4,7 @@
  */
 import type { ActivityStep } from "../domain/activity.js";
 import { t, type MessageKey } from "../i18n/index.js";
+import type { FolderBinding } from "../folders/service.js";
 
 /** 同一套接法的聊天平台（channels/messenger）：填 token 连上，单聊，流式靠改消息 */
 export const MESSENGERS = ["telegram", "slack", "discord"] as const;
@@ -59,6 +60,11 @@ export interface InboundEvent {
    * text 是交给模型的全文（文本文件的完整内容 + 用户的话），images 是规范化后的图片。
    */
   prepared?: { messageId: number; text: string; images: Array<{ data: string; mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp" }> };
+  /**
+   * 网页对话：点发送那一刻输入框上方选的工作文件夹（folders/service.ts 的 bind），null = 没选（默认工作区）。
+   * 排队、等批准、重试都只认它，不读之后的选择；其他渠道没有（默认工作区）。
+   */
+  folder?: FolderBinding | null;
 }
 
 export type OutboundOp =

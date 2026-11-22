@@ -129,7 +129,9 @@ export interface TaskHost {
    * 把一条输入交给任务会话：第一次建会话（工作目录是任务文件夹），之后在新的代理进程里先 resume。返回 DSH 的收件 id。
    * resume 失败（会话记录丢了）抛 ResumeFailed（host.ts）。
    */
-  prompt(botId: string, o: { sessionId: string; folder: string; model: string; text: string; resume: boolean }): Promise<string>;
+  prompt(botId: string, o: { sessionId: string; folder: string; model: string; text: string; resume: boolean; root?: string }): Promise<string>;
+  /** 发起 task_start 的聊天会话这一轮绑定的工作文件夹（任务继承它）；没有返回 undefined */
+  folderOf?(botId: string, sessionId: string): string | undefined;
   /** 并进正在进行的一轮（agent.steer）；会话空闲时返回 false */
   steer(botId: string, sessionId: string, id: string, text: string): Promise<boolean>;
   /** 停掉这个会话：取消这一轮、它的子代理和后台命令，之后的工具调用一律拒绝 */
@@ -507,7 +509,7 @@ export class TaskService {
   // ---------- 建任务、追加、停止 ----------
 
   /** 新任务（聊天代理的 task_start）：用户原话、说明、最近的对话、附件和记忆快照作为第一条输入，排进队列 */
-  create(o: { botId: string; conversationId: string; title: string; brief: string; budgetUsd?: number; anytime?: boolean }): { task?: TaskRow; error?: string } {
+  create(o: { botId: string; conversationId: string; title: string; brief: string; budgetUsd?: number; anytime?: boolean; root?: string }): { task?: TaskRow; error?: string } {
     const conv = this.store.getConversation(o.conversationId);
     const bot = this.store.getBot(o.botId);
     if (!conv || !bot) return { error: "conversation not found" };
@@ -541,6 +543,7 @@ export class TaskService {
       permission: st.permission,
       budgetUsd: o.budgetUsd && o.budgetUsd > 0 ? Math.min(o.budgetUsd, 100) : TASK_BUDGET_USD,
       anytime: !!o.anytime,
+      ...(o.root ? { root: o.root } : {}),
       createdAt: now,
       updatedAt: now,
     });
@@ -551,7 +554,7 @@ export class TaskService {
       recent,
       attachments: attachmentsOf(origin?.content ?? ""),
       memory: st.memory.enabled ? this.o.host.memoryPrefix(o.botId, conv.id) : undefined,
-      folder,
+      folder: o.root || folder,
     });
     this.addInput(task.id, "brief", text, true);
     this.enqueue(task, "launch");
@@ -873,7 +876,7 @@ export class TaskService {
       let id: string;
       try {
         fs.mkdirSync(folder, { recursive: true });
-        id = await this.o.host.prompt(l.botId, { sessionId: l.sessionId, folder, model, text, resume: task ? this.store.taskPrompted(task.id) : false });
+        id = await this.o.host.prompt(l.botId, { sessionId: l.sessionId, folder, model, text, resume: task ? this.store.taskPrompted(task.id) : false, ...(task?.root ? { root: task.root } : {}) });
       } catch (e) {
         if (!(e instanceof ResumeFailed) || !task) throw e;
         // 会话记录恢复不了：换一个新会话，从宿主记下的任务重新交代
@@ -887,7 +890,7 @@ export class TaskService {
         this.store.updateRun(l.runId, { sessionId });
         const brief = this.store.listInputs(task.id).find((i) => i.kind === "brief")?.text ?? task.brief;
         const again = rebrief(brief, task.report?.message || task.report?.summary);
-        id = await this.o.host.prompt(task.botId, { sessionId, folder, model, text: `${again}\n\n${text}`, resume: false });
+        id = await this.o.host.prompt(task.botId, { sessionId, folder, model, text: `${again}\n\n${text}`, resume: false, ...(task.root ? { root: task.root } : {}) });
       }
       if (this.live.get(l.runId) !== l) {
         // 交出去的时候任务被停了（规则被删了、超时了）：输入已经到了会话里，再停一次（插件拒绝它之后的工具调用）
@@ -1434,12 +1437,14 @@ export class TaskService {
           return {
             error: `This bot's Modelflare budget is almost used up (about ${usdText(low.remainUsd)} of ${stepText(low.limitUsd)} left) and the rest is kept for chat, so no background task can start. Tell the user in one sentence; they can raise the bot's budget in its settings.`,
           };
-        const r = this.create({ botId, conversationId: conv.id, title: String(a.title ?? ""), brief: String(a.brief ?? ""), budgetUsd: Number(a.budget_usd) || undefined, anytime: a.anytime === true });
+        // 这一轮绑定了工作文件夹：任务在那个文件夹里做（PRD R2「派生工作」）
+        const root = this.o.host.folderOf?.(botId, String(b?.sessionId ?? ""));
+        const r = this.create({ botId, conversationId: conv.id, title: String(a.title ?? ""), brief: String(a.brief ?? ""), budgetUsd: Number(a.budget_usd) || undefined, anytime: a.anytime === true, ...(root ? { root } : {}) });
         if (!r.task) return { error: r.error };
         if (this.paused(botId))
           return { text: `Queued background task ${r.task.id} 「${r.task.title}」, but background work is paused, so it starts only when the user resumes it. Tell the user so in one sentence. Do not do the task yourself.` };
         return {
-          text: `Started background task ${r.task.id} 「${r.task.title}」 in folder ${r.task.folder}. In your reply, tell the user in one sentence what now runs in the background and that they will hear back when it is done; they can keep chatting. Do not do the task yourself.`,
+          text: `Started background task ${r.task.id} 「${r.task.title}」 in folder ${r.task.root || r.task.folder}. In your reply, tell the user in one sentence what now runs in the background and that they will hear back when it is done; they can keep chatting. Do not do the task yourself.`,
         };
       }
       case "message": {

@@ -11,7 +11,7 @@ import crypto from "node:crypto";
 import { App } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import { mockOpenAI } from "./helpers.js";
-import { LIMITS, checkBatch, classify, normalizedSize } from "../src/attachments/limits.js";
+import { LIMITS, classify, normalizedSize, planBatch } from "../src/attachments/limits.js";
 import { cleanRendition, decodeText, sniffImage } from "../src/attachments/sniff.js";
 
 let app: App, llm: Awaited<ReturnType<typeof mockOpenAI>>, root: string, base: string;
@@ -113,18 +113,35 @@ describe("附件的格式与上限（纯函数）", () => {
     // 扩展名不在表里、但系统说它是图片：给图片那一句提示，不说成"请用 Markdown"
     expect(classify("a.jp2", "image/jp2")).toEqual({ reject: "imageConvert" });
     expect(classify("raw.dng", "image/x-adobe-dng")).toEqual({ reject: "imageConvert" });
-    for (const n of ["a.pdf", "a.docx", "a.xlsx", "a.pptx", "a.odt", "a.zip", "a.rar", "a.7z", "a.tar", "a.exe", "a.msi", "a.dmg", "a.dll", "a.so", "a.lnk", "a.mp4", "a.mp3", "noext"]) expect(classify(n, "")).toEqual({ reject: "format" });
+    // 内部也是 ZIP 结构的 .docx / .xlsx / .jar / .epub 照原规则不收（只有扩展名是 .zip 才走 ZIP）
+    for (const n of ["a.pdf", "a.docx", "a.xlsx", "a.pptx", "a.odt", "a.jar", "a.apk", "a.epub", "a.exe", "a.msi", "a.dmg", "a.dll", "a.so", "a.lnk", "a.mp4", "a.mp3", "noext"]) expect(classify(n, "")).toEqual({ reject: "format" });
+    // ZIP：只认 .zip（大小写不限），不看 MIME；别的压缩格式提示「仅支持 ZIP」
+    expect(classify("资料.zip", "")).toEqual({ kind: "zip", ext: "zip" });
+    expect(classify("A.ZIP", "application/x-zip-compressed")).toEqual({ kind: "zip", ext: "zip" });
+    for (const n of ["a.rar", "a.7z", "a.tar", "a.gz", "a.tgz", "a.tar.gz", "a.tar.xz", "a.bz2", "a.xz"]) expect(classify(n, "")).toEqual({ reject: "archive" });
   });
 
-  it("批次整批核算：已有 6 项加 3 项、3 图加 2 图、40MiB 加两份 8MiB 都整批拒绝", () => {
+  it("批次逐项核算（PRD R4）：按原顺序占名额，不合格的各给原因，后面还放得下的合格项照收", () => {
     const f = (name: string, size = 10) => ({ name, mime: "", size });
-    expect(checkBatch([f("a.md"), f("b.md"), f("c.md")], { items: 6, images: 0, bytes: 0 })).toEqual({ ok: false, code: "count" });
-    expect(checkBatch([f("a.png"), f("b.png")], { items: 3, images: 3, bytes: 0 })).toEqual({ ok: false, code: "count" });
-    expect(checkBatch([f("a.md", 8 * 1024 * 1024), f("b.md", 8 * 1024 * 1024)], { items: 4, images: 0, bytes: 40 * 1024 * 1024 })).toEqual({ ok: false, code: "size" });
-    expect(checkBatch([f("a.md", LIMITS.maxFileBytes)], { items: 0, images: 0, bytes: 0 }).ok).toBe(true);
-    expect(checkBatch([f("a.md", LIMITS.maxFileBytes + 1)], { items: 0, images: 0, bytes: 0 })).toEqual({ ok: false, code: "size" });
-    expect(checkBatch([f("a.md"), f("b.md", 0)], { items: 0, images: 0, bytes: 0 })).toEqual({ ok: false, code: "empty" });
-    expect(checkBatch([f("a.md"), f("b.pdf")], { items: 0, images: 0, bytes: 0 })).toEqual({ ok: false, code: "format" });
+    const MIB = 1024 * 1024;
+    const ok = (kind: string) => expect.objectContaining({ ok: true, kind });
+    expect(planBatch([f("a.md"), f("b.md"), f("c.md")], { items: 6, images: 0, bytes: 0 })).toEqual([ok("text"), ok("text"), { ok: false, code: "count" }]);
+    expect(planBatch([f("a.png"), f("b.png")], { items: 3, images: 3, bytes: 0 })).toEqual([ok("image"), { ok: false, code: "count" }]);
+    // 合计超限的那一项不加，后面更小的还放得下就加
+    expect(planBatch([f("a.md", 8 * MIB), f("b.md", 8 * MIB), f("c.md", 1 * MIB)], { items: 0, images: 0, bytes: 40 * MIB })).toEqual([ok("text"), { ok: false, code: "size" }, ok("text")]);
+    expect(planBatch([f("a.md", LIMITS.maxFileBytes)], { items: 0, images: 0, bytes: 0 })).toEqual([ok("text")]);
+    expect(planBatch([f("a.md", LIMITS.maxFileBytes + 1)], { items: 0, images: 0, bytes: 0 })).toEqual([{ ok: false, code: "size" }]);
+    expect(planBatch([f("a.md"), f("b.md", 0)], { items: 0, images: 0, bytes: 0 })).toEqual([ok("text"), { ok: false, code: "empty" }]);
+    expect(planBatch([f("a.md"), f("b.pdf"), f("c.rar")], { items: 0, images: 0, bytes: 0 })).toEqual([ok("text"), { ok: false, code: "format" }, { ok: false, code: "archive" }]);
+    // ZIP：单份 50 MiB（等于上限可以、多 1 字节不行），算 1 个附件、0 张图；和图片、文本共用总量 50 MiB
+    expect(planBatch([f("a.zip", 50 * MIB)], { items: 0, images: 0, bytes: 0 })).toEqual([ok("zip")]);
+    expect(planBatch([f("a.zip", 50 * MIB + 1)], { items: 0, images: 0, bytes: 0 })).toEqual([{ ok: false, code: "size" }]);
+    expect(planBatch([f("a.zip", 50 * MIB), f("b.md", 1)], { items: 0, images: 0, bytes: 0 })).toEqual([ok("zip"), { ok: false, code: "size" }]);
+    expect(planBatch([{ name: "a.png", mime: "image/png", size: 10 * MIB }, f("b.zip", 40 * MIB)], { items: 0, images: 0, bytes: 0 })).toEqual([ok("image"), ok("zip")]);
+    expect(planBatch(Array.from({ length: 9 }, (_, i) => f(`${i}.zip`, MIB)), { items: 0, images: 0, bytes: 0 }).map((r) => r.ok)).toEqual([true, true, true, true, true, true, true, true, false]);
+    expect(planBatch([...Array.from({ length: 4 }, (_, i) => ({ name: `${i}.png`, mime: "image/png", size: 10 })), ...Array.from({ length: 4 }, (_, i) => f(`${i}.zip`)), { name: "5.png", mime: "image/png", size: 10 }], { items: 0, images: 0, bytes: 0 }).map((r) => r.ok)).toEqual([true, true, true, true, true, true, true, true, false]);
+    // 代理模式关着：ZIP 不收，图片照常
+    expect(planBatch([f("a.zip"), { name: "a.png", mime: "image/png", size: 10 }], { items: 0, images: 0, bytes: 0 }, { zipOk: false })).toEqual([{ ok: false, code: "agentOff" }, ok("image")]);
   });
 
   it("图片按文件头认：尺寸、动画；规范化的那一份去掉元信息；超过 4096 等比缩小、小图不放大", () => {
@@ -190,20 +207,23 @@ describe("附件接口", () => {
     expect((await api("/bots/a/attachments/batches", { method: "POST", body: JSON.stringify({ protocol: 99, segment: s.segment, batch: id(), items: [] }) })).body.code).toBe("protocol");
   });
 
-  it("批次原子预约：不合格整批不加；并发争最后一个图片名额只成功一批", async () => {
+  it("批次逐项预约：不合格的各带原因、合格的照收；并发争最后一个图片名额只有一批拿到", async () => {
     for (let i = 0; i < 3; i++) await addImage("b");
     const s = await state("b");
     const one = () => api("/bots/b/attachments/batches", { method: "POST", body: JSON.stringify({ protocol: 1, segment: s.segment, batch: id(), items: [{ clientId: id(), name: "image.png", mime: "image/png", size: 100 }] }) });
     const both = await Promise.all([one(), one()]);
-    expect(both.map((r) => r.status).sort()).toEqual([200, 409]);
-    expect(both.find((r) => r.status === 409)!.body.code).toBe("count");
+    expect(both.map((r) => r.status)).toEqual([200, 200]);
+    expect(both.map((r) => r.body.items.length).sort()).toEqual([0, 1]);
+    expect(both.find((r) => !r.body.items.length)!.body.rejected).toEqual([{ clientId: expect.any(String), code: "count" }]);
     // 4 图之后再加图明确超限；已有内容不动
-    expect((await one()).body.code).toBe("count");
+    expect((await one()).body.rejected[0].code).toBe("count");
     expect((await state("b")).items).toHaveLength(4);
-    // 混合批次里有一项不支持：整批不加
-    const mixed = await reserve("b", [{ name: "a.md", mime: "", size: 10 }, { name: "b.pdf", mime: "application/pdf", size: 10 }]);
-    expect(mixed).toMatchObject({ status: 409, body: { code: "format" } });
-    expect((await state("b")).items).toHaveLength(4);
+    // 混合批次：合格的加进去，不支持的、别的压缩格式各自给原因
+    const mixed = await reserve("b", [{ name: "a.md", mime: "", size: 10 }, { name: "b.pdf", mime: "application/pdf", size: 10 }, { name: "c.rar", mime: "", size: 10 }]);
+    expect(mixed.status).toBe(200);
+    expect(mixed.body.items.map((a: any) => a.name)).toEqual(["a.md"]);
+    expect(mixed.body.rejected.map((r: any) => r.code)).toEqual(["format", "archive"]);
+    expect((await state("b")).items).toHaveLength(5);
   });
 
   it("真实内容核对：伪装成文本的二进制、伪装成图片的文本、动画、编码、超长文本只让这一项失败", async () => {
@@ -262,6 +282,37 @@ describe("附件接口", () => {
     // 交上规范化的那一份就就绪，和扩展名写对的图片一样
     expect((await put("x", a.id, "rendition", png(8, 6))).body.item).toMatchObject({ status: "ready", width: 8, height: 6 });
     expect((await put("x", b.id, "rendition", jpeg(8, 6))).body.item).toMatchObject({ status: "ready", width: 8, height: 6 });
+  });
+
+  it("ZIP：代理模式关着时不收；按签名认，内容不是 ZIP 的按格式拒绝；只交一行引用给模型，不交包里的内容", async () => {
+    // 这个测试的 App 关着代理：状态里说不收 ZIP，拖进来的 ZIP 逐项拒绝（图片照收）
+    const s = await state("g");
+    expect(s.zip).toBe(false);
+    expect(s.limits.maxZipBytes).toBe(50 * 1024 * 1024);
+    const r = await reserve("g", [{ name: "资料.zip", mime: "application/zip", size: 100 }, { name: "image.png", mime: "image/png", size: 100 }]);
+    expect(r.body.rejected.map((x: any) => x.code)).toEqual(["agentOff"]);
+    expect(r.body.items.map((x: any) => x.kind)).toEqual(["image"]);
+    await api(`/bots/g/attachments/${r.body.items[0].id}`, { method: "DELETE" });
+    // 服务层（代理开着时）：真 ZIP 原样存下、就绪；伪装成 .zip 的文本按格式失败
+    const svc = app.attachments;
+    const conv = "g:web:console";
+    const seg = svc.segmentOf(conv);
+    const zipBytes = Buffer.from("504b0506000000000000000000000000000000000000", "hex");
+    const res = svc.reserve("g", conv, { segment: seg, batch: id(), items: [{ clientId: id(), name: "空包.zip", mime: "", size: zipBytes.length }, { clientId: id(), name: "fake.zip", mime: "", size: 12 }] }, { zipOk: true });
+    expect(res.rejected).toEqual([]);
+    const [real, fake] = res.items;
+    expect(svc.receive("g", real.id, zipBytes)).toMatchObject({ status: "ready", kind: "zip", mime: "application/zip" });
+    expect(svc.receive("g", fake.id, Buffer.from("not a zip!!!"))).toMatchObject({ status: "failed", error: "format" });
+    const ref = { id: real.id, kind: "zip" as const, name: "空包.zip", size: zipBytes.length, version: svc.get("g", real.id)!.version };
+    const composed = svc.compose([ref], "g", "", { images: true });
+    expect(composed.text).toContain("空包.zip");
+    expect(composed.text).toContain(real.id);
+    expect(composed.text).toContain("zip_extract");
+    // 只发 ZIP、没说要做什么：让模型先问
+    expect(composed.text).toMatch(/想让我怎么处理这个 ZIP|How would you like me to work on this ZIP/);
+    expect(svc.compose([ref], "g", "解压看看", { images: true }).text).not.toMatch(/想让我怎么处理这个 ZIP/);
+    svc.remove("g", real.id);
+    svc.remove("g", fake.id);
   });
 
   it("移除立即释放名额、幂等，迟到的内容不让它复活", async () => {

@@ -127,15 +127,18 @@ describe.skipIf(!browserAvailable)("消息附件界面", () => {
       // 输入框里拖动文字（不带文件）不出遮罩
       await page.evaluate(() => { const dt = new DataTransfer(); dt.setData("text/plain", "abc"); document.querySelector("section.chat")!.dispatchEvent(new DragEvent("dragenter", { dataTransfer: dt, bubbles: true })); });
       expect(await page.locator(".att-drop").count()).toBe(0);
-      // 整批拒绝：一份支持的 + 一份 PDF，一个都不加
-      await dragFiles(page, [{ name: "a.md", text: "x" }, { name: "b.pdf", type: "application/pdf", text: "%PDF" }]);
-      await page.waitForFunction(() => document.querySelector(".composer-note")?.textContent === "暂不支持此文件格式，请使用Markdown、HTML或TXT");
+      // 逐项核对（PRD R4）：只有一份不支持的，给它的完整原因；几份都不支持的，汇总名字和原因；文件夹提示用上方的选择文件夹
+      await dragFiles(page, [{ name: "b.pdf", type: "application/pdf", text: "%PDF" }]);
+      await page.waitForFunction(() => document.querySelector(".composer-note")?.textContent === "暂不支持此文件格式，请使用 Markdown、HTML、TXT 或 ZIP");
+      await dragFiles(page, [{ name: "b.pdf", type: "application/pdf", text: "%PDF" }, { name: "c.rar", text: "Rar!" }]);
+      await page.waitForFunction(() => document.querySelector(".composer-note")?.textContent === "未添加：b.pdf（格式不支持）、c.rar（压缩包仅支持 ZIP）");
       expect(await page.locator(".att-tray .att").count()).toBe(4);
-      // 两份文本文件：按顺序加入，文件卡是图标 + 文件名 + 大小 + ×
+      // 两份文本文件：按顺序加入，文件卡是类型方块 + 文件名 + 类型和大小 + ×
       await dragFiles(page, [{ name: "需求说明.md", text: "# 需求\n正文" }, { name: "页面说明.html", text: "<html><script>window.__ran = 1</script><body>页面</body></html>" }]);
       await page.waitForFunction(() => document.querySelectorAll(".att-tray .att-file.ready").length === 2);
-      expect(await page.locator(".att-tray .att-file .att-name").allInnerTexts()).toEqual(["需求说明.md", "页面说明.html"]);
-      expect(await page.locator(".att-tray .att-file").first().locator(".att-meta").innerText()).toMatch(/^\d+ B$/);
+      expect(await page.locator(".att-tray .att-file .att-name").allTextContents()).toEqual(["需求说明.md", "页面说明.html"]);
+      expect(await page.locator(".att-tray .att-file").first().locator(".att-meta").innerText()).toMatch(/^MD · \d+ B$/);
+      expect(await page.locator(".att-tray .att-file .att-type").allInnerTexts()).toEqual(["MD", "HTML"]);
       expect(await page.evaluate(() => (window as any).__ran)).toBeUndefined(); // HTML 只当文字，不执行
       expect(await page.locator(".att-count").innerText()).toBe("4 张图片 · 6/8 个附件");
       // 待发区最多两行，再多在区内滚动；输入框没有被挤出窗口
@@ -190,7 +193,7 @@ describe.skipIf(!browserAvailable)("消息附件界面", () => {
       expect(await page.locator(".att-tray .att").count()).toBe(5);
       expect(await page.evaluate(() => document.activeElement?.getAttribute("title"))).toBe("页面说明.html");
       await page.keyboard.press("Backspace");
-      expect(await page.locator(".att-tray .att-file .att-name").allInnerTexts()).toEqual(["需求说明.md"]);
+      expect(await page.locator(".att-tray .att-file .att-name").allTextContents()).toEqual(["需求说明.md"]);
       expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("TEXTAREA");
 
       // —— 发送：原来的发送按钮；只有受理后出现一条消息、清掉这次输入 ——
@@ -251,7 +254,7 @@ describe.skipIf(!browserAvailable)("消息附件界面", () => {
       expect(await page.locator(".att-tray").count()).toBe(0);
       await page.goto(`${base}/#/chat/lan`);
       await page.waitForSelector(".att-tray .att-file");
-      expect(await page.locator(".att-tray .att-name").innerText()).toBe("notes.txt");
+      expect(await page.locator(".att-tray .att-name").textContent()).toBe("notes.txt");
 
       // —— 断线、受理结果不明：输入原样保留并提示，只查原请求；确认未受理后才放开原发送按钮，再点只建一条消息 ——
       await page.locator(".composer textarea").fill("读一下这份笔记");

@@ -35,6 +35,8 @@ import { CollabItem, collabByItem, useCollabView } from "../components/collab.js
 import { botById, replyAfter } from "../lib/collab.js";
 import { addFiles, clearDraft, draftStore, droppedFiles, isFileDrag, newMessageId, notify as attachNotify, querySend, refresh as refreshAttachments, sendCheck, setSending, setUnknown, settleSent, submit as submitAttachments, useDraft } from "../lib/attachments.js";
 import { DropOverlay, ImageLightbox, SentAttachments } from "../components/attachments.js";
+import { WorkFolder } from "../components/work-folder.js";
+import { folderIdOf, refreshFolder, resetFolder, useFolder } from "../lib/folder.js";
 
 const NEAR_BOTTOM = 80;
 let seq = 0;
@@ -326,10 +328,10 @@ function usedSummaryNodes(items, name) {
  * 用户消息：界面按钮发给目录 Bot 的 "[ui-action] {json}" 不给人看 JSON（第 9 项），显示附带的说明，
  * 没有说明时显示"在界面上操作"。复制的仍是原文（Bot 按原文执行，内部上下文不丢）。
  */
-function userMessage(it, botId, ta, onLoad) {
+function userMessage(it, botId, ta, onLoad, canSave) {
   // 附件在正文气泡上方、同一组右对齐；只有附件时不造一个空的文字气泡
   if (it.attachments?.length) {
-    return html`<${SentAttachments} botId=${botId} list=${it.attachments} fallback=${ta} onLoad=${onLoad} />
+    return html`<${SentAttachments} botId=${botId} list=${it.attachments} fallback=${ta} onLoad=${onLoad} canSave=${canSave} />
       ${it.text && html`<div class="msg"><${Linkified} text=${it.text} /></div>`}
       ${it.text ? html`<${MsgActions} text=${it.text} at=${it.at} />` : html`<div class="msg-actions">${it.at && html`<span class="when num">${fmtClock(it.at)}</span>`}</div>`}`;
   }
@@ -443,6 +445,10 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
   const systemPerms = useStore(permissionState);
   // —— 附件：当前输入里的待发附件、拖入遮罩、带附件消息的发送（受理不明时只查原请求） ——
   const draft = useDraft(bot.id);
+  // 工作文件夹：选择变了要重新算「补充」能不能用（订阅它，变了就重新渲染）
+  const folder = useFolder(bot.id);
+  /** 能不能把输入并进进行中的那一轮：那一轮绑定的工作文件夹和现在选的一样才行（PRD R2） */
+  const steerOk = () => (following.current?.folder ?? folder.current?.id ?? "") === (folder.current?.id || "");
   const [dragging, setDragging] = useState(false);
   const dragState = useRef({ cancelled: false, last: 0 });
   const sendingAtt = useRef(false);
@@ -637,8 +643,9 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
    * 跟着一条消息走到结束：本页发出的（chat/stream）和接上的（chat/live）事件一样。返回最后的回复文字；
    * 切走了（组件卸载、事件流被断开）返回 null。liveId 是回复那一项，turn 是这条消息的几项共用的标记。
    */
-  const follow = async (liveId, turn, open) => {
-    const f = { ac: new AbortController(), local: false, turn };
+  const follow = async (liveId, turn, open, folder) => {
+    // folder：这一轮绑定的工作文件夹 id（本页发出的知道；接上的从 snapshot 里读）。选择变了之后不再提供「补充」
+    const f = { ac: new AbortController(), local: false, turn, folder };
     following.current = f;
     setGenerating(true);
     let finalText = "";
@@ -655,6 +662,7 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
         {
           snapshot: (d) => {
             finalText = d.text;
+            if (typeof d.folder === "string") f.folder = d.folder;
             patchLive(liveId, (it) => ({ ...it, text: d.text, interim: d.interim || [], files: d.files || [], activity: d.steps, startedAt: d.startedAt }));
             d.prompts.forEach(card);
             if (d.stopping && mounted.current) setStopping(true);
@@ -684,6 +692,8 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
       );
     } catch (e) {
       if (e.name !== "AbortError") finalText = "⚠️ " + e.message;
+      // 发送那一刻的工作文件夹和服务端的对不上（别的窗口刚换过）：没有受理；重新读一次选择，重试按钮照常可用
+      if (e.data?.code === "folderChanged") void refreshFolder(bot.id);
     }
     if (following.current === f) following.current = null;
     if (!mounted.current || (f.ac.signal.aborted && !f.local)) return null;
@@ -723,7 +733,7 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
     });
     reloadAfter.current = true;
     try {
-      await streamChat(bot.id, msg, {}, new AbortController().signal);
+      await streamChat(bot.id, msg, {}, new AbortController().signal, folderIdOf(bot.id));
     } catch (e) {
       failed(e);
     }
@@ -755,6 +765,8 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
       if (r.status === "started") {
         // 新对话不带上一段没发出的附件
         clearDraft(bot.id);
+        // 新对话不带入旧的工作文件夹
+        void resetFolder(bot.id);
         stick.current = true;
         setUnseen(false);
         setItems((l) => [...(l || []), { kind: "divider", id: `d${r.at}`, at: r.at, enter: true }]);
@@ -794,7 +806,7 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
     setSending(bot.id, true);
     const clientMessageId = newMessageId();
     try {
-      const r = await submitAttachments(bot.id, msg, clientMessageId);
+      const r = await submitAttachments(bot.id, msg, clientMessageId, folderIdOf(bot.id));
       if (!mounted.current) return;
       if (r.ok) return accepted(r.receipt, msg, r.cids);
       if (r.unknown) {
@@ -802,6 +814,8 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
         return;
       }
       attachNotify(bot.id, r.code);
+      // 工作文件夹的选择在别处变了：重新读一次，让人看清楚再发
+      if (r.code === "folderChanged") void refreshFolder(bot.id);
     } finally {
       sendingAtt.current = false;
       setSending(bot.id, false);
@@ -861,10 +875,10 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
     dragState.current = { cancelled: false, last: 0 };
     setDragging(false);
     if (cancelled) return;
-    const { files, hasDir } = droppedFiles(e.dataTransfer);
-    // 目录不展开、不递归：整批不加
-    if (hasDir || !files.length) return attachNotify(bot.id, hasDir ? "format" : "unreadable");
-    void addFiles(bot.id, files);
+    const { files, dirs } = droppedFiles(e.dataTransfer);
+    // 文件夹不加入、不展开（提示用上方的选择文件夹）；同一次拖进来的文件逐项照常核对
+    if (!files.length && !dirs.length) return attachNotify(bot.id, "unreadable");
+    void addFiles(bot.id, files, dirs);
     requestAnimationFrame(() => ta.current?.focus());
   };
   useEffect(() => {
@@ -900,7 +914,11 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
       }
       return newConversation();
     }
-    if (msg && (generating || following.current) && !msg.startsWith("/") && raw === undefined) return steer(msg);
+    if (msg && (generating || following.current) && !msg.startsWith("/") && raw === undefined) {
+      // 进行中的那一轮绑定的工作文件夹和现在选的不一样：不并进去（不让人以为补充会改用新目录），回复结束后再发
+      if (!steerOk()) return setHint({ text: t("folder.waitTurn"), ms: 4000 });
+      return steer(msg);
+    }
     // 正在回复时点「存成技能…」或发 /skill：排在这一轮后面，回复结束后再整理
     if (msg && (generating || following.current) && /^\/skill\b/i.test(msg)) {
       skillQueued.current = msg;
@@ -920,7 +938,9 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
     const isReset = /^\/reset\b/i.test(msg);
     if (isReset) setSamples([]);
     setItems((l) => [...(l || []), { kind: "msg", id: uid(), role: "user", text: msg, at: Date.now(), enter: true, turn: liveId }, { kind: "msg", id: liveId, role: "assistant", text: "", at: Date.now(), live: true, startedAt: Date.now(), turn: liveId }]);
-    const finalText = await follow(liveId, liveId, (h, signal) => streamChat(bot.id, msg, h, signal));
+    // 命令不绑定工作文件夹；其余的消息带上点发送那一刻的选择
+    const folder = msg.startsWith("/") ? undefined : folderIdOf(bot.id);
+    const finalText = await follow(liveId, liveId, (h, signal) => streamChat(bot.id, msg, h, signal, folder), folder ?? "");
     if (finalText === null) return;
     // 窗口不在前台时通知（设置 › 常规 › 回复完成时通知）
     if (finalText) notify(bot.name, isError(finalText) ? t("notify.replyError", { text: plainSnippet(errText(finalText)) }) : plainSnippet(finalText) || t("notify.replyDone"), `amb-reply-${bot.id}`);
@@ -1049,7 +1069,7 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
         const shown = it.permissionWait ? "" : it.role === "user" ? it.text : shownText(it);
         out.push(html`<div class=${`${cls}${it.id === lastAi ? " last" : ""}`} data-message-id=${it.mid} key=${it.id}>
           ${it.role === "user"
-            ? userMessage(it, bot.id, ta, onMedia)
+            ? userMessage(it, bot.id, ta, onMedia, canOpen)
             : html`${co.before.has(it.id) && html`<div class="collab-lines">${coItems(co.before.get(it.id))}</div>`}
               ${(it.live || it.workedMs || it.steps) && html`<${WorkLine} live=${it.live} stopping=${it.live && stopping} text=${it.text} startedAt=${it.startedAt} workedMs=${it.workedMs}
                 steps=${it.activity} count=${it.steps} used=${it.used} botId=${bot.id} load=${it.mid ? loadActivity(it.mid) : undefined} />`}
@@ -1164,7 +1184,8 @@ export function ChatScreen({ bot, models, modelsError, reloadModels, defaultMode
     ${dragging && html`<${DropOverlay} limits=${draft.server?.limits} />`}
     <${ImageLightbox} />
     <div class="composer-dock">
-      <${Composer} bot=${bot} text=${text} setText=${setText} taRef=${ta} ctl=${composer} guide steer onNewConversation=${newConversation} attachments dragging=${dragging}
+      <${WorkFolder} botId=${bot.id} />
+      <${Composer} bot=${bot} text=${text} setText=${setText} taRef=${ta} ctl=${composer} guide steer=${steerOk()} onNewConversation=${newConversation} attachments dragging=${dragging}
         placeholder=${t("chat.composer.placeholder", { name: bot.name })} label=${t("chat.composer.label")}
         generating=${generating} stopping=${stopping} sent=${sentOnce.current} onSend=${send} onStop=${stop}
         models=${models} modelsError=${modelsError} reloadModels=${reloadModels} defaultModel=${defaultModel} account=${account} onAccount=${onAccount}

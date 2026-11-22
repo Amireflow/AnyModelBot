@@ -4,6 +4,17 @@
 
 Aqui estão as mudanças que você vai notar no app. Para versões mais antigas, veja as [versões no GitHub](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.46 - 2026-11-22
+
+### Novidades
+
+- **Pasta de trabalho:** no app de desktop, escolha uma pasta acima da caixa de mensagem e o bot trabalha nos arquivos onde eles estão, sem arrastá-los um a um. Com acesso ao espaço de trabalho, o bot pode editar os arquivos dessa pasta sem pedir permissão a cada vez; gravar em qualquer outro lugar continua precisando da sua aprovação. Cada mensagem mantém a pasta escolhida no envio: trocar de pasta enquanto ela está na fila ou aguardando aprovação não a redireciona, e as tarefas em segundo plano iniciadas a partir dela trabalham na mesma pasta. Suas 10 pastas mais recentes ficam a um clique; não é possível escolher a pasta de dados do app, a raiz de um disco nem a sua pasta pessoal em si. O console web mostra a pasta escolhida, mas a escolha ou troca é feita no app de desktop do computador onde o bot roda.
+- **Anexos ZIP:** arraste um ZIP (até 50 MiB) para a conversa e envie com imagens e arquivos, ou sozinho. O bot só olha dentro ou extrai depois que você disser o que fazer, no próprio espaço de trabalho por padrão ou na pasta de trabalho se você pedir, e nunca executa nada dele por conta própria. ZIPs criptografados ou divididos, com caminhos inseguros ou que ao extrair passam de 200 MiB ou 2.000 itens são recusados com o motivo. Clique em um ZIP enviado para salvar o arquivo original. Requer o modo agente.
+
+### Melhorias e correções
+
+- **Anexos:** ao arrastar vários arquivos, os que podem ser adicionados entram e os demais aparecem em uma linha com o motivo, em vez de recusar o lote inteiro. Os cartões de arquivo mostram o tipo e mantêm a extensão visível em nomes longos.
+
 ## 0.1.45 - 2026-11-22
 
 ### Melhorias e correções

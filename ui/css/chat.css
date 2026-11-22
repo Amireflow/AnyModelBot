@@ -574,7 +574,9 @@ button.task-origin:hover { color: var(--fg); }
 .chat, .composer, .att-lightbox {
   --att-thumb-h: 72px;       /* 缩略图的高（待发和已发一样） */
   --att-thumb-max: 128px;    /* 缩略图最宽 */
-  --att-file-w: 220px;       /* 文件卡最宽 */
+  --att-file-w: 236px;       /* 文件卡的宽（待发和已发一样宽，排起来整齐） */
+  --att-file-h: 56px;        /* 文件卡的高：两行字 + 上下留白，比图片缩略图矮一档 */
+  --att-type: 36px;          /* 文件卡左边的类型方块 */
   --att-x: 20px;             /* 移除钮 */
   --att-pop-edge: 24px;      /* 放大预览里图片离面板边 */
   --att-pop-top: 48px;       /* 放大预览顶部留给关闭钮的一条 */
@@ -582,7 +584,7 @@ button.task-origin:hover { color: var(--fg); }
 .folder-denied { margin-top: var(--space-2); }
 /* 待发区：按加入顺序排，窄了换行；最多两行，再多在区内滚动，不挤掉文字、模型和发送 */
 .att-tray {
-  display: flex; flex-wrap: wrap; align-content: flex-start; gap: var(--space-2-5);
+  display: flex; flex-wrap: wrap; align-content: flex-start; align-items: center; gap: var(--space-2-5);
   padding: var(--space-4) var(--space-4) 0; max-height: calc(var(--att-thumb-h) * 2 + var(--space-2-5) + var(--space-4) + var(--space-2));
   overflow-y: auto; overscroll-behavior: contain;
 }
@@ -594,23 +596,34 @@ button.task-origin:hover { color: var(--fg); }
 .att-open { justify-content: center; height: var(--att-thumb-h); min-width: var(--att-thumb-h); max-width: var(--att-thumb-max); overflow: hidden; cursor: zoom-in; color: var(--muted); }
 .att-open[aria-disabled="true"] { cursor: default; }
 .att-open img { display: block; height: var(--att-thumb-h); width: auto; max-width: var(--att-thumb-max); object-fit: cover; }
-.att-card { gap: var(--space-2-5); height: var(--att-thumb-h); max-width: var(--att-file-w); padding: 0 var(--space-6) 0 var(--space-3); }
-.att-card .ic { flex: none; color: var(--muted); }
-.att-text { display: grid; gap: var(--space-0-5); min-width: 0; }
-.att-name { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 文件卡：左边灰底的类型方块，右边两行（文件名、类型和大小）；待发、已发同宽同高 */
+.att-card { gap: var(--space-3); width: var(--att-file-w); max-width: 100%; height: var(--att-file-h); padding: 0 var(--space-3) 0 var(--space-2-5); }
+.att-type {
+  flex: none; display: grid; place-items: center; width: var(--att-type); height: var(--att-type); border-radius: var(--r-item-sm);
+  background: var(--pill-hover); color: var(--fg-2);
+}
+.att-type .tag { font-size: var(--fs-2xs); font-weight: var(--fw-semibold); line-height: 1; }
+.att-type .ic { --ic-size: var(--ic-sm); }
+.att-text { display: grid; gap: var(--space-0-5); flex: 1; min-width: 0; }
+/* 文件名：太长时只省略前面那段，扩展名一直看得见 */
+.att-name { display: flex; min-width: 0; font-size: var(--fs-sm); line-height: var(--lh-tight); white-space: nowrap; }
+.att-name .stem { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.att-name .ext { flex: none; }
 .att-meta { font-size: var(--fs-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 文件名省略后，聚焦时能看全名 */
-.att-card:focus-visible { height: auto; min-height: var(--att-thumb-h); padding-block: var(--space-2); }
+.att-card:focus-visible { height: auto; min-height: var(--att-file-h); padding-block: var(--space-2); }
 .att-card:focus-visible .att-name { white-space: normal; overflow-wrap: anywhere; }
+.att-card:focus-visible .att-name .stem { overflow: visible; }
 :is(.att-open, .att-card):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }   /* 微调：聚焦环离卡片 2 */
 .att.failed :is(.att-open, .att-card), .att.expired :is(.att-open, .att-card) { color: var(--muted); }
 .att.failed .att-meta, .att.expired .att-meta { color: var(--fg-2); }
+.att.failed .att-type, .att.expired .att-type { background: var(--pill); color: var(--fg-2); }
+.att.processing .att-type { background: var(--pill); }
 .att-x {
   position: absolute; top: calc(var(--space-1) * -1); right: calc(var(--space-1) * -1); width: var(--att-x); height: var(--att-x);
   display: grid; place-items: center; border: 0; padding: 0; border-radius: 50%; cursor: pointer;
   background: var(--surface-solid); color: var(--fg-2); box-shadow: 0 0 0 var(--hairline) var(--line-strong);   /* 描边：移除钮压在缩略图角上，要一道边才分得出 */
 }
-.att-file .att-x { top: var(--space-1); right: var(--space-1); background: transparent; box-shadow: none; }
 .att-x:hover { color: var(--fg); background: var(--pill-hover); }
 .att-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }   /* 微调：聚焦环离移除钮 1 */
 /* 窄窗时先让计数收起，不挤掉模型和发送 */
@@ -622,10 +635,20 @@ button.task-origin:hover { color: var(--fg); }
   overflow-wrap: anywhere; animation: fade-in var(--dur-base) var(--ease-out);
 }
 /* 已发消息：附件组在正文气泡上方，整组右对齐，按添加顺序从左到右、再换行 */
-.msg-atts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2-5); max-width: 100%; }
+.msg-atts { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2-5); max-width: 100%; }
 .msg-atts + .msg { margin-top: var(--space-2); }
 .msg-atts .att-open { cursor: zoom-in; }
-.msg-atts .att-card { padding-right: var(--space-4); }
+/* 已发的 ZIP：整张卡是一个按钮，点了保存原文件；悬停时右边出现下载图标 */
+.att-save { cursor: pointer; transition: background var(--t-fast); }
+.att-save:hover { background: linear-gradient(var(--pill), var(--pill)), var(--surface-solid); }
+.att-save:active { background: linear-gradient(var(--pill-hover), var(--pill-hover)), var(--surface-solid); }
+/* 悬停时类型方块里的字换成下载图标（不另占位置，文件名不被挤短） */
+.att-save .att-type { position: relative; }
+.att-save-ic { position: absolute; inset: 0; margin: auto; opacity: 0; transition: opacity var(--t-fast); }
+.att-save .att-type .tag { transition: opacity var(--t-fast); }
+.att-save:is(:hover, :focus-visible) .att-save-ic { opacity: 1; }
+.att-save:is(:hover, :focus-visible) .att-type .tag { opacity: 0; }
+.att.expired .att-save { cursor: default; }
 /* 拖入真实文件时的一层遮罩：盖住对话主区，不接收指针（投放落在主区上） */
 .att-drop {
   position: absolute; z-index: var(--z-float); inset: var(--space-3); display: grid; place-items: center; pointer-events: none;
@@ -638,6 +661,33 @@ button.task-origin:hover { color: var(--fg); }
 .att-drop-badge { padding: var(--space-2) var(--space-5); border-radius: var(--r-card); background: var(--pill-hover); font-weight: var(--fw-semibold); margin-bottom: var(--space-3); }
 .att-drop-sub { font-size: var(--fs-sm); color: var(--muted); }
 .chat.dropping .composer-dock { z-index: calc(var(--z-float) + 1); }
+
+/* —— 输入框上方的工作文件夹（components/work-folder.js）：左侧一个胶囊，和输入框左边对齐；不占附件名额 —— */
+.folder-row {
+  --folder-row-h: calc(var(--ctl-md) + var(--space-2));
+  pointer-events: auto; width: var(--col, auto); margin: 0 auto; height: var(--folder-row-h);
+  display: flex; align-items: flex-start; padding-left: var(--space-2);
+}
+.folder-chip {
+  display: inline-flex; align-items: center; gap: var(--space-1-5); height: var(--ctl-md); max-width: min(320px, 100%); min-width: 0;
+  padding: 0 calc(var(--ctl-px-md) - var(--ctl-trail)) 0 var(--ctl-px-sm); border: 0; border-radius: var(--r-ctl);
+  background: transparent; color: var(--ctl-fg); font: inherit; font-size: var(--fs-sm); cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.folder-chip .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.folder-chip .ic { flex: none; --ic-size: var(--ic-xs); transition: transform var(--t-fast); }
+.folder-chip .ic.lead { --ic-size: var(--ic-sm); }
+.folder-chip:hover:not(:disabled) { background: var(--pill); color: var(--fg); }
+.folder-chip[aria-expanded="true"] { background: var(--pill-hover); color: var(--fg); }
+.folder-chip[aria-expanded="true"] .ic:last-child { transform: rotate(180deg); }
+.folder-chip.on { color: var(--fg); }
+.folder-chip.gone .ic.lead { color: var(--amber, var(--fg-2)); }
+.folder-chip:disabled { cursor: default; opacity: 0.7; }
+.folder-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }   /* 微调：聚焦环离胶囊 1 */
+.folder-hint { margin: 0; padding: var(--space-1) 0; font-size: var(--fs-xs); color: var(--muted); line-height: var(--lh-normal); white-space: normal; }
+/* 有工作文件夹这一行时，输入框上方的提示浮在它上面，不盖住选择位 */
+.folder-row + .composer { --folder-row-h: calc(var(--ctl-md) + var(--space-2)); }
+.folder-row + .composer .composer-note { bottom: calc(100% + var(--folder-row-h) + var(--space-1)); }
 /* 图片放大预览：当前窗口里的居中遮罩，最大约 90% 窗口；适应显示（小图不放大），双击或回车在适应和 100% 之间切换 */
 .att-lightbox {
   position: fixed; z-index: var(--z-modal); inset: 0; display: grid; place-items: center; padding: var(--space-4);

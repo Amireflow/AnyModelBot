@@ -4,6 +4,17 @@
 
 This covers changes you'll notice in the app. For older versions, see the [GitHub releases](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.46 - 2026-11-22
+
+### New
+
+- **Work folder:** in the desktop app, choose a folder above the message box and the bot works on the files right where they are, without dragging them in one by one. With Workspace access the bot can edit files in that folder without asking each time; writing anywhere else still needs your approval. Each message keeps the folder chosen when it was sent, so switching folders while it is queued or waiting for approval never redirects it, and background tasks started from it work in the same folder. Your 10 most recent folders are one click away; the app's data folder, a disk root and your home folder itself can't be chosen. The web console shows the chosen folder, but you choose or change it in the desktop app on the bot's machine.
+- **ZIP attachments:** drag a ZIP (up to 50 MiB) into a chat and send it with images and files, or on its own. The bot only looks inside or extracts it after you say what to do, into its own workspace by default or into the work folder if you ask, and never runs anything from it on its own. Encrypted or split ZIPs, unsafe paths and archives that expand beyond 200 MiB or 2,000 entries are refused with the reason. Click a sent ZIP to save the original file. Needs agent mode.
+
+### Improvements and fixes
+
+- **Attachments:** when you drag in several files, the ones that can be added are added and the rest are listed in one line with the reason, instead of the whole batch being rejected. File cards show the file type and keep the extension visible on long names.
+
 ## 0.1.45 - 2026-11-22
 
 ### Improvements and fixes

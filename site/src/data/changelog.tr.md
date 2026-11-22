@@ -4,6 +4,17 @@
 
 Uygulamada fark edeceğin değişiklikler burada. Daha eski sürümler için [GitHub sürümlerine](https://github.com/modelflare-ai/AnyModelBot/releases) bak.
 
+## 0.1.46 - 2026-11-22
+
+### Yenilikler
+
+- **Çalışma klasörü:** masaüstü uygulamasında mesaj kutusunun üstünden bir klasör seçin; bot dosyalarla oldukları yerde çalışır, onları tek tek sürüklemeniz gerekmez. Çalışma alanı erişimiyle bot bu klasördeki dosyaları her seferinde sormadan düzenleyebilir; başka bir yere yazmak yine onayınızı gerektirir. Her mesaj gönderildiğinde seçili olan klasörle işlenir: mesaj sıradayken veya onay beklerken klasörü değiştirseniz de başka bir yere yönelmez; ondan başlatılan arka plan görevleri de aynı klasörde çalışır. Son kullandığınız 10 klasör tek tıkla seçilebilir; uygulamanın veri klasörü, bir diskin kökü ve ana klasörünüzün kendisi seçilemez. Web konsolu seçili klasörü gösterir; seçmek veya değiştirmek için botun çalıştığı bilgisayardaki masaüstü uygulamasını kullanın.
+- **ZIP ekleri:** bir ZIP'i (en fazla 50 MiB) sohbete sürükleyin; görseller ve dosyalarla birlikte ya da tek başına gönderin. Bot içine bakmayı veya açmayı ancak ne yapılacağını söyledikten sonra yapar: varsayılan olarak kendi çalışma alanına, isterseniz çalışma klasörüne açar ve içindekileri kendi başına çalıştırmaz. Şifreli veya bölünmüş ZIP'ler, güvenli olmayan yollar içerenler ve açıldığında 200 MiB'ı ya da 2.000 öğeyi aşanlar nedeni belirtilerek reddedilir. Orijinal dosyayı kaydetmek için gönderilmiş bir ZIP'e tıklayın. Ajan modu gerekir.
+
+### İyileştirmeler ve düzeltmeler
+
+- **Ekler:** birkaç dosyayı birlikte sürüklediğinizde eklenebilenler eklenir, eklenemeyenler nedenleriyle tek satırda listelenir; artık tüm grup reddedilmez. Dosya kartları dosya türünü gösterir ve uzun adlarda uzantıyı görünür tutar.
+
 ## 0.1.45 - 2026-11-22
 
 ### İyileştirmeler ve düzeltmeler

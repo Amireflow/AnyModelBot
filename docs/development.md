@@ -211,6 +211,7 @@ docker exec amb cat /data/ui-token     # 打开 http://<主机>:3600/?token=<令
 - **只读**：不能改文件，命令在只读沙箱里运行。
 - **完全权限**：给熟悉风险、嫌审批太多的用户。命令**不经沙箱**，以你的用户身份直接运行，越界操作不再请求批准——它可以读取和修改你电脑上的任何文件，包括 AnyModelBot 自己的数据目录（数据库、渠道令牌、密钥）。只有**递归删除**仍会先问你（同一套审批：微信回复编号、飞书 / 网页卡片）：`rm -r` / `-rf` / `--recursive`（含 `sudo`、`xargs`、`sh -c` 里的）、`find -delete`、`git clean`、`rsync --delete`，PowerShell 的 `Remove-Item` / `rm` / `del` / `rd` / `rmdir` 加 `-Recurse`（及其缩写），cmd 的 `rd /s`、`del /s`，`robocopy /MIR`，以及 Python `shutil.rmtree`、Node `fs.rm(…, { recursive })` 等常见写法；命令里点名的脚本文件也会检查。选它时界面会先弹出确认，权限胶囊和设置页用红色标出。
   - 这是防误删的保险，不是安全边界：检查的是命令文字，运行时才拼出来的命令（`eval "$(…)"`、`curl … | sh`）和 `make clean`、`npm run clean` 这类构建脚本看不到；拿不准时宁可多问。只在你信任当前模型和任务时开启。
+- **工作文件夹**（桌面版，输入框上方）：每条消息绑定发送时选的文件夹，这一轮里它是代理的工作目录和唯一的可写位置（`amb-workfolder` 插件改写沙箱策略的工作区根，文件工具和 Linux bubblewrap、macOS Seatbelt、Windows ACL 的命令沙箱都按它），默认工作区在这一轮只读；不选时回到默认工作区。数据目录及其上层、磁盘根、主目录本身不能选。ZIP 附件只经 `zip_list` / `zip_extract` 由宿主查看和安全解压（`src/attachments/unzip.ts`：只认 Stored / Deflate，拒绝加密、分卷、越界路径、链接和超限），默认解到工作区的 `extracted/`，随附件到期回收。Windows 上 DSH 的命令沙箱会给用作可写根的文件夹加一条常驻的写权限 ACE。
 
 ## 谁能使用机器人
 

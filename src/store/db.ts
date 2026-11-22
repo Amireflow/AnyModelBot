@@ -344,6 +344,8 @@ export interface TaskRow {
   handoffId: string;
   /** 每次运行最长多久；0 = 任务的默认上限（4 小时） */
   capMs: number;
+  /** 继承的工作文件夹（真实路径）；空 = 在工作区里的任务文件夹做。清理任务文件夹时从不碰它 */
+  root: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -703,6 +705,8 @@ const COLUMNS: Array<[string, string, string]> = [
   // 机器人之间发消息（collab/）：别的机器人发来的这件事（handoffs.id）；这件事每次运行最长多久（0 = 任务的默认上限）
   ["tasks", "handoff_id", "TEXT NOT NULL DEFAULT ''"],
   ["tasks", "cap_ms", "INTEGER NOT NULL DEFAULT 0"],
+  // 工作文件夹（PRD R2「派生工作」）：从绑定了工作文件夹的聊天里开始的任务，在那个文件夹里做；空 = 任务文件夹
+  ["tasks", "root", "TEXT NOT NULL DEFAULT ''"],
 ];
 
 export class Store {
@@ -1636,17 +1640,18 @@ export class Store {
       cleanupAt: Number(r.cleanup_at ?? 0),
       handoffId: String(r.handoff_id ?? ""),
       capMs: Number(r.cap_ms ?? 0),
+      root: String(r.root ?? ""),
       createdAt: Number(r.created_at),
       updatedAt: Number(r.updated_at),
     };
   }
-  insertTask(t: Omit<TaskRow, "spentUsd" | "report" | "endedAt" | "endReason" | "stoppedBy" | "anytime" | "cleanupAt" | "handoffId" | "capMs"> & { anytime?: boolean; handoffId?: string; capMs?: number }): TaskRow {
+  insertTask(t: Omit<TaskRow, "spentUsd" | "report" | "endedAt" | "endReason" | "stoppedBy" | "anytime" | "cleanupAt" | "handoffId" | "capMs" | "root"> & { anytime?: boolean; handoffId?: string; capMs?: number; root?: string }): TaskRow {
     this.db
       .prepare(
-        `INSERT INTO tasks(id, bot_id, conversation_id, origin_message_id, origin_ref, title, brief, session_id, folder, model, permission, budget_usd, anytime, handoff_id, cap_ms, created_at, updated_at)
-         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks(id, bot_id, conversation_id, origin_message_id, origin_ref, title, brief, session_id, folder, model, permission, budget_usd, anytime, handoff_id, cap_ms, root, created_at, updated_at)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(t.id, t.botId, t.conversationId, t.originMessageId, t.originRef, t.title, t.brief, t.sessionId, t.folder, t.model, t.permission, t.budgetUsd, t.anytime ? 1 : 0, t.handoffId ?? "", t.capMs ?? 0, t.createdAt, t.updatedAt);
+      .run(t.id, t.botId, t.conversationId, t.originMessageId, t.originRef, t.title, t.brief, t.sessionId, t.folder, t.model, t.permission, t.budgetUsd, t.anytime ? 1 : 0, t.handoffId ?? "", t.capMs ?? 0, t.root ?? "", t.createdAt, t.updatedAt);
     return this.getTask(t.id)!;
   }
   getTask(id: string): TaskRow | undefined {

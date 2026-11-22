@@ -4,6 +4,17 @@
 
 Aquí se recogen los cambios que notarás en la app. Para versiones anteriores, consulta las [versiones publicadas en GitHub](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.46 - 2026-11-22
+
+### Novedades
+
+- **Carpeta de trabajo:** en la app de escritorio, elige una carpeta encima del cuadro de mensaje y el bot trabaja con los archivos donde están, sin arrastrarlos uno a uno. Con acceso de espacio de trabajo, el bot puede editar los archivos de esa carpeta sin pedir permiso cada vez; escribir en cualquier otro lugar sigue necesitando tu aprobación. Cada mensaje conserva la carpeta elegida al enviarlo: cambiar de carpeta mientras espera en cola o una aprobación no lo redirige, y las tareas en segundo plano que empiezan desde él trabajan en la misma carpeta. Tus 10 carpetas más recientes están a un clic; no se pueden elegir la carpeta de datos de la app, la raíz de un disco ni tu carpeta personal en sí. La consola web muestra la carpeta elegida, pero se elige o cambia en la app de escritorio del equipo donde se ejecuta el bot.
+- **Adjuntos ZIP:** arrastra un ZIP (hasta 50 MiB) al chat y envíalo con imágenes y archivos, o solo. El bot solo mira dentro o lo extrae después de que digas qué hacer, en su propio espacio de trabajo por defecto o en la carpeta de trabajo si lo pides, y nunca ejecuta nada de él por su cuenta. Los ZIP cifrados o divididos, con rutas no seguras o que al extraerse superan 200 MiB o 2.000 entradas se rechazan indicando el motivo. Haz clic en un ZIP enviado para guardar el archivo original. Requiere el modo agente.
+
+### Mejoras y correcciones
+
+- **Adjuntos:** al arrastrar varios archivos, se añaden los que se pueden y los demás aparecen en una línea con el motivo, en lugar de rechazar todo el lote. Las tarjetas de archivo muestran el tipo y mantienen visible la extensión en nombres largos.
+
 ## 0.1.45 - 2026-11-22
 
 ### Mejoras y correcciones

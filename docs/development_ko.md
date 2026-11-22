@@ -191,6 +191,7 @@ docker exec amb cat /data/ui-token     # http://<host>:3600/?token=<token> 열�
 - **읽기 전용:** 파일을 바꾸지 않으며 명령도 읽기 전용 샌드박스에서 실행합니다.
 - **전체 접근:** 위험을 이해하고 잦은 승인이 불편한 사용자를 위한 설정입니다. **샌드박스 없이** 내 사용자 권한으로 실행하고 외부 작업도 묻지 않습니다. DB·채널 토큰·키 등 AnyModelBot 데이터 폴더를 포함한 모든 파일을 읽고 바꿀 수 있습니다. **재귀 삭제**만 기존 승인 흐름(WeChat 번호 응답, Feishu·웹 카드)으로 확인합니다. 대상은 `rm -r`/`-rf`/`--recursive`(`sudo`, `xargs`, `sh -c` 내부 포함), `find -delete`, `git clean`, `rsync --delete`, PowerShell `Remove-Item`/`rm`/`del`/`rd`/`rmdir`의 `-Recurse` 및 축약, cmd `rd /s`, `del /s`, `robocopy /MIR`, Python `shutil.rmtree`, Node `fs.rm(…, { recursive })` 등이며 명령이 참조하는 스크립트 파일도 검사합니다. 선택 전 확인하며 버튼·설정에 빨간색으로 표시합니다.
   - 이는 실수 삭제 방지 장치이며 보안 경계가 아닙니다. 명령 텍스트를 검사하므로 실행 중 조합한 명령(`eval "$(…)"`, `curl … | sh`)이나 `make clean`, `npm run clean` 같은 빌드 스크립트의 내부 동작은 알 수 없습니다. 불확실하면 확인합니다. 현재 모델과 작업을 신뢰할 때만 켜세요.
+- **작업 폴더**(데스크톱 앱, 입력창 위): 각 메시지는 보낼 때 고른 폴더에 묶입니다. 그 턴에서는 이 폴더가 에이전트의 작업 디렉터리이자 유일하게 쓸 수 있는 곳입니다(`amb-workfolder` 플러그인이 샌드박스 정책의 작업 공간 루트를 바꾸며, 파일 도구와 Linux bubblewrap, macOS Seatbelt, Windows ACL 명령 샌드박스가 모두 이를 따릅니다). 그 턴 동안 기본 작업 공간은 읽기 전용입니다. 폴더를 고르지 않으면 기본 작업 공간을 씁니다. 데이터 폴더와 그 상위 폴더, 디스크 루트, 홈 폴더 자체는 고를 수 없습니다. ZIP 첨부는 호스트가 `zip_list` / `zip_extract`로만 목록을 보고 안전하게 풉니다(`src/attachments/unzip.ts`: Stored / Deflate만 지원하며 암호화, 분할, 경로 이탈, 링크, 한도 초과는 거부). 기본으로 작업 공간의 `extracted/`에 풀고, 첨부가 만료되면 함께 지웁니다. Windows에서는 쓰기 가능한 루트로 쓴 폴더마다 DSH 명령 샌드박스가 상시 쓰기 ACE를 추가합니다.
 
 ## 봇을 사용할 수 있는 사람
 

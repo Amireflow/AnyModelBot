@@ -1,5 +1,6 @@
 /** 用户随消息发的附件在消息上的引用（存在 messages.attachments 列；内容在受管副本里，见 attachments/service.ts）。 */
-export type AttachmentKind = "image" | "text";
+/** image 图片 · text 文本文件（全文交给模型）· zip ZIP 压缩包（只交引用，按指令由文件工具处理，见 attachments/unzip.ts） */
+export type AttachmentKind = "image" | "text" | "zip";
 
 export interface MessageAttachment {
   /** 不可猜的附件 id */

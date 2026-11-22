@@ -33,6 +33,7 @@ import { aboutMeRoutes } from "./routes/about-me.js";
 import { collabRoutes } from "./routes/collab.js";
 import { chatRoutes } from "./routes/chat.js";
 import { attachmentsRoutes, isAttachmentUpload } from "./routes/attachments.js";
+import { foldersRoutes } from "./routes/folders.js";
 import { botsRoutes } from "./routes/bots.js";
 import { skillInstallsRoutes } from "./routes/skill-installs.js";
 import { mySkillsRoutes } from "./routes/my-skills.js";
@@ -268,7 +269,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
     publicGroup,
     groupMembers,
   };
-  const routes: Route[] = [systemRoutes(ctx), modelsRoutes(ctx), accountRoutes(ctx), feedbackRoutes(ctx), settingsRoutes(ctx), aboutMeRoutes(ctx), collabRoutes(ctx), computerRoutes(ctx), channelsRoutes(ctx), connectionsRoutes(ctx), appsRoutes(ctx), tasksRoutes(ctx), routinesRoutes(ctx), chatRoutes(ctx, filePreviews), attachmentsRoutes(ctx), botsRoutes(ctx, filePreviews), skillInstallsRoutes(ctx), mySkillsRoutes(ctx)];
+  const routes: Route[] = [systemRoutes(ctx), modelsRoutes(ctx), accountRoutes(ctx), feedbackRoutes(ctx), settingsRoutes(ctx), aboutMeRoutes(ctx), collabRoutes(ctx), computerRoutes(ctx), channelsRoutes(ctx), connectionsRoutes(ctx), appsRoutes(ctx), tasksRoutes(ctx), routinesRoutes(ctx), chatRoutes(ctx, filePreviews), attachmentsRoutes(ctx), foldersRoutes(ctx), botsRoutes(ctx, filePreviews), skillInstallsRoutes(ctx), mySkillsRoutes(ctx)];
 
   async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
     const p = url.pathname.slice("/amb/api".length);

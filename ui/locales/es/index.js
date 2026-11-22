@@ -42,7 +42,8 @@ import tasks from "./tasks.js";
 import time from "./time.js";
 import troubleshoot from "./troubleshoot.js";
 import ui from "./ui.js";
-export default { attach, routines, routineLibrary, aboutMe, collab, feedback, skills, mySkills, skillItems, templates, scheduled, welcome, apps, firstUse, updates, search,
+import folder from "./folder.js";
+export default { folder, attach, routines, routineLibrary, aboutMe, collab, feedback, skills, mySkills, skillItems, templates, scheduled, welcome, apps, firstUse, updates, search,
   official,
   access,
   account,

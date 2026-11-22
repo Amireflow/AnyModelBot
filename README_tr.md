@@ -60,7 +60,7 @@ Sohbetler, bellek, dosyalar ve API anahtarları cihazında kalır. Modeller [Mod
 
 Kurulumdan sonra kullanıma hazır: arka plan görevleri, zamanlanmış kurallar ve onayını bekleyen öğeler yerleşiktir.
 
-**0.1.45:** Linux'ta bir botun çalıştırdığı komutlar yalnızca bubblewrap sanal alanında çalışır, kullanılamadığında nedeni belirtilerek reddedilir; komut satırı sürümünün (`npm start`) yerel konsolu da artık erişim belirteci ister ve terminal başlangıçta belirteçli bir adres yazdırır. [Değişiklik günlüğü](./CHANGELOG_tr.md#0145---2026-11-22)
+**0.1.46:** masaüstü uygulamasında mesaj kutusunun üstünden bir çalışma klasörü seçin, bot dosyalarla yerinde çalışsın; bir ZIP'i sohbete sürükleyin, istediğinizde bot onu güvenle açsın. [Değişiklik günlüğü](./CHANGELOG_tr.md#0146---2026-11-22)
 
 📥 [İndir](#-paketi-indir-ve-çalıştır) · 🌠 [Ekran görüntüleri](#-ekran-görüntüleri) · 🌟 [Özellikler](#-temel-özellikler) · 🆚 [Karşılaştır](#-anymodelbot-vs-grok-bot-openai-dots-ve-claude-duet) · 🔐 [Gizlilik](#-nasıl-çalışır-ve-gizlilik)
 
@@ -201,6 +201,7 @@ Bir bot bir sohbet penceresinden fazlasıdır: bir kişiliği, bir varsayılan m
 - **Grup sohbetleri.** Bir grup oluştur ve birkaç bot ekle. Kimi @lersen o yanıtlar; @ yoksa son yanıtlayan bot sürdürür. Botlar devretmek için başka bir üyeyi de @leyebilir. Her bot kendi modelini, çalışma alanını ve belleğini korur ve maliyetler bot başına izlenir.
 - **Birbirine mesaj atan botlar.** Uygulamada bir bota “bunu B'ye ver” de: B kendi modeli, izinleri ve bütçesiyle arka planda çalışır ve bitince yanıtlar; ilk bot sonucu sana söylemeden önce denetler. B onayları aynı sohbette kendi adıyla ister ve konuşmalarını istediğin zaman okuyabilirsin. Modelflare'de oturum açmak gerekir ve iki bot da Modelflare modellerinde olmalıdır.
 - **Sohbet geçmişinde ara.** Kenar çubuğundan cihazında kayıtlı tüm mesajlarda ara, bota, sohbete, kanala veya tarihe göre süz ve özgün mesaja atla. `Ctrl/Cmd+Shift+F` genel aramayı açar; `Ctrl/Cmd+F` geçerli sohbeti arar. Aramalar bir model çağırmaz. Yazmadan önce arama iletişim kutusu son sohbetleri tarihe göre listeler.
+- **Çalışma klasörleri ve ZIP.** Masaüstü uygulamasında mesaj kutusunun üstünden bir klasör seçin; bot dosyaları yerinde okur ve düzenler (çalışma alanı erişimiyle bu klasördeki değişiklikler her seferinde onay istemez). Bir ZIP'i sohbete sürükleyin; ne yapılacağını söyleyince bot onu güvenle açar.
 - **Eğik çizgi komutları** olan `/model` ve `/reset` uygulamada ve her sohbet kanalında çalışır. Bir sohbet kanalında `/bot` başka bir bota geçer.
 
 <p align="center">

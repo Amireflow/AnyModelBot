@@ -1,9 +1,12 @@
 // 消息附件的界面：输入框里的待发区（图片只有缩略图、文件是浅白圆角卡，右上角各一个移除 ×）、已发消息里的附件组、
 // 拖入文件时的遮罩，以及待发和已发图片共用的窗口内放大预览。沿用现有的灰色组件，不新增配色。
+// 文件卡（待发和已发同一个样子）：左边一块灰底的类型方块（ZIP、MD、CSV…；上传中转圈、失败是警示图标），右边两行——
+// 文件名（太长时中间省略，扩展名一直看得见）、类型和大小（失败时是原因）。已发的 ZIP 点一下保存原文件到这台电脑。
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { html, Icon, Spinner } from "./ui.js";
 import { createStore, toast, useStore } from "../lib/store.js";
 import { fmtSize } from "../lib/format.js";
+import { api, ApiError } from "../lib/api.js";
 import { reasonText, removeItem, sentImageUrl } from "../lib/attachments.js";
 import { t } from "../lib/i18n.js";
 
@@ -140,11 +143,34 @@ export function ImageLightbox() {
 function withSerial(items) {
   const seen = new Map();
   return items.map((a) => {
-    if (a.kind !== "text") return a;
+    if (a.kind === "image") return a;
     const n = (seen.get(a.name) || 0) + 1;
     seen.set(a.name, n);
-    return n > 1 ? { ...a, label: `${a.name} (${n})` } : { ...a, label: a.name };
+    return n > 1 ? { ...a, label: `${a.name} (${n})`, serial: n } : { ...a, label: a.name };
   });
+}
+
+/** 文件名拆成「前面一段 + 扩展名」：太长时只省略前面那段，扩展名一直看得见 */
+function splitName(name) {
+  const i = name.lastIndexOf(".");
+  return i > 0 && name.length - i <= 9 ? [name.slice(0, i), name.slice(i)] : [name, ""];
+}
+/** 类型方块上的字：扩展名大写，最多 4 个字母 */
+const typeTag = (a) => (a.kind === "zip" ? "ZIP" : (a.name.split(".").pop() || "").slice(0, 4).toUpperCase() || "TXT");
+/** 第二行：类型和大小（ZIP 写明是压缩包） */
+const typeLine = (a) => (a.kind === "zip" ? t("attach.typeZip", { size: fmtSize(a.size) }) : t("attach.typeFile", { type: typeTag(a), size: fmtSize(a.size) }));
+
+/** 一张文件卡（待发和已发共用）：status 是 ready / processing / failed / expired */
+function FileFace({ a, label, why, status, save }) {
+  const [stem, ext] = splitName(label);
+  return html`<span class="att-type" data-kind=${a.kind} aria-hidden="true">
+      ${status === "processing" ? html`<${Spinner} />` : status === "failed" || status === "expired" ? html`<${Icon} name="warning" size="sm" />` : html`<span class="tag">${typeTag(a)}</span>`}
+      ${save && status === "ready" && html`<${Icon} name="download" size="sm" class="att-save-ic" />`}
+    </span>
+    <span class="att-text">
+      <span class="att-name"><span class="stem">${stem}</span>${ext && html`<span class="ext">${ext}</span>`}</span>
+      <span class="att-meta">${why || (status === "processing" ? t("attach.uploading") : typeLine(a))}</span>
+    </span>`;
 }
 
 /**
@@ -189,10 +215,9 @@ export function AttachmentTray({ botId, items, taRef }) {
           ${x}
         </div>`;
       }
-      return html`<div class=${`att att-file ${a.status}`} role="listitem" key=${a.cid}>
-        <div class="att-card" tabindex="0" data-att=${a.cid} title=${a.label} aria-label=${`${a.label}, ${why || (a.status === "ready" ? fmtSize(a.size) : t("attach.processing"))}`} onKeyDown=${cardKey(a)}>
-          <${Icon} name="doc" size="lg" />
-          <span class="att-text"><span class="att-name">${a.label}</span><span class="att-meta">${why || (a.status === "ready" ? fmtSize(a.size) : t("attach.processing"))}</span></span>
+      return html`<div class=${`att att-file ${a.status}`} role="listitem" key=${a.cid} data-kind=${a.kind}>
+        <div class="att-card" tabindex="0" data-att=${a.cid} title=${why ? `${a.label}\n${why}` : a.label} aria-label=${`${a.label}, ${why || (a.status === "ready" ? typeLine(a) : t("attach.uploading"))}`} onKeyDown=${cardKey(a)}>
+          <${FileFace} a=${a} label=${a.label} why=${why} status=${a.status} />
         </div>
         ${x}
       </div>`;
@@ -215,14 +240,53 @@ export function focusLastAttachment(root) {
  * 已发消息的附件组：整组右对齐，按添加顺序从左到右、再换行；图片只有缩略图（点击放大，和待发的是同一个遮罩），
  * 文件是浅白圆角卡（文档图标、文件名、大小）。没有 ×、状态字和下载按钮。
  */
-export function SentAttachments({ botId, list, fallback, onLoad }) {
+export function SentAttachments({ botId, list, fallback, onLoad, canSave }) {
   if (!list?.length) return null;
   let image = 0;
   return html`<div class="msg-atts" role="group" aria-label=${t("attach.sentLabel")}>
-    ${list.map((a) => (a.kind === "image"
+    ${withSerial(list).map((a) => (a.kind === "image"
       ? html`<${SentImage} key=${a.id} src=${sentImageUrl(botId, a)} n=${++image} fallback=${fallback} onLoad=${onLoad} w=${a.width} h=${a.height} />`
-      : html`<div class="att att-file sent" key=${a.id} title=${a.name}><div class="att-card"><${Icon} name="doc" size="lg" />
-          <span class="att-text"><span class="att-name">${a.name}</span><span class="att-meta">${fmtSize(a.size)}</span></span></div></div>`))}
+      : a.kind === "zip"
+        ? html`<${SentZip} key=${a.id} botId=${botId} a=${a} canSave=${canSave} />`
+        : html`<div class="att att-file sent" key=${a.id} title=${a.label} data-kind=${a.kind}><div class="att-card"><${FileFace} a=${a} label=${a.label} status="ready" /></div></div>`))}
+  </div>`;
+}
+
+/**
+ * 已发的 ZIP：点一下保存原文件到当前操作的这台电脑（桌面版弹系统「另存为」，网页里下载）；不解压、不执行、不打开资料面板。
+ * 到期了、没有权限只给一句短提示，卡片变成「已过期」。
+ */
+function SentZip({ botId, a, canSave }) {
+  const [gone, setGone] = useState(false);
+  const url = `/amb/api/bots/${encodeURIComponent(botId)}/attachments/${encodeURIComponent(a.id)}`;
+  const save = async () => {
+    try {
+      if (canSave) {
+        const r = await api(`/bots/${encodeURIComponent(botId)}/attachments/${encodeURIComponent(a.id)}/save`, { method: "POST", body: {} });
+        if (!r?.canceled && r?.folder) toast(t("attach.savedTo", { folder: r.folder }));
+        return;
+      }
+      // 网页：先取到内容再交给浏览器保存（到期、无权时给一句提示，不下载一个错误页）
+      const res = await fetch(`${url}/download`);
+      if (!res.ok) throw new ApiError("", res.status, await res.json().catch(() => ({})));
+      const href = URL.createObjectURL(await res.blob());
+      const link = Object.assign(document.createElement("a"), { href, download: a.name });
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 30_000);
+    } catch (e) {
+      const expired = e instanceof ApiError && (e.status === 410 || e.data?.code === "expired");
+      if (expired) setGone(true);
+      toast(expired ? t("attach.zipExpired") : t("attach.zipNoAccess"), "err");
+    }
+  };
+  const status = gone ? "expired" : "ready";
+  return html`<div class=${`att att-file sent ${status}`} data-kind="zip">
+    <button type="button" class="att-card att-save" title=${`${a.label}\n${canSave ? t("attach.saveZip") : t("attach.downloadZip")}`}
+      aria-label=${`${a.label}, ${canSave ? t("attach.saveZip") : t("attach.downloadZip")}`} onClick=${save}>
+      <${FileFace} a=${a} label=${a.label} why=${gone ? t("attach.zipExpired") : ""} status=${status} save />
+    </button>
   </div>`;
 }
 
@@ -246,6 +310,7 @@ export function DropOverlay({ limits }) {
       <b>${t("attach.dropTitle")}</b>
       <span class="att-drop-sub">${t("attach.dropCancel")}</span>
       <span class="att-drop-sub">${t("attach.limitCount", { max: limits?.maxItems ?? 8, images: limits?.maxImages ?? 4 })}</span>
+      <span class="att-drop-sub">${t("attach.limitSize")}</span>
     </div>
   </div>`;
 }

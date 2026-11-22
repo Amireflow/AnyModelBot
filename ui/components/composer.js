@@ -233,10 +233,12 @@ export function Composer({ bot, modelKey = bot?.id, text, setText, taRef, placeh
   const permChip = showPerm && bot && permMap[perm];
   // 同一个提示位置只显示最相关的一句：挡着发送的原因 > 刚发生的事（批次没加上、粘贴不了）> 不挡发送的说明
   const noteCode = check.blocked && check.blocked !== "processing" ? check.blocked : draft.notice?.code || check.hint;
+  // 汇总了文件名的那种提示（「部分文件未添加：…」）带着现成的文字
+  const noteText = noteCode && noteCode === draft.notice?.code && draft.notice?.text ? draft.notice.text : noteCode ? reasonText(noteCode) : "";
   const images = items.filter((a) => a.kind === "image").length;
   const cantSend = items.length ? !!check.blocked : !text.trim();
   return html`<div class=${`composer${dragging ? " drag" : ""}`} ref=${root} data-guide=${guide ? "composer" : undefined}>
-      ${attachOn && noteCode && html`<div class="composer-note" role="status">${reasonText(noteCode)}</div>`}
+      ${attachOn && noteText && html`<div class="composer-note" role="status">${noteText}</div>`}
       ${attachOn && html`<${AttachmentTray} botId=${botId} items=${items} taRef=${ta} />`}
       <textarea ref=${ta} rows="1" placeholder=${items.length && !images ? t("attach.fileOnlyPlaceholder") : placeholder} aria-label=${label} value=${text}
         onInput=${(e) => { setText(e.target.value); setSlashOff(false); setSlashSel(0); autoGrow(e.target); }}

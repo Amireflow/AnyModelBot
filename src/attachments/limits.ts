@@ -1,5 +1,5 @@
 /**
- * 消息附件（粘贴图片、拖入图片和文本文件）的硬上限与格式表。界面经 GET …/attachments/state 读到同一份数字，
+ * 消息附件（粘贴图片、拖入图片、文本文件和 ZIP 压缩包）的硬上限与格式表。界面经 GET …/attachments/state 读到同一份数字，
  * 前后端按它核算；服务端的核算是准的（绕开界面也过不去）。
  */
 
@@ -14,8 +14,9 @@ export const LIMITS = {
   /** 每条消息最多几个附件、其中几张图片 */
   maxItems: 8,
   maxImages: 4,
-  /** 单份 10 MiB、原始附件合计 50 MiB */
+  /** 图片 / 文本单份 10 MiB、ZIP 单份 50 MiB（压缩件的原字节）、原始附件合计 50 MiB */
   maxFileBytes: 10 * MIB,
+  maxZipBytes: 50 * MIB,
   maxTotalBytes: 50 * MIB,
   /** 原图：最长边、总像素 */
   maxImageEdge: 12_000,
@@ -43,14 +44,19 @@ export const TEXT_TYPES: Readonly<Record<string, string>> = {
 export const IMAGE_TYPES: Readonly<Record<string, string>> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif", jfif: "image/jpeg", jpe: "image/jpeg" };
 /** 要先转成 PNG / JPG 的图片 */
 const IMAGE_CONVERT = new Set(["heic", "heif", "avif", "bmp", "tif", "tiff", "svg", "svgz", "ico", "apng", "jxl", "psd"]);
+/** ZIP 只认扩展名 .zip（大小写不限）；.docx / .xlsx / .jar 这类内部也是 ZIP 的照原规则不收 */
+export const ZIP_EXT = "zip";
+/** 别的压缩格式：提示「压缩包仅支持 ZIP」，不当 ZIP 收 */
+const OTHER_ARCHIVES = new Set(["rar", "7z", "tar", "gz", "tgz", "bz2", "tbz", "tbz2", "xz", "txz", "zst", "lz", "lzma", "cab", "arj", "z", "001"]);
 
 export type { AttachmentKind } from "../domain/attachments.js";
 import type { AttachmentKind } from "../domain/attachments.js";
 /**
- * 拒绝原因（界面按它选一句提示）：format 不支持的格式 · imageConvert 请转成 PNG/JPG · empty 空文件 · size 单份或合计超限 ·
- * count 数量超限 · unreadable 读不了 · encoding 编码认不出 · content 文字太多 · context 超出模型上下文 · expired 过期
+ * 拒绝原因（界面按它选一句提示）：format 不支持的格式 · imageConvert 请转成 PNG/JPG · archive 别的压缩格式（仅支持 ZIP）·
+ * empty 空文件 · size 单份或合计超限 · count 数量超限 · unreadable 读不了 · encoding 编码认不出 · content 文字太多 ·
+ * context 超出模型上下文 · expired 过期 · agentOff 代理模式关着（ZIP 要靠代理的文件工具处理）· storage 保存空间不足
  */
-export type RejectCode = "format" | "imageConvert" | "empty" | "size" | "count" | "unreadable" | "encoding" | "content" | "context" | "expired";
+export type RejectCode = "format" | "imageConvert" | "archive" | "empty" | "size" | "count" | "unreadable" | "encoding" | "content" | "context" | "expired" | "agentOff" | "storage";
 
 export const extOf = (name: string): string => {
   const base = String(name ?? "").replace(/\\/g, "/").split("/").pop() ?? "";
@@ -66,6 +72,8 @@ export const extOf = (name: string): string => {
 export function classify(name: string, mime: string): { kind: AttachmentKind; ext: string } | { reject: RejectCode } {
   const ext = extOf(name);
   const type = String(mime ?? "").toLowerCase().split(";")[0].trim();
+  if (ext === ZIP_EXT) return { kind: "zip", ext };
+  if (OTHER_ARCHIVES.has(ext) || /\.tar\.[a-z0-9]+$/i.test(String(name ?? ""))) return { reject: "archive" };
   if (ext in IMAGE_TYPES) return type && !type.startsWith("image/") ? { reject: "format" } : { kind: "image", ext };
   if (IMAGE_CONVERT.has(ext)) return { reject: "imageConvert" };
   if (ext in TEXT_TYPES) return /^(image|audio|video)\//.test(type) ? { reject: "format" } : { kind: "text", ext };
@@ -81,24 +89,30 @@ export function classify(name: string, mime: string): { kind: AttachmentKind; ex
 export interface BatchItem { name: string; mime: string; size: number; }
 export interface Usage { items: number; images: number; bytes: number; }
 
+/** 这一类附件单份最多多少字节：ZIP 50 MiB，其余 10 MiB */
+export const maxBytesOf = (kind: AttachmentKind): number => (kind === "zip" ? LIMITS.maxZipBytes : LIMITS.maxFileBytes);
+
 /**
- * 一个批次的硬条件：类型、空文件、单份大小、数量、合计大小。任何一项不合格整批不加。
- * 返回最相关的那个原因；全部合格返回每一项的分类。
+ * 一个批次逐项核对（拖入、粘贴都一样）：按原顺序核算剩余的数量、图片数和合计字节，合格的依次加入、占掉名额；
+ * 不合格的（类型、空文件、单份大小、数量、合计、代理模式关着时的 ZIP）各自给出原因，不影响它后面还放得下的合格项。
+ * 已有的待发项不动。zipOk = false：代理模式关着，ZIP 处理不了，不收。
  */
-export function checkBatch(batch: BatchItem[], used: Usage): { ok: true; kinds: Array<{ kind: AttachmentKind; ext: string }> } | { ok: false; code: RejectCode } {
-  if (!batch.length) return { ok: false, code: "unreadable" };
-  const kinds: Array<{ kind: AttachmentKind; ext: string }> = [];
-  for (const f of batch) {
+export function planBatch(batch: BatchItem[], used: Usage, opts: { zipOk?: boolean } = {}): Array<{ ok: true; kind: AttachmentKind; ext: string } | { ok: false; code: RejectCode }> {
+  let { items, images, bytes } = used;
+  return batch.map((f) => {
     const c = classify(f.name, f.mime);
-    if ("reject" in c) return { ok: false, code: c.reject };
-    kinds.push(c);
-  }
-  if (batch.some((f) => !Number.isFinite(f.size) || f.size <= 0)) return { ok: false, code: "empty" };
-  if (batch.some((f) => f.size > LIMITS.maxFileBytes)) return { ok: false, code: "size" };
-  const images = kinds.filter((k) => k.kind === "image").length;
-  if (used.items + batch.length > LIMITS.maxItems || used.images + images > LIMITS.maxImages) return { ok: false, code: "count" };
-  if (used.bytes + batch.reduce((n, f) => n + f.size, 0) > LIMITS.maxTotalBytes) return { ok: false, code: "size" };
-  return { ok: true, kinds };
+    if ("reject" in c) return { ok: false as const, code: c.reject };
+    if (c.kind === "zip" && opts.zipOk === false) return { ok: false as const, code: "agentOff" as const };
+    if (!Number.isFinite(f.size) || f.size <= 0) return { ok: false as const, code: "empty" as const };
+    if (f.size > maxBytesOf(c.kind)) return { ok: false as const, code: "size" as const };
+    const image = c.kind === "image" ? 1 : 0;
+    if (items + 1 > LIMITS.maxItems || images + image > LIMITS.maxImages) return { ok: false as const, code: "count" as const };
+    if (bytes + f.size > LIMITS.maxTotalBytes) return { ok: false as const, code: "size" as const };
+    items++;
+    images += image;
+    bytes += f.size;
+    return { ok: true as const, kind: c.kind, ext: c.ext };
+  });
 }
 
 /** 规范化后的尺寸：最长边超过 4096 时等比缩到 4096，小图不放大 */

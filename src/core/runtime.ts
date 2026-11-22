@@ -6,7 +6,7 @@ import { findBot, setBotForPeer } from "./routes.js";
 import { KeyedQueue } from "./queue.js";
 import { eventText } from "./types.js";
 import { acceptsImages, type ModelClient, type ChatMessage } from "../llm/client.js";
-import { TurnStopped, type TurnImage } from "../agent/host.js";
+import { TurnStopped, type TurnFolder, type TurnImage } from "../agent/host.js";
 import { describeStep, fmtSecs, type ActivityStep } from "../agent/activity.js";
 import type { Store } from "../store/db.js";
 import { logger } from "../log.js";
@@ -25,6 +25,7 @@ import type { CuBlocked } from "../tools/computer-use/permissions.js";
 import { installPromptLinks, MAX_CARDS_PER_MESSAGE, type SkillInstalls } from "../skills/installs.js";
 import type { SkillDrafts } from "../skills/drafts.js";
 import type { Attachments } from "../attachments/service.js";
+import type { FolderBinding, FolderService } from "../folders/service.js";
 
 const log = logger("runtime");
 /** 只发了附件、没有文字的消息在重启提醒里怎么称呼 */
@@ -108,6 +109,8 @@ export interface RuntimeOptions {
   vision?: (model: string) => Promise<"supported" | "unsupported" | "unknown">;
   /** 网页对话随消息发的附件（受管副本）：历史里的附件按原版本重读 */
   attachments?: Attachments;
+  /** 工作文件夹（folders/service.ts）：回合开始时核对消息绑定的目录还在不在 */
+  folders?: FolderService;
   /** 这个模型该带的推理强度（用户选了、模型也支持时）；纯对话路径用，代理路径由 AgentHost 自己带 */
   reasoningEffort?: (model: string) => Promise<string | undefined>;
   /** DSH 代理宿主；缺省或不可用时走纯对话路径 */
@@ -435,8 +438,10 @@ export class BotRuntime {
     // 前面还有消息在处理：代理回合进行中就把这条并进去（模型下一步看到，回复一起给），否则排在它们后面。
     // 命令（/model、/reset…）不并入，等前面的处理完
     if (prior) {
+      // 并进进行中的那一轮只在两条绑定的是同一个工作文件夹时（PRD R2）：换了目录的新消息排在它后面，用自己的目录
       if (agent?.available && !pre && !signal.aborted && !text.startsWith("/")
         && (ev.conversation.kind !== "group" || agent.turnsInProgress.get(convId)?.senderId === ev.sender.id)
+        && (agent.turnsInProgress.get(convId)?.folderId ?? "") === (ev.folder?.id ?? "")
         && (await this.steer(agent, bot.id, convId, text, images, out, run))) {
         await prior;
         // 应用正在退出、它并进的那一轮没做完：重启标记留着（下次启动告诉用户）
@@ -508,7 +513,7 @@ export class BotRuntime {
     let note = "";
     if (agent?.available) {
       const place: ChatPlace = { channel: ev.channel, kind: ev.conversation.kind === "group" ? "group" : "dm" };
-      const handled = await this.handleAgent(agent, bot.id, conv.id, text, routed, place, out, seen, run, ev.sender.id, !!pre?.images.length);
+      const handled = await this.handleAgent(agent, bot.id, conv.id, text, routed, place, out, seen, run, ev.sender.id, !!pre?.images.length, this.turnFolder(ev.folder));
       if (handled === true) return;
       // 应用正在退出：代理进程没了不是该改用纯对话的时候，留给下次启动提醒
       if (this.closing) {
@@ -738,6 +743,17 @@ export class BotRuntime {
    * 代理回合；返回 false 表示宿主不可用且尚无任何输出（调用方回退到纯对话），
    * "starting" 表示代理进程在等待时限内没有启动好（同样回退，启动在后台继续）。
    */
+  /**
+   * 消息绑定的工作文件夹 → 交给代理的那一份。这时（排队、等前一条之后，真要动文件之前）再核对一次：不在了、被换成别的同名目录、
+   * 没有权限都按不可用处理，不退回默认工作区、不去别处找。undefined（其他渠道）= 不动会话现在的绑定。
+   */
+  private turnFolder(b: FolderBinding | null | undefined): TurnFolder | undefined {
+    if (b === undefined) return undefined;
+    if (b === null) return null;
+    const r = this.opts.folders?.resolve(b) ?? { root: b.path };
+    return "root" in r ? { id: b.id, root: r.root, name: b.name } : { id: b.id, name: b.name, unavailable: true, reason: r.error };
+  }
+
   private async handleAgent(
     agent: AgentManager,
     botId: string,
@@ -751,6 +767,8 @@ export class BotRuntime {
     senderId?: string,
     /** 这条消息带着用户附件里的图片：上游拒绝时按图片的原因说明 */
     attachedImages = false,
+    /** 这条消息绑定的工作文件夹（回合开始时刚核对过；undefined = 默认工作区） */
+    folder?: TurnFolder,
   ): Promise<boolean | "starting"> {
     const { store } = this.opts;
     const signal = inflight.abort.signal;
@@ -853,6 +871,7 @@ export class BotRuntime {
         const turn = agent.runTurn(botId, {
           conversationId: convId,
           senderId,
+          ...(folder !== undefined ? { folder } : {}),
           text: input,
           model,
           ...(images.length ? { images } : {}),
