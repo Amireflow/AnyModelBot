@@ -60,7 +60,7 @@ Sohbetler, bellek, dosyalar ve API anahtarları cihazında kalır. Modeller [Mod
 
 Kurulumdan sonra kullanıma hazır: arka plan görevleri, zamanlanmış kurallar ve onayını bekleyen öğeler yerleşiktir.
 
-**0.1.44:** yanlışlıkla desteklenmeyen biçim sayılıp reddedilen görseller (yanlış uzantı, telefon fotoğrafları, .jfif) artık sohbete eklenebiliyor; önizlenen bir web sayfası kendi klasöründeki diğer dosyaları artık okuyamıyor. [Değişiklik günlüğü](./CHANGELOG_tr.md#0144---2026-11-20)
+**0.1.45:** Linux'ta bir botun çalıştırdığı komutlar yalnızca bubblewrap sanal alanında çalışır, kullanılamadığında nedeni belirtilerek reddedilir; komut satırı sürümünün (`npm start`) yerel konsolu da artık erişim belirteci ister ve terminal başlangıçta belirteçli bir adres yazdırır. [Değişiklik günlüğü](./CHANGELOG_tr.md#0145---2026-11-22)
 
 📥 [İndir](#-paketi-indir-ve-çalıştır) · 🌠 [Ekran görüntüleri](#-ekran-görüntüleri) · 🌟 [Özellikler](#-temel-özellikler) · 🆚 [Karşılaştır](#-anymodelbot-vs-grok-bot-openai-dots-ve-claude-duet) · 🔐 [Gizlilik](#-nasıl-çalışır-ve-gizlilik)
 
@@ -134,7 +134,7 @@ git clone https://github.com/modelflare-ai/AnyModelBot.git
 cd AnyModelBot
 npm install
 npm run setup      # paketlenmiş ağ geçidini alır ve derler
-npm start          # yerel konsolu http://127.0.0.1:3600/ adresinde açar
+npm start          # yerel konsolu http://127.0.0.1:3600/ adresinde açar (ilk seferde yazdırdığı belirteçli adresi kullan)
 ```
 
 Kaynaktan derlemek için gereksinimler: Node.js 22.13+ ve Go 1.26.8+. Docker imajını kendin derlemek için [geliştirme kılavuzuna](./docs/development_tr.md) bak.
@@ -285,7 +285,7 @@ Ayrıntılar için [sitemizdeki botlar sayfasına](https://anymodel.bot/tr/bots)
 
 ## 🔒 Önce cihazında, göze de kolay
 
-- **Verin sende kalır.** Sohbetler, bellek, dosyalar ve API anahtarları cihazında tutulur. Yerel konsol yalnızca `127.0.0.1` üzerinde dinler ve masaüstü uygulaması her açılışta yeni bir erişim belirteci üretir.
+- **Verin sende kalır.** Sohbetler, bellek, dosyalar ve API anahtarları cihazında tutulur. Yerel konsol yalnızca `127.0.0.1` üzerinde dinler ve yalnızca erişim belirteciyle açılır (masaüstü uygulaması her açılışta yenisini üretir).
 - **Sana hesap verir.** Varsayılan olarak bir bot yalnızca sahibine (QR kodunu tarayan WeChat hesabı; Feishu, Telegram, Slack ve Discord'da bağladıktan sonra ona ilk mesajı atan kişi, yani sen) ve izin verdiklerine yanıt verir. Başkası tek satırlık bir uyarı alır ve model çağrılmaz; onları bilgi panelinden veya sohbette `yes <code>` yanıtlayarak içeri alırsın.
 - **Yanıtlar kaybolmaz.** Bir yanıt gönderilmeden önce yerelde kaydedilir; ağ hataları yeniden denenir, gönderme yeniden başlatmadan sonra sürer ve WeChat'in 24 saatlik penceresi kapanmışsa yanıt bekler ve sonraki mesajınla gelir.
 - **Telemetri kapalı tutulur.** Paketlenmiş bilgisayar kullanımı sürücüsündeki telemetri kapatılır ve yerleşik ağ geçidi otomatik güncelleme kapalı çalışır.

@@ -4,6 +4,13 @@
 
 This covers changes you'll notice in the app. For older versions, see the [GitHub releases](https://github.com/modelflare-ai/AnyModelBot/releases).
 
+## 0.1.45 - 2026-11-22
+
+### Improvements and fixes
+
+- **Command sandbox (Linux):** commands a bot runs now run only inside the bubblewrap sandbox. If bubblewrap is not installed, or the system does not let it create namespaces, the command is refused with the reason and how to fix it (install bubblewrap or allow it), instead of quietly falling back to a sandbox that only restricts writes and lets commands read the app's data directory. Bots with full access are not affected. The official Docker image still allows that fallback by default, because a container started with default options cannot create the namespaces bubblewrap needs; add `-e AMB_ALLOW_LANDLOCK=0` to turn it off.
+- **Access token for the command-line version:** when you run with `npm start`, the local console now needs an access token too. Started from a terminal, it prints a link with the token once; open it in your browser and the browser remembers it. The token is also saved in `ui-token` in the data directory, and `npm run bot` reads it automatically. The desktop app and Docker work as before.
+
 ## 0.1.44 - 2026-11-20
 
 ### Improvements and fixes

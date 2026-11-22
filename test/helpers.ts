@@ -565,3 +565,17 @@ export class FakeMessenger implements MessengerTransport {
 export function messengerEvent(text: string, opts: Partial<MessengerMessage> = {}): MessengerMessage {
   return { id: crypto.randomUUID(), chatId: "chat_1", dm: true, senderId: "user_1", senderName: "Ann", text, files: [], ...opts };
 }
+
+/** 用例里起的、没配令牌的管理界面启动时生成的令牌（test/setup.ts 记下的）；没有时是空串 */
+export function uiToken(base: string): string {
+  return (globalThis as { __ambTestUiTokens?: Map<string, string> }).__ambTestUiTokens?.get(new URL(base).origin) ?? "";
+}
+
+/**
+ * 浏览器用例：管理界面要带访问令牌。像真实用户打开过一次 /?token=<令牌> 之后那样，先给这个页面的浏览器种下 Cookie。
+ * page 是 Playwright 的 Page（这里不引 playwright 的类型：没装浏览器的环境也要能加载这个文件）。
+ */
+export async function signIn(page: { context(): { addCookies(cookies: Array<{ name: string; value: string; url: string }>): Promise<void> } }, base: string): Promise<void> {
+  const token = uiToken(base);
+  if (token) await page.context().addCookies([{ name: "amb_token", value: token, url: new URL(base).origin }]);
+}

@@ -60,6 +60,8 @@ npm start            # her şeyi başlat: ağ geçidi + botlar + konsol http://1
 
 Veri varsayılan olarak `./data` içinde durur (`AMB_DATA_DIR` ile değiştir). Diğer ortam değişkenleri `.env.example` içindedir.
 
+Konsol yalnızca erişim belirteciyle açılır: `AMB_UI_TOKEN` ayarlı değilse bir belirteç üretilir ve veri klasöründeki `ui-token` dosyasına kaydedilir; terminalden başlatınca belirteçli adres bir kez yazdırılır. Linux'ta ajanın çalıştırdığı komutlar yalnızca bubblewrap sanal alanında çalışır (Debian/Ubuntu: `apt install bubblewrap`); bubblewrap kullanılamıyorsa komutlar başka bir sanal alanda çalıştırılmaz, reddedilir. Yalnızca yazmayı kısıtlayan Landlock'tan başka seçeneğin yoksa `AMB_ALLOW_LANDLOCK=1` ayarla.
+
 ## Masaüstü uygulaması (Electron)
 
 ```bash
@@ -98,7 +100,7 @@ docker run -d --name amb -p 3600:3600 -v amb-data:/data anymodel-bot
 docker exec amb cat /data/ui-token     # http://<host>:3600/?token=<token> adresini aç
 ```
 
-Kapsayıcının içinde konsol 0.0.0.0 üzerinde dinler, bu yüzden belirteç erişimi zorunludur. 3600 portunu doğrudan internete açma. WeChat QR oturum açma Ayarlar › Sohbet kanalları içindedir.
+Kapsayıcının içinde konsol 0.0.0.0 üzerinde dinler, bu yüzden belirteç erişimi zorunludur. 3600 portunu doğrudan internete açma. WeChat QR oturum açma Ayarlar › Sohbet kanalları içindedir. İmaj varsayılan olarak `AMB_ALLOW_LANDLOCK=1` ayarlar: varsayılan seçeneklerle başlatılan bir kapsayıcı bubblewrap'in ihtiyaç duyduğu ad alanlarını oluşturamaz, bu yüzden komutlar Landlock kullanır (veri klasörü komutlar tarafından okunabilir; sınır kapsayıcının kendisidir). bubblewrap kullanılamadığında komutları reddetmek için `-e AMB_ALLOW_LANDLOCK=0` ekle.
 
 ## Modeller (Modelflare)
 

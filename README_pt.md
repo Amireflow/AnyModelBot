@@ -60,7 +60,7 @@ Conversas, memória, arquivos e chaves de API ficam no seu dispositivo. Os model
 
 Pronto para usar logo após a instalação: tarefas em segundo plano, regras agendadas e os itens que aguardam o seu OK já vêm integrados.
 
-**0.1.44:** imagens que eram recusadas por engano como formato não compatível (extensão errada, fotos do celular, .jfif) agora podem ser adicionadas à conversa; uma página web em pré-visualização não consegue mais ler outros arquivos da pasta dela. [Registro de alterações](./CHANGELOG_pt.md#0144---2026-11-20)
+**0.1.45:** no Linux, os comandos que um bot executa só rodam dentro do sandbox do bubblewrap e, quando ele não está disponível, são recusados com o motivo; o console local da versão de linha de comando (`npm start`) agora também precisa de um token de acesso, e o terminal mostra um link com ele ao iniciar. [Registro de alterações](./CHANGELOG_pt.md#0145---2026-11-22)
 
 📥 [Baixar](#-baixar-e-executar) · 🌠 [Capturas de tela](#-capturas-de-tela) · 🌟 [Recursos](#-principais-recursos) · 🆚 [Comparação](#-anymodelbot-vs-grok-bot-openai-dots-e-claude-duet) · 🔐 [Privacidade](#-como-funciona-e-privacidade)
 
@@ -134,7 +134,7 @@ git clone https://github.com/modelflare-ai/AnyModelBot.git
 cd AnyModelBot
 npm install
 npm run setup      # baixa e compila o gateway incluído
-npm start          # abre o console local em http://127.0.0.1:3600/
+npm start          # abre o console local em http://127.0.0.1:3600/ (na primeira vez, use o link com token que ele mostra)
 ```
 
 Requisitos para compilar a partir do código-fonte: Node.js 22.13+ e Go 1.26.8+. Para gerar a imagem Docker você mesmo, veja o [guia de desenvolvimento](./docs/development_pt.md).
@@ -285,7 +285,7 @@ O runtime é construído sobre o [DeepSeek Harness](https://github.com/deepseek-
 
 ## 🔒 Local em primeiro lugar e agradável aos olhos
 
-- **Seus dados ficam com você.** Conversas, memória, arquivos e chaves de API são armazenados no seu dispositivo. O console local só escuta em `127.0.0.1`, e o app de desktop gera um novo token de acesso a cada inicialização.
+- **Seus dados ficam com você.** Conversas, memória, arquivos e chaves de API são armazenados no seu dispositivo. O console local só escuta em `127.0.0.1` e só abre com um token de acesso (o app de desktop gera um novo a cada inicialização).
 - **Quem manda é você.** Por padrão, um bot só responde ao proprietário (a conta do WeChat que escaneou o QR code; no Feishu, Telegram, Slack e Discord, a primeira pessoa que enviar uma mensagem depois que você o conectar, ou seja, você) e às pessoas que você permitir. Qualquer outra pessoa recebe um aviso de uma linha e nenhum modelo é chamado; você libera o acesso pelo painel de informações ou respondendo `yes <code>` no chat.
 - **As respostas não se perdem.** Cada resposta é salva localmente antes de ser enviada; erros de rede geram novas tentativas, o envio é retomado depois de reiniciar e, quando a janela de 24 horas do WeChat já fechou, a resposta espera e chega junto com a sua próxima mensagem.
 - **Telemetria desligada.** A telemetria do driver de uso do computador incluído está desativada, e o gateway integrado roda com a atualização automática desativada.

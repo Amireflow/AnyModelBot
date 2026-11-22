@@ -60,7 +60,7 @@ Conversations, memory, files, and API keys stay on your device. Models can come 
 
 Ready to use after install: background tasks, scheduled rules, and items waiting for your OK are built in.
 
-**0.1.44:** images that were wrongly rejected as an unsupported format can now be added to a chat (wrong file extension, phone photos, .jfif); a previewed web page can no longer read other files in its folder. [Changelog](./CHANGELOG_en.md#0144---2026-11-20)
+**0.1.45:** on Linux, commands a bot runs only run inside the bubblewrap sandbox and are refused with the reason when it is unavailable; the local console of the command-line version (`npm start`) now needs an access token too, and the terminal prints a link with it at startup. [Changelog](./CHANGELOG_en.md#0145---2026-11-22)
 
 📥 [Download](#-download-and-run) · 🌠 [Screenshots](#-screenshots) · 🌟 [Features](#-key-features) · 🆚 [Compare](#-anymodelbot-vs-grok-bot-openai-dots-and-claude-duet) · 🔐 [Privacy](#-how-it-works--privacy)
 
@@ -134,7 +134,7 @@ git clone https://github.com/modelflare-ai/AnyModelBot.git
 cd AnyModelBot
 npm install
 npm run setup      # fetches and builds the bundled gateway
-npm start          # opens the local console at http://127.0.0.1:3600/
+npm start          # opens the local console at http://127.0.0.1:3600/ (first time: use the link with the token it prints)
 ```
 
 Requirements for building from source: Node.js 22.13+ and Go 1.26.8+. To build the Docker image yourself, see the [development guide](./docs/development_en.md).
@@ -285,7 +285,7 @@ The runtime is built on [DeepSeek Harness](https://github.com/deepseek-ai/deepse
 
 ## 🔒 Local-first, and easy on the eyes
 
-- **Your data stays with you.** Conversations, memory, files and API keys are stored on your device. The local console listens on `127.0.0.1` only, and the desktop app generates a fresh access token on every launch.
+- **Your data stays with you.** Conversations, memory, files and API keys are stored on your device. The local console listens on `127.0.0.1` only and opens only with an access token (the desktop app generates a fresh one on every launch).
 - **It answers to you.** By default a bot replies only to its owner (the WeChat account that scanned the QR code; on Feishu, Telegram, Slack and Discord, the first person to message it after you connect it, which is you) and the people you allow. Anyone else gets a one-line notice and no model is called; you let them in from the info panel, or by replying `yes <code>` in chat.
 - **Replies are not lost.** A reply is saved locally before it is sent; network errors are retried, sending resumes after a restart, and when WeChat's 24-hour window has closed the reply waits and arrives with your next message.
 - **Telemetry kept off.** Telemetry in the bundled computer-use driver is switched off, and the built-in gateway runs with auto-update disabled.

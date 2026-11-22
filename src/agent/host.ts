@@ -1,7 +1,7 @@
 import type { ReasoningEffort } from "../config.js";
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { lineLogger, logger } from "../log.js";
 import type { Store } from "../store/db.js";
@@ -209,6 +209,8 @@ export interface AgentHostOptions {
   settings?: () => BotSettings;
   /** 单回合上限，超时则重启子进程（SDK 无中断接口） */
   turnTimeoutMs?: number;
+  /** Linux 上 bubblewrap 用不了时允许命令改用 DSH 的 Landlock 沙箱（见 sandboxPatchLines）；缺省不允许 */
+  allowLandlock?: boolean;
   /** 需要让用户看到的提示（界面通知） */
   onNotice?: (text: string) => void;
   /** 能生图 / 生视频（已连接 Modelflare）：写入 media 技能说明 */
@@ -513,6 +515,31 @@ function yamlStr(s: string): string {
   return JSON.stringify(s); // JSON 字符串是合法的 YAML 标量
 }
 
+const shQuote = (v: string) => `'${v.replaceAll("'", `'\\''`)}'`;
+
+/** 系统里的 bubblewrap（不看 PATH：PATH 最前面是我们自己的包装脚本） */
+export function findBwrap(): string | undefined {
+  return ["/usr/bin/bwrap", "/usr/local/bin/bwrap", "/bin/bwrap"].find((p) => fs.existsSync(p));
+}
+
+/** 没装 bubblewrap 时占位脚本报的那一行（给模型和日志看；以 "bwrap: " 开头，DSH 据此认定运行器失败） */
+export const BWRAP_MISSING =
+  "bwrap: bubblewrap is not installed, so sandboxed commands are refused on this machine. Ask the user to install it (Debian/Ubuntu: apt install bubblewrap; Fedora: dnf install bubblewrap; Arch: pacman -S bubblewrap) and restart AnyModelBot.";
+
+/**
+ * bwrap（经包装脚本）能不能建出 DSH 给命令用的那种沙箱。能：undefined；不能：原因（它自己的报错，或超时 / 起不来）。
+ * 参数与 DSH 的 bwrap 档一致（@deepseek-ai/dsh-sandbox-local：只读根、独立 /dev 与 /proc、PID 命名空间）。
+ */
+export function probeBwrap(bwrap: string, timeoutMs = 5000): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    execFile(bwrap, ["--ro-bind", "/", "/", "--dev", "/dev", "--unshare-pid", "--proc", "/proc", "--die-with-parent", "--", "true"], { timeout: timeoutMs }, (err, _stdout, stderr) => {
+      if (!err) return resolve(undefined);
+      const line = String(stderr || "").split(/\r?\n/).map((l) => l.trim()).find(Boolean);
+      resolve((line || err.message || "bwrap failed").slice(0, 300));
+    });
+  });
+}
+
 /** 工具结果的文字（content 是字符串或 [{type:"text",text}]） */
 function contentText(c: unknown): string {
   if (typeof c === "string") return c;
@@ -694,6 +721,10 @@ export class AgentHost {
   private listeners = new Set<(e: HostEvent) => void>();
   /** 当前子进程补丁里写的 PowerShell（Windows）；代理拉不起它时据此退回 */
   private pwshPath: string | undefined;
+  /** Linux：bubblewrap 用不了的原因（有值时沙箱里的命令都会被拒绝，见 checkSandbox）；能用或不适用时为空 */
+  private sandboxProblem: string | undefined;
+  /** Linux：bubblewrap 用不了、但放行了 Landlock（allowLandlock）时的原因；这时命令在只限制写的沙箱里跑 */
+  private sandboxWeak: string | undefined;
   /** 进入 runOnce 还没结束的回合（含还在等进程、等会话的）：有就不在后台重启 */
   private entering = 0;
   /** 当前子进程里打开过的任务会话（子代理的通知按它们归属） */
@@ -779,6 +810,8 @@ export class AgentHost {
       ...providerPatchLines(providerProfiles(list, this.o.bridge.url, this.o.botId)),
       // 长命令转后台；Windows：命令用检测到的 PowerShell 7（DSH 自己只看 Program Files\PowerShell\7 和 PATH，找不到就退回 5.1）
       ...shellPatchLines(pwshPath),
+      // Linux：命令的沙箱只用 bubblewrap，用不了就拒绝，不退到 Landlock
+      ...this.sandboxPatchLines(),
       // web_search 用 amb-web-search 插件注册的 amb（经 bridge 由宿主搜索），不用 DeepSeek 自带的搜索（要 DeepSeek 的 Key）；
       // 补丁整体替换这一行的 config，网页抓取照旧写上 http
       "- id: web",
@@ -967,16 +1000,49 @@ export class AgentHost {
   }
 
   /**
+   * Linux：命令只在 bubblewrap 里跑，用不了就拒绝。DSH 自己在 bwrap 用不了时会退到 Landlock，那种模式下
+   * 没有 PID 命名空间（脱离了进程树的进程，回环管理接口认不出是沙箱里来的，见 agent/peer-guard.ts），
+   * 整个文件系统又都可读（遮不住数据目录里的数据库、渠道令牌和界面令牌）。
+   * 所以把运行器指定成下面的包装脚本（DSH 不再探测、不再换别的）：bwrap 起不来时命令直接失败并带着原因，
+   * 不会换一种弱的方式照跑。完全权限的机器人不进沙箱，不受影响。
+   *
+   * 例外：部署的人明确放行（allowLandlock，环境变量 AMB_ALLOW_LANDLOCK=1，官方 Docker 镜像里打开）。
+   * 这时不指定运行器，沿用 DSH 自己的顺序（先 bwrap，不行再 Landlock），上面两个弱点都还在，checkSandbox 会在日志里写明。
+   */
+  private sandboxPatchLines(): string[] {
+    if (this.o.allowLandlock) return [];
+    const shim = this.writeBwrapShim();
+    if (!shim) return [];
+    return [
+      "- id: sandbox",
+      "  config:",
+      `    runnerCommand: [${yamlStr(path.join(shim, "bwrap"))}]`,
+      // 运行器自己报错（装了但建不了命名空间、没装时下面的占位脚本）都以 "bwrap: " 开头
+      `    runnerFailureSignatures: [${yamlStr("bwrap: ")}]`,
+    ];
+  }
+
+  /**
    * Linux：在 PATH 前放一个 bwrap 包装脚本，把整个数据目录（数据库、渠道令牌、magpie 密钥）
    * 用空 tmpfs 遮住，只重新挂回本机器人的工作区与 DSH 主目录。DSH 自带沙箱只限制写，不限制读。
+   * 没装 bubblewrap 时写一个只报错的占位脚本（见 sandboxPatchLines：命令被拒绝，不退到别的沙箱）。
    */
   private writeBwrapShim(): string | undefined {
     if (process.platform !== "linux") return undefined;
-    const real = ["/usr/bin/bwrap", "/usr/local/bin/bwrap", "/bin/bwrap"].find((p) => fs.existsSync(p));
-    if (!real) return undefined;
+    const real = findBwrap();
     const dir = path.join(this.home, ".amb-bin");
     fs.mkdirSync(dir, { recursive: true });
-    const q = (v: string) => `'${v.replaceAll("'", `'\\''`)}'`;
+    const f = path.join(dir, "bwrap");
+    if (!real) {
+      // 放行了 Landlock：PATH 里不放 bwrap，DSH 探测不到就用 Landlock（以前留下的占位脚本也清掉）
+      if (this.o.allowLandlock) {
+        fs.rmSync(f, { force: true });
+        return undefined;
+      }
+      fs.writeFileSync(f, `#!/bin/sh\n# 由 anymodel bot 生成：这台机器上没有 bubblewrap，沙箱里的命令一律不跑。\necho ${shQuote(BWRAP_MISSING)} >&2\nexit 127\n`, { mode: 0o755 });
+      return dir;
+    }
+    const q = shQuote;
     const data = path.resolve(this.o.dataDir);
     const script = `#!/bin/sh
 # 由 anymodel bot 生成：遮住宿主数据目录后再交给真正的 bwrap。
@@ -1004,9 +1070,34 @@ for a do
 done
 exec "$REAL" "$@"
 `;
-    const f = path.join(dir, "bwrap");
     fs.writeFileSync(f, script, { mode: 0o755 });
     return dir;
+  }
+
+  /**
+   * Linux、不是完全权限：看一眼 bwrap 能不能建出命令用的沙箱（参数和 DSH 自己用的那组一样，经包装脚本）。
+   * 不行就在日志和状态里说清楚原因和怎么办；真正拦住命令的是 sandboxPatchLines，这里只负责让人知道。
+   */
+  private async checkSandbox(): Promise<void> {
+    this.sandboxProblem = undefined;
+    this.sandboxWeak = undefined;
+    if (process.platform !== "linux" || this.settings().permission === "full") return;
+    const shim = this.writeBwrapShim();
+    const detail = shim ? await probeBwrap(path.join(shim, "bwrap")) : BWRAP_MISSING;
+    if (!detail) return;
+    if (this.o.allowLandlock) {
+      this.sandboxWeak = detail;
+      log.warn(
+        "bubblewrap 用不了，命令改用 Landlock 沙箱（AMB_ALLOW_LANDLOCK=1）：它只限制写文件，数据目录（数据库、渠道令牌、界面令牌）对命令可读，回环管理接口的来源检查也拦不住它。只给信得过的内容用，或让容器能创建命名空间",
+        { bot: this.o.botId, detail },
+      );
+      return;
+    }
+    this.sandboxProblem = detail;
+    log.warn(
+      "bubblewrap 用不了，沙箱里的命令会被拒绝（不会退到别的沙箱）。请安装 bubblewrap，或让这台机器 / 容器允许它创建命名空间（Ubuntu 23.10 起默认不让普通用户建用户命名空间，要给 bwrap 放行）；确实只能用弱一些的 Landlock 时设 AMB_ALLOW_LANDLOCK=1",
+      { bot: this.o.botId, detail },
+    );
   }
 
   /** 环境里没设代理时问桌面外壳系统用的代理（每次拉起子进程都重新问：之后才开的代理，下次重启就用上）；命令行、Docker 没有 */
@@ -1393,6 +1484,8 @@ exec "$REAL" "$@"
       const routes = [first, ...(await Promise.all([...this.known].filter((m) => m !== model).map((m) => this.routeFor(m))))];
       const api = first.api;
       const patch = this.writePatch(routes, apps, pwshPath);
+      // 不等它：只是把「沙箱用不了」写进日志和状态，命令本身由补丁里指定的运行器拦
+      this.checkSandbox().catch((e) => log.warn("sandbox check failed", { bot: this.o.botId, message: String((e as Error)?.message ?? e).slice(0, 200) }));
       this.syncPrompt(true);
       this.pwshPath = pwshPath;
       this.sig = this.settingsSig(pwshPath, skillsRevision);
@@ -2086,7 +2179,7 @@ exec "$REAL" "$@"
   status(): Record<string, unknown> {
     const api = this.api ? (this.fallback ? `${this.api} (fallback: ${this.fallback.reason})` : this.api) : undefined;
     const models = [...new Set([...this.childRoutes.values()].map((r) => r.model))];
-    return { state: this.state, pid: this.pid, model: this.model, api, models, control: this.control.connected, restarts: this.restarts, lastError: this.lastError, workspace: this.workspace, activeTurns: this.active };
+    return { state: this.state, pid: this.pid, model: this.model, api, models, control: this.control.connected, restarts: this.restarts, lastError: this.lastError, workspace: this.workspace, activeTurns: this.active, ...(this.sandboxProblem ? { sandboxUnavailable: this.sandboxProblem } : {}), ...(this.sandboxWeak ? { sandboxWeak: this.sandboxWeak } : {}) };
   }
 
   /** 故障排查用的完整状态（含 stderr 尾部与最近一次退出） */

@@ -46,7 +46,7 @@ Bu belge AnyModelBot'un neyi nerede tuttuğunu, cihazından neyin çıktığın�
 
 - Konsol varsayılan olarak `127.0.0.1:3600` üzerinde dinler ve ağından veya internetten erişilemez.
 - Masaüstü uygulaması her açılışta rastgele bir erişim belirteci üretir, böylece başka yerel programlar yönetim API'sini doğrudan çağıramaz.
-- Geri döngü olmayan bir adreste dinlerken (örneğin Docker'da `0.0.0.0`) belirteç erişimi zorunludur. Belirteç veri klasöründeki `ui-token` içindedir (Docker: `docker exec amb cat /data/ui-token`).
+- Konsol API'si geri döngü adresinde de her zaman erişim belirteci ister. Masaüstü uygulaması belirtecini yalnızca bellekte tutar; komut satırı sürümü ve Docker, yapılandırılmış bir belirteç yoksa bir tane üretir ve veri klasöründeki `ui-token` dosyasında saklar (Docker: `docker exec amb cat /data/ui-token`). Terminalden başlatılan komut satırı sürümü belirteçli adresi bir kez yazdırır.
 - 3600 portunu doğrudan internete açma. Uzaktan erişim için kendi denetlediğin bir VPN'in veya kimlik doğrulayan bir ters vekil sunucunun arkasına koy.
 
 ## Modelflare'de oturum açma

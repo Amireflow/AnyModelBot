@@ -60,6 +60,8 @@ npm start            # ゲートウェイ、ボット、http://127.0.0.1:3600/ �
 
 既定のデータ保存先は `./data` です（`AMB_DATA_DIR` で変更可能）。そのほかの環境変数は `.env.example` にあります。
 
+コンソールを開くにはアクセストークンが必要です。`AMB_UI_TOKEN` を設定していない場合は自動で作られ、データディレクトリの `ui-token` に保存されます。ターミナルから起動すると、トークン付きのアドレスを一度表示します。Linux では、エージェントが実行するコマンドは bubblewrap のサンドボックス内でのみ動きます（Debian / Ubuntu：`apt install bubblewrap`）。bubblewrap が使えない場合、コマンドは別のサンドボックスで実行されず拒否されます。書き込みだけを制限する Landlock しか使えない場合は `AMB_ALLOW_LANDLOCK=1` を設定してください。
+
 ## デスクトップアプリ（Electron）
 
 ```bash
@@ -96,7 +98,7 @@ docker run -d --name amb -p 3600:3600 -v amb-data:/data anymodel-bot
 docker exec amb cat /data/ui-token     # http://<host>:3600/?token=<token> を開く
 ```
 
-コンテナー内では 0.0.0.0 で待ち受けるためトークン必須です。ポート 3600 をインターネットへ直接公開しないでください。WeChat の QR ログインは設定 › チャットチャネルにあります。
+コンテナー内では 0.0.0.0 で待ち受けるためトークン必須です。ポート 3600 をインターネットへ直接公開しないでください。WeChat の QR ログインは設定 › チャットチャネルにあります。イメージでは既定で `AMB_ALLOW_LANDLOCK=1` を設定しています。既定のオプションで起動したコンテナーは bubblewrap に必要な名前空間を作れないため、コマンドは Landlock を使います（コマンドからデータディレクトリを読めるため、コンテナー自体が境界になります）。bubblewrap が使えないときにコマンドを拒否するには `-e AMB_ALLOW_LANDLOCK=0` を付けてください。
 
 ## モデル（Modelflare）
 

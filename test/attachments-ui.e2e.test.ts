@@ -10,7 +10,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { App } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
-import { mockOpenAI } from "./helpers.js";
+import { mockOpenAI, signIn } from "./helpers.js";
 
 const require = createRequire(import.meta.url);
 let chromium: any;
@@ -64,6 +64,7 @@ const dragFiles = (page: any, files: Array<{ name: string; type?: string; text?:
 describe.skipIf(!browserAvailable)("消息附件界面", () => {
   it("粘贴、拖入、移除、放大、发送和已发样式按规格工作", async () => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 860 }, locale: "zh-CN" });
+    await signIn(page, base);
     const errors: string[] = [];
     page.on("pageerror", (e: Error) => errors.push(e.message));
     await page.addInitScript(() => { try { localStorage.setItem("amb-lang", "zh-CN"); } catch { /* 私密窗口 */ } });
@@ -287,6 +288,7 @@ describe.skipIf(!browserAvailable)("消息附件界面", () => {
   it("扩展名写错、带尾部数据、.jfif 的图片照常加入；收不了的图片给图片那一句提示，不说成只支持文本", async () => {
     app.store.createBot({ id: "pic", name: "小图", defaultModel: "gpt-4o-mock" });
     const page = await browser.newPage({ viewport: { width: 1280, height: 860 }, locale: "zh-CN" });
+    await signIn(page, base);
     const errors: string[] = [];
     page.on("pageerror", (e: Error) => errors.push(e.message));
     await page.addInitScript(() => { try { localStorage.setItem("amb-lang", "zh-CN"); } catch { /* 私密窗口 */ } });

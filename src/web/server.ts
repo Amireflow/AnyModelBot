@@ -87,17 +87,24 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
   const uiDir = path.join(findAppRoot(), "ui");
   const vendor = vendorFiles();
   const filePreviews = new FilePreviews();
-  // 非回环地址（如 Docker 0.0.0.0）必须带访问令牌；未配置则生成并写入数据目录（不打印到日志）
+  // 管理接口一律要访问令牌，回环地址也一样：代理沙箱里的命令连得到 127.0.0.1，本机其他账号也连得到，
+  // 而进程来源检查（agent/peer-guard.ts）只在 Linux 生效，并且认不出脱离了进程树的进程，只能当第二道防线。
+  // 桌面版自己生成令牌（只在内存里，electron/main.ts）；其余没配置时生成并写入数据目录（不打印到日志）
   let token = cfg.ui.token;
-  // 用上目录 Bot 之后，命令行方式在非 Linux 的回环模式下也要令牌：技能脚本是外部代码，而进程来源检查只在 Linux 生效（agent/peer-guard.ts）。
-  // 目录没启用时没有外部代码，行为不变
   const usesCatalog = app.catalog.enabled || app.store.listBots().some((b) => b.origin === "catalog");
-  const loopbackNeedsToken = isLoopback(host) && !app.desktop && process.platform !== "linux" && usesCatalog;
-  if ((!isLoopback(host) || loopbackNeedsToken) && !token) {
+  if (!token) {
     const f = path.join(cfg.dataDir, "ui-token");
-    token = fs.existsSync(f) ? fs.readFileSync(f, "utf8").trim() : crypto.randomBytes(18).toString("base64url");
+    // 文件在但是空的（写到一半、被清空）也重新生成：空令牌不能当成「不需要令牌」
+    token = (fs.existsSync(f) ? fs.readFileSync(f, "utf8").trim() : "") || crypto.randomBytes(18).toString("base64url");
     fs.writeFileSync(f, token, { mode: 0o600 });
-    log.warn(`UI 监听在 ${host}，访问需带令牌：见 ${f}（打开 /?token=<令牌> 一次即可）`);
+    // 已有的文件不会因为上面的 mode 改权限
+    try {
+      fs.chmodSync(f, 0o600);
+    } catch {
+      /* Windows 上没有这套权限 */
+    }
+    // 非回环地址（别的机器连得到）照旧用警告；回环地址是常态，只是告诉人令牌在哪
+    log[isLoopback(host) ? "info" : "warn"](`UI 监听在 ${host}，访问需带令牌：见 ${f}（打开 /?token=<令牌> 一次即可）`);
   }
   registerSecret(token);
 
@@ -222,7 +229,11 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
     }
     // This path validates its own expiring, directory-scoped capability in serve().
     if (FilePreviews.isAssetRequest(req, url)) return true;
-    if (!token) return true;
+    // 启动时一定有令牌（配置的、桌面版生成的，或上面生成的）；万一没有也不放行
+    if (!token) {
+      res.writeHead(401, { "content-type": "text/plain; charset=utf-8" }).end(t("web.needToken"));
+      return false;
+    }
     // 目录 Bot 的界面跑在不透明来源的沙箱里，带不上 Cookie；这条路径下只有静态文件，没有用户数据（botkit/static.ts）
     if (url.pathname.startsWith("/amb/botapp/") && (req.method === "GET" || req.method === "HEAD")) return true;
     const cookie = String(req.headers.cookie || "");

@@ -60,6 +60,8 @@ npm start            # start everything: gateway + bots + console at http://127.
 
 Data lives in `./data` by default (change it with `AMB_DATA_DIR`). Other environment variables are listed in `.env.example`.
 
+The console opens only with an access token: when `AMB_UI_TOKEN` is not set, one is generated and saved in `ui-token` in the data directory, and starting from a terminal prints a link with the token once. On Linux, commands the agent runs only run inside the bubblewrap sandbox (Debian/Ubuntu: `apt install bubblewrap`); when bubblewrap is unavailable they are refused rather than run in another sandbox. If Landlock, which only restricts writes, is all you can use, set `AMB_ALLOW_LANDLOCK=1`.
+
 ## Desktop app (Electron)
 
 ```bash
@@ -98,7 +100,7 @@ docker run -d --name amb -p 3600:3600 -v amb-data:/data anymodel-bot
 docker exec amb cat /data/ui-token     # open http://<host>:3600/?token=<token>
 ```
 
-Inside the container the console listens on 0.0.0.0, so token access is enforced. Do not expose port 3600 directly to the internet. WeChat QR sign-in is in Settings › Chat channels.
+Inside the container the console listens on 0.0.0.0, so token access is enforced. Do not expose port 3600 directly to the internet. WeChat QR sign-in is in Settings › Chat channels. The image sets `AMB_ALLOW_LANDLOCK=1` by default: a container started with default options cannot create the namespaces bubblewrap needs, so commands use Landlock instead (the data directory is readable to commands, and the container itself is the boundary). Add `-e AMB_ALLOW_LANDLOCK=0` to refuse commands when bubblewrap is unavailable.
 
 ## Models (Modelflare)
 

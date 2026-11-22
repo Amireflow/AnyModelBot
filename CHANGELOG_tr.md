@@ -4,6 +4,13 @@
 
 Uygulamada fark edeceğin değişiklikler burada. Daha eski sürümler için [GitHub sürümlerine](https://github.com/modelflare-ai/AnyModelBot/releases) bak.
 
+## 0.1.45 - 2026-11-22
+
+### İyileştirmeler ve düzeltmeler
+
+- **Komut sanal alanı (Linux):** bir botun çalıştırdığı komutlar artık yalnızca bubblewrap sanal alanında çalışır. bubblewrap kurulu değilse ya da sistem onun ad alanı oluşturmasına izin vermiyorsa komut, nedeni ve nasıl düzeltileceği (bubblewrap'i kurmak veya ona izin vermek) belirtilerek reddedilir; yalnızca yazmayı kısıtlayan ve komutların uygulamanın veri klasörünü okumasına izin veren bir sanal alana sessizce geçilmez. Tam erişimli botlar etkilenmez. Resmî Docker imajı bu sanal alana varsayılan olarak izin vermeye devam eder, çünkü varsayılan seçeneklerle başlatılan bir kapsayıcı bubblewrap'in ihtiyaç duyduğu ad alanlarını oluşturamaz; kapatmak için `-e AMB_ALLOW_LANDLOCK=0` ekleyin.
+- **Komut satırı sürümünde erişim belirteci:** `npm start` ile çalıştırdığınızda artık yerel konsol için de erişim belirteci gerekir. Terminalden başlatıldığında belirteçli adresi bir kez yazdırır; tarayıcıda bir kez açtığınızda tarayıcı onu hatırlar. Belirteç veri klasöründeki `ui-token` dosyasına da kaydedilir ve `npm run bot` onu otomatik okur. Masaüstü uygulaması ve Docker eskisi gibi çalışır.
+
 ## 0.1.44 - 2026-11-20
 
 ### İyileştirmeler ve düzeltmeler

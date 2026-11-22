@@ -59,6 +59,8 @@ export interface AgentManagerOptions {
   /** 代理已经在处理、却这么久没有任何进展（模型不回、工具不动、只在重试）就中止；等用户批准/回答不算 */
   idleTimeoutMs?: number;
   approvalTtlMs?: number;
+  /** Linux 上 bubblewrap 用不了时允许命令改用 Landlock 沙箱（config.agent.allowLandlock）；缺省不允许，命令被拒绝 */
+  allowLandlock?: boolean;
   /** 机器人和会话都没选模型时用的全局默认模型（关于我「不再记回」的判断用小模型） */
   defaultModel?: () => string;
   /** 后台小模型调用（管家判定、交接便条、记忆整理）；缺省则这些功能静默跳过。botId 用来把请求记到该机器人的 Key 上 */
@@ -315,6 +317,7 @@ export class AgentManager {
         bridge: this.bridge,
         store: this.o.store,
         turnTimeoutMs: this.o.turnTimeoutMs,
+        allowLandlock: this.o.allowLandlock,
         settings: () => this.settings(botId),
         onNotice: this.o.onNotice,
         // 拉起进程时读：登录或退出 Modelflare 之后的新进程跟着变

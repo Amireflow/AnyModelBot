@@ -11,7 +11,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { App } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
-import { listen } from "./helpers.js";
+import { listen, signIn } from "./helpers.js";
 
 const require = createRequire(import.meta.url);
 let chromium: any;
@@ -35,6 +35,7 @@ afterAll(async () => { await browser?.close(); await app?.stop(); await llm?.clo
 describe.skipIf(!browserAvailable)("需求与反馈界面", () => {
   it("发现页的企业咨询、三个分类、留联和预览按规格工作，草稿不含联系许可", async () => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, locale: "zh-CN" });
+    await signIn(page, base);
     const errors: string[] = [];
     page.on("pageerror", (e: Error) => errors.push(e.message));
     await page.addInitScript(() => { try { localStorage.setItem("amb-lang", "zh-CN"); } catch { /* 私密窗口 */ } });

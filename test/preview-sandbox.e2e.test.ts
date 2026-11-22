@@ -10,6 +10,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { App } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
+import { signIn } from "./helpers.js";
 
 const require = createRequire(import.meta.url);
 let chromium: any;
@@ -82,6 +83,8 @@ describe.skipIf(!browserAvailable)("HTML 预览：页面读不到旁边的文件
     const sent: string[] = [];
     await context.route(`${COLLECTOR}/**`, (route: any) => { sent.push(decodeURIComponent(route.request().url())); return route.fulfill({ status: 204 }); });
     const page = await context.newPage();
+    // 用户自己的浏览器里有管理界面的令牌 Cookie：带着它，预览页照样读不到、发不出去
+    await signIn(page, origin);
     try {
       // 外层页面和控制台同源（frame-ancestors 'self'），iframe 的属性同 ui/screens/resource-preview.js
       await page.goto(`${origin}/amb/file-preview/none`);

@@ -46,7 +46,7 @@ This document explains what AnyModelBot stores where, what leaves your device, a
 
 - The console listens on `127.0.0.1:3600` by default and cannot be reached from your network or the internet.
 - The desktop app generates a random access token on every launch, so other local programs cannot call the management API directly.
-- When listening on a non-loopback address (for example `0.0.0.0` in Docker), token access is enforced. The token is in `ui-token` in the data directory (Docker: `docker exec amb cat /data/ui-token`).
+- The console API always requires an access token, on the loopback address too. The desktop app keeps its token in memory only; the command-line version and Docker generate one when none is configured and keep it in `ui-token` in the data directory (Docker: `docker exec amb cat /data/ui-token`). Started from a terminal, the command-line version prints a link with the token once.
 - Do not expose port 3600 directly to the internet. For remote access, put it behind a VPN or an authenticating reverse proxy you control.
 
 ## Signing in to Modelflare

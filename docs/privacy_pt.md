@@ -46,7 +46,7 @@ Este documento explica o que o AnyModelBot armazena e onde, o que sai do seu dis
 
 - Por padrão, o console escuta em `127.0.0.1:3600` e não pode ser acessado pela sua rede nem pela internet.
 - O app de desktop gera um token de acesso aleatório a cada inicialização, para que outros programas locais não possam chamar a API de gerenciamento diretamente.
-- Ao escutar em um endereço que não seja de loopback (por exemplo, `0.0.0.0` no Docker), o acesso por token é obrigatório. O token fica em `ui-token`, na pasta de dados (Docker: `docker exec amb cat /data/ui-token`).
+- A API do console sempre exige um token de acesso, também no endereço de loopback. O app de desktop guarda o token só na memória; a versão de linha de comando e o Docker geram um quando nenhum está configurado e o guardam em `ui-token`, na pasta de dados (Docker: `docker exec amb cat /data/ui-token`). Iniciada pelo terminal, a versão de linha de comando mostra uma vez um link com o token.
 - Não exponha a porta 3600 diretamente à internet. Para acesso remoto, coloque-a atrás de uma VPN ou de um proxy reverso com autenticação que você controle.
 
 ## Login no Modelflare

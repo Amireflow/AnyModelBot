@@ -60,6 +60,8 @@ npm start            # 启动全部：内置网关 + 机器人 + 管理界面 ht
 
 数据默认在 `./data`（`AMB_DATA_DIR` 可改）。其余环境变量见 `.env.example`。
 
+管理界面要带访问令牌才能打开：没设 `AMB_UI_TOKEN` 时自动生成并存在数据目录的 `ui-token`，在终端里启动时会打印一次带令牌的地址。Linux 上代理执行的命令只在 bubblewrap 沙箱里运行（Debian / Ubuntu：`apt install bubblewrap`），bubblewrap 用不了时命令被拒绝、不退到别的沙箱；确实只能用只限制写文件的 Landlock 时设 `AMB_ALLOW_LANDLOCK=1`。
+
 ## 桌面版（Electron）
 
 ```bash
@@ -98,7 +100,7 @@ docker run -d --name amb -p 3600:3600 -v amb-data:/data anymodel-bot
 docker exec amb cat /data/ui-token     # 打开 http://<主机>:3600/?token=<令牌>
 ```
 
-容器内界面监听 0.0.0.0，因此强制令牌访问。不要把 3600 端口直接暴露到公网。微信扫码在 设置 › 聊天渠道 里完成。
+容器内界面监听 0.0.0.0，因此强制令牌访问。不要把 3600 端口直接暴露到公网。微信扫码在 设置 › 聊天渠道 里完成。镜像里默认设了 `AMB_ALLOW_LANDLOCK=1`：按默认参数启动的容器建不了 bubblewrap 要的命名空间，命令改用 Landlock（数据目录对命令可读，这时容器本身才是边界）；加 `-e AMB_ALLOW_LANDLOCK=0` 则在 bubblewrap 用不了时拒绝执行命令。
 
 ## 模型（Modelflare）
 

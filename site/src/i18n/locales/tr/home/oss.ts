@@ -1,7 +1,7 @@
 export default {
   "facts": [
     {
-      "text": "Konsol varsayılan olarak 127.0.0.1 üzerinde dinler ve Host başlığını kontrol eder; geri döngü olmayan bir adrese bağlanmak erişim tokeni ister.",
+      "text": "Konsol varsayılan olarak 127.0.0.1 üzerinde dinler ve Host başlığını kontrol eder; yerel erişim de erişim tokeni ister.",
       "path": "src/web/server.ts"
     },
     {
@@ -9,7 +9,7 @@ export default {
       "path": "src/agent/bridge.ts · src/agent/host.ts"
     },
     {
-      "text": "Dosyalar ve komutlar sanal alanlı bir çalışma alanında çalışır, ötesi için onay ister; Linux'ta bubblewrap veri dizinini de gizler.",
+      "text": "Dosyalar ve komutlar sanal alanlı bir çalışma alanında çalışır, ötesi için onay ister; Linux'ta komutlar yalnızca veri dizinini de gizleyen bubblewrap içinde çalışır, kullanılamadığında reddedilir.",
       "path": "src/agent/host.ts"
     },
     {

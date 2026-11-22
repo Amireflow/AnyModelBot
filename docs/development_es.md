@@ -60,6 +60,8 @@ npm start            # inicia todo: gateway + bots + consola en http://127.0.0.1
 
 Los datos se guardan en `./data` de forma predeterminada (cámbialo con `AMB_DATA_DIR`). Las demás variables de entorno están en `.env.example`.
 
+La consola solo se abre con un token de acceso: si `AMB_UI_TOKEN` no está definido, se genera uno y se guarda en `ui-token`, en la carpeta de datos, y al iniciar desde una terminal se muestra una vez un enlace con el token. En Linux, los comandos que ejecuta el agente solo se ejecutan dentro del sandbox de bubblewrap (Debian/Ubuntu: `apt install bubblewrap`); si bubblewrap no está disponible, se rechazan en lugar de ejecutarse en otro sandbox. Si solo puedes usar Landlock, que solo limita la escritura, define `AMB_ALLOW_LANDLOCK=1`.
+
 ## App de escritorio (Electron)
 
 ```bash
@@ -96,7 +98,7 @@ docker run -d --name amb -p 3600:3600 -v amb-data:/data anymodel-bot
 docker exec amb cat /data/ui-token     # abre http://<host>:3600/?token=<token>
 ```
 
-Dentro del contenedor la consola escucha en 0.0.0.0, por lo que el acceso con token es obligatorio. No expongas el puerto 3600 directamente a internet. El inicio de sesión de WeChat con código QR está en Ajustes › Canales de chat.
+Dentro del contenedor la consola escucha en 0.0.0.0, por lo que el acceso con token es obligatorio. No expongas el puerto 3600 directamente a internet. El inicio de sesión de WeChat con código QR está en Ajustes › Canales de chat. La imagen define `AMB_ALLOW_LANDLOCK=1` de forma predeterminada: un contenedor iniciado con las opciones predeterminadas no puede crear los espacios de nombres que necesita bubblewrap, así que los comandos usan Landlock (los comandos pueden leer la carpeta de datos y el propio contenedor es el límite). Añade `-e AMB_ALLOW_LANDLOCK=0` para rechazar los comandos cuando bubblewrap no esté disponible.
 
 ## Modelos (Modelflare)
 

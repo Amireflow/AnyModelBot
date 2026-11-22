@@ -60,6 +60,8 @@ npm start            # 게이트웨이+봇+http://127.0.0.1:3600/ 콘솔 시작
 
 기본 데이터 폴더는 `./data`이며 `AMB_DATA_DIR`로 변경할 수 있습니다. 다른 환경 변수는 `.env.example`을 확인하세요.
 
+콘솔은 접근 토큰이 있어야 열립니다. `AMB_UI_TOKEN`을 설정하지 않으면 자동으로 만들어 데이터 폴더의 `ui-token`에 저장하며, 터미널에서 시작하면 토큰이 포함된 주소를 한 번 출력합니다. Linux에서 에이전트가 실행하는 명령은 bubblewrap 샌드박스 안에서만 실행됩니다(Debian/Ubuntu: `apt install bubblewrap`). bubblewrap을 사용할 수 없으면 명령은 다른 샌드박스에서 실행되지 않고 거부됩니다. 쓰기만 제한하는 Landlock밖에 쓸 수 없다면 `AMB_ALLOW_LANDLOCK=1`을 설정하세요.
+
 ## 데스크톱 앱(Electron)
 
 ```bash
@@ -96,7 +98,7 @@ docker run -d --name amb -p 3600:3600 -v amb-data:/data anymodel-bot
 docker exec amb cat /data/ui-token     # http://<host>:3600/?token=<token> 열기
 ```
 
-컨테이너 내부 콘솔은 0.0.0.0에서 수신 대기하므로 토큰 접근이 필수입니다. 3600 포트를 인터넷에 직접 노출하지 마세요. WeChat QR 로그인은 설정 › 채팅 채널에 있습니다.
+컨테이너 내부 콘솔은 0.0.0.0에서 수신 대기하므로 토큰 접근이 필수입니다. 3600 포트를 인터넷에 직접 노출하지 마세요. WeChat QR 로그인은 설정 › 채팅 채널에 있습니다. 이미지는 기본으로 `AMB_ALLOW_LANDLOCK=1`을 설정합니다. 기본 옵션으로 시작한 컨테이너는 bubblewrap에 필요한 네임스페이스를 만들 수 없어 명령이 Landlock을 사용합니다(명령이 데이터 폴더를 읽을 수 있으므로 컨테이너 자체가 경계가 됩니다). bubblewrap을 사용할 수 없을 때 명령을 거부하려면 `-e AMB_ALLOW_LANDLOCK=0`을 추가하세요.
 
 ## 모델(Modelflare)
 
