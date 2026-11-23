@@ -38,6 +38,9 @@ import { botsRoutes } from "./routes/bots.js";
 import { skillInstallsRoutes } from "./routes/skill-installs.js";
 import { mySkillsRoutes } from "./routes/my-skills.js";
 import { FilePreviews } from "./file-previews.js";
+import { AgencyStore } from "../agency/store.js";
+import { AgencyService } from "../agency/service.js";
+import { agencyRoutes } from "./routes/agency.js";
 
 const log = logger("web");
 const require = createRequire(import.meta.url);
@@ -85,6 +88,8 @@ function vendorFiles(): Record<string, string> {
 export async function startWebServer(app: App, opts: { port?: number; host?: string } = {}): Promise<WebServer> {
   const cfg = app.config;
   const host = opts.host ?? cfg.ui.host;
+  const agencyStore = new AgencyStore(path.join(cfg.dataDir,"agency.db"));
+  const agency = new AgencyService(agencyStore);
   const uiDir = path.join(findAppRoot(), "ui");
   const vendor = vendorFiles();
   const filePreviews = new FilePreviews();
@@ -253,6 +258,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
   // —— 接口按领域分在 web/routes/ 下：各组拿到同一份上下文，按顺序问一遍，谁处理了就停 ——
   const ctx: WebContext = {
     app,
+    agency,
     host,
     token,
     usesCatalog,
@@ -269,7 +275,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
     publicGroup,
     groupMembers,
   };
-  const routes: Route[] = [systemRoutes(ctx), modelsRoutes(ctx), accountRoutes(ctx), feedbackRoutes(ctx), settingsRoutes(ctx), aboutMeRoutes(ctx), collabRoutes(ctx), computerRoutes(ctx), channelsRoutes(ctx), connectionsRoutes(ctx), appsRoutes(ctx), tasksRoutes(ctx), routinesRoutes(ctx), chatRoutes(ctx, filePreviews), attachmentsRoutes(ctx), foldersRoutes(ctx), botsRoutes(ctx, filePreviews), skillInstallsRoutes(ctx), mySkillsRoutes(ctx)];
+  const routes: Route[] = [agencyRoutes(ctx), systemRoutes(ctx), modelsRoutes(ctx), accountRoutes(ctx), feedbackRoutes(ctx), settingsRoutes(ctx), aboutMeRoutes(ctx), collabRoutes(ctx), computerRoutes(ctx), channelsRoutes(ctx), connectionsRoutes(ctx), appsRoutes(ctx), tasksRoutes(ctx), routinesRoutes(ctx), chatRoutes(ctx, filePreviews), attachmentsRoutes(ctx), foldersRoutes(ctx), botsRoutes(ctx, filePreviews), skillInstallsRoutes(ctx), mySkillsRoutes(ctx)];
 
   async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
     const p = url.pathname.slice("/amb/api".length);
@@ -388,9 +394,13 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
   try {
     await listen(port);
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== "EADDRINUSE" || port === 0) throw e;
+    if ((e as NodeJS.ErrnoException).code !== "EADDRINUSE" || port === 0) {
+      agencyStore.close();
+      throw e;
+    }
     log.warn(`端口 ${port} 被占用，改用随机端口`);
-    await listen(0);
+    try { await listen(0); }
+    catch (fallbackError) { agencyStore.close(); throw fallbackError; }
   }
   boundPort = (server.address() as import("node:net").AddressInfo).port;
   const shownHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
@@ -401,11 +411,11 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
     port: boundPort,
     token,
     busy: () => live.bots().length > 0 || groups.hasActive(),
-    close: () =>
-      new Promise<void>((r) => {
-        groups.stopAll();
-        server.closeAllConnections?.();
-        server.close(() => r());
-      }),
+    close: async () => {
+      groups.stopAll();
+      server.closeAllConnections?.();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      agencyStore.close();
+    },
   };
 }

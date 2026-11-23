@@ -3,9 +3,10 @@ import { AgencyError } from "./errors.js";
 import { AgencyStore, stablePayloadHash } from "./store.js";
 import { assertLeadTransition } from "./transitions.js";
 import type {
-  AddEvidenceInput, Approval, ApprovalAction, AuditEvent, Company, Contact, CreateCompanyInput,
-  CreateContactInput, CreateLeadInput, CreateOrganizationInput, Evidence, Lead, LeadStage,
-  Organization, RecordConsentInput, RequestApprovalInput, AgencyRole,
+  AddEvidenceInput, AgencyDashboard, Approval, ApprovalAction, AuditEvent, Company, CompanySearchFilters,
+  Contact, ContactSearchFilters, CreateCompanyInput, CreateContactInput, CreateLeadInput,
+  CreateOrganizationInput, Evidence, Lead, LeadSearchFilters, LeadStage, Organization,
+  Page, RecordConsentInput, RequestApprovalInput, AgencyRole,
 } from "./types.js";
 import {
   confidenceValue, countryCode, currencyCode, emailAddress, normalizedName, optionalText,
@@ -75,22 +76,74 @@ export class AgencyService {
     return this.store.getOrganization(organizationId)!;
   }
 
+  listOrganizations(actorId: string): Organization[] {
+    return this.store.listOrganizationsForMember(requiredText(actorId,"actorId",160));
+  }
+  getCompany(organizationId: string, actorId: string, companyId: string): Company {
+    this.requireMember(organizationId,actorId,["owner","admin","member","client","auditor"]);
+    const company=this.store.getCompany(organizationId,requiredText(companyId,"companyId",100));
+    if (!company) throw new AgencyError("NOT_FOUND","Company not found");
+    return company;
+  }
+  searchCompanies(organizationId: string, actorId: string, filters: CompanySearchFilters = {}): Page<Company> {
+    this.requireMember(organizationId,actorId,["owner","admin","member","client","auditor"]);
+    const limit=filters.limit ?? 50, offset=filters.offset ?? 0;
+    this.validatePage(limit,offset);
+    if (filters.status && filters.status!=="active" && filters.status!=="archived") throw new AgencyError("VALIDATION_ERROR","Invalid company status");
+    const result=this.store.searchCompanies(organizationId,{query:optionalText(filters.query,"query",200),
+      industry:optionalText(filters.industry,"industry",120),countryCode:countryCode(filters.countryCode),
+      city:optionalText(filters.city,"city",120),status:filters.status,limit,offset});
+    return {...result,limit,offset};
+  }
+  searchContacts(organizationId: string, actorId: string, filters: ContactSearchFilters = {}): Page<Contact> {
+    this.requireMember(organizationId,actorId,["owner","admin","member","client","auditor"]);
+    const limit=filters.limit ?? 50, offset=filters.offset ?? 0;
+    this.validatePage(limit,offset);
+    const companyId=optionalText(filters.companyId,"companyId",100);
+    if (companyId && !this.store.getCompany(organizationId,companyId)) throw new AgencyError("NOT_FOUND","Company not found");
+    if (filters.status && filters.status!=="active" && filters.status!=="archived") throw new AgencyError("VALIDATION_ERROR","Invalid contact status");
+    const result=this.store.searchContacts(organizationId,{companyId,query:optionalText(filters.query,"query",200),status:filters.status,limit,offset});
+    return {...result,limit,offset};
+  }
+  searchLeads(organizationId: string, actorId: string, filters: LeadSearchFilters = {}): Page<Lead> {
+    this.requireMember(organizationId,actorId,["owner","admin","member","client","auditor"]);
+    const limit=filters.limit ?? 50, offset=filters.offset ?? 0;
+    this.validatePage(limit,offset);
+    const companyId=optionalText(filters.companyId,"companyId",100);
+    if (companyId && !this.store.getCompany(organizationId,companyId)) throw new AgencyError("NOT_FOUND","Company not found");
+    const stages: LeadStage[]=["new","researching","qualified","contact_pending","contacted","engaged","opportunity","proposal","won","lost","archived"];
+    if (filters.stage && !stages.includes(filters.stage)) throw new AgencyError("VALIDATION_ERROR","Invalid lead stage");
+    const result=this.store.searchLeads(organizationId,{companyId,stage:filters.stage,query:optionalText(filters.query,"query",200),limit,offset});
+    return {...result,limit,offset};
+  }
+  dashboard(organizationId: string, actorId: string): AgencyDashboard {
+    this.requireMember(organizationId,actorId,["owner","admin","member","client","auditor"]);
+    return this.store.dashboard(organizationId);
+  }
+  timeline(organizationId: string, actorId: string, filters: { entityType?: string; entityId?: string; limit?: number } = {}): AuditEvent[] {
+    this.requireMember(organizationId,actorId,["owner","admin","member","client","auditor"]);
+    const limit=filters.limit ?? 50;
+    if (!Number.isInteger(limit) || limit<1 || limit>200) throw new AgencyError("VALIDATION_ERROR","limit must be between 1 and 200");
+    const entityType=optionalText(filters.entityType,"entityType",80), entityId=optionalText(filters.entityId,"entityId",160);
+    if (!!entityType !== !!entityId) throw new AgencyError("VALIDATION_ERROR","entityType and entityId must be provided together");
+    return this.store.listEntityAudit(organizationId,{entityType,entityId,limit});
+  }
+  private validatePage(limit: number, offset: number): void {
+    if (!Number.isInteger(limit) || limit<1 || limit>100) throw new AgencyError("VALIDATION_ERROR","limit must be between 1 and 100");
+    if (!Number.isSafeInteger(offset) || offset<0 || offset>100_000) throw new AgencyError("VALIDATION_ERROR","offset must be between 0 and 100000");
+  }
+
   createCompany(organizationId: string, actorId: string, input: CreateCompanyInput): Company {
     this.requireMember(organizationId,actorId);
-    const name=requiredText(input.name,"name",200);
-    const normalized=normalizedName(name);
-    const website=websiteUrl(input.website);
-    const duplicate=this.store.findCompanyDuplicate(organizationId,normalized,website);
-    if (duplicate) throw new AgencyError("CONFLICT","A company with the same name or website already exists",{companyId:duplicate.id});
+    const name=requiredText(input.name,"name",200), normalized=normalizedName(name), website=websiteUrl(input.website);
     const now=this.now();
-    const company: Company={
-      id:this.id(),organizationId,name,normalizedName:normalized,website,
-      industry:optionalText(input.industry,"industry",120),
-      countryCode:countryCode(input.countryCode),
-      city:optionalText(input.city,"city",120),
-      status:"active",createdAt:now,updatedAt:now,
-    };
+    const company: Company={id:this.id(),organizationId,name,normalizedName:normalized,website,
+      industry:optionalText(input.industry,"industry",120),countryCode:countryCode(input.countryCode),
+      city:optionalText(input.city,"city",120),status:"active",createdAt:now,updatedAt:now};
     return this.store.transaction(() => {
+      // Duplicate detection runs under BEGIN IMMEDIATE to serialize competing writes.
+      const duplicate=this.store.findCompanyDuplicate(organizationId,normalized,website);
+      if (duplicate) throw new AgencyError("CONFLICT","A company with the same name or website already exists",{companyId:duplicate.id});
       this.store.insertCompany(company);
       this.audit(organizationId,actorId,"company.created","company",company.id,{
         name:company.name,website:company.website,industry:company.industry,countryCode:company.countryCode,city:company.city,
@@ -100,9 +153,7 @@ export class AgencyService {
   }
 
   listCompanies(organizationId: string, actorId: string, limit = 100): Company[] {
-    this.requireMember(organizationId,actorId,["owner","admin","member","client","auditor"]);
-    if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new AgencyError("VALIDATION_ERROR","limit must be between 1 and 500");
-    return this.store.listCompanies(organizationId,limit);
+    return this.searchCompanies(organizationId,actorId,{limit}).items;
   }
 
   createContact(organizationId: string, actorId: string, input: CreateContactInput): Contact {
@@ -130,9 +181,7 @@ export class AgencyService {
   }
 
   listContacts(organizationId: string, actorId: string, companyId: string): Contact[] {
-    this.requireMember(organizationId,actorId,["owner","admin","member","client","auditor"]);
-    if (!this.store.getCompany(organizationId,companyId)) throw new AgencyError("NOT_FOUND","Company not found");
-    return this.store.listContacts(organizationId,companyId);
+    return this.searchContacts(organizationId,actorId,{companyId,limit:100}).items;
   }
 
   createLead(organizationId: string, actorId: string, input: CreateLeadInput): Lead {
@@ -221,6 +270,7 @@ export class AgencyService {
     if (!this.store.getContact(organizationId,contactId)) throw new AgencyError("NOT_FOUND","Contact not found");
     const channel=requiredText(input.channel,"channel",40).toLowerCase();
     const purpose=requiredText(input.purpose,"purpose",80).toLowerCase();
+    if (input.status!=="granted" && input.status!=="withdrawn") throw new AgencyError("VALIDATION_ERROR","Consent status must be granted or withdrawn");
     const source=requiredText(input.source,"source",300);
     const proof=requiredText(input.proof,"proof",4000);
     const now=this.now();
@@ -253,7 +303,13 @@ export class AgencyService {
     this.requireMember(organizationId,actorId);
     if (!CRITICAL_APPROVAL_ACTIONS.includes(input.action)) throw new AgencyError("VALIDATION_ERROR","Unsupported approval action");
     const now=this.now();
-    const payload=stablePayloadHash(input.payload);
+    let payload: ReturnType<typeof stablePayloadHash>;
+    try {
+      if (!input.payload || typeof input.payload!=="object" || Array.isArray(input.payload)) throw new TypeError("payload must be an object");
+      payload=stablePayloadHash(input.payload);
+    } catch {
+      throw new AgencyError("VALIDATION_ERROR","Approval payload must be a finite, acyclic JSON object");
+    }
     const expiresAt=input.expiresAt == null ? now + 15 * 60_000 : positiveTimestamp(input.expiresAt,"expiresAt");
     if (expiresAt <= now) throw new AgencyError("VALIDATION_ERROR","Approval expiry must be in the future");
     const approval: Approval={

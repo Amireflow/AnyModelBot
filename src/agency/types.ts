@@ -211,3 +211,25 @@ export interface AuditVerification {
   eventsChecked: number;
   failedSequence?: number;
 }
+
+
+export interface Page<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+export interface CompanySearchFilters {
+  query?: string; industry?: string; countryCode?: string; city?: string;
+  status?: Company["status"]; limit?: number; offset?: number;
+}
+export interface ContactSearchFilters {
+  companyId?: string; query?: string; status?: Contact["status"]; limit?: number; offset?: number;
+}
+export interface LeadSearchFilters {
+  companyId?: string; stage?: LeadStage; query?: string; limit?: number; offset?: number;
+}
+export interface AgencyDashboard {
+  companyCount: number; contactCount: number; leadCount: number;
+  openLeadCount: number; wonLeadCount: number; stageCounts: Record<LeadStage, number>;
+}

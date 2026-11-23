@@ -2,6 +2,7 @@
 import http from "node:http";
 import crypto from "node:crypto";
 import type { App } from "../app.js";
+import type { AgencyService } from "../agency/service.js";
 import type { InboundEvent, OutboundOp, ReplySession } from "../core/types.js";
 import { ApiError } from "../account/client.js";
 import { OAuthError } from "../account/oauth.js";
@@ -162,6 +163,7 @@ export function isLoopback(host: string): boolean {
 /** 各组接口共用的东西（web/server.ts 里建好传进来） */
 export interface WebContext {
   app: App;
+  agency: AgencyService;
   /** 监听的地址（判断是不是回环） */
   host: string;
   /** 访问令牌；回环模式下可能为空 */

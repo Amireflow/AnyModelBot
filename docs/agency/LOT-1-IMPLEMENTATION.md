@@ -33,3 +33,15 @@ Les tests du lot sont dans `test/agency-core.unit.test.ts`. Le résultat CI doit
 ## Étape suivante
 
 Lot 2 — CRM : enrichir les fonctions de recherche, filtres, doublons, historique commercial, pagination et API/interface utilisateur en s'appuyant sur les services métier déjà isolés.
+
+
+## Correctifs de durcissement ajoutés dans la livraison CRM suivante
+
+Le socle a reçu des protections complémentaires :
+
+- contrôles SQLite empêchant de relier un contact, un prospect, une preuve ou un consentement à des entités d'une autre organisation ;
+- validation runtime du statut de consentement, y compris lorsque les données viennent d'une requête HTTP ;
+- validation des payloads d'approbation : JSON fini uniquement, sans cycles, avec limites de profondeur et de taille ;
+- détection des doublons d'entreprises exécutée dans la transaction d'écriture afin d'éviter une course entre requêtes concurrentes.
+
+La validation complète de ces protections dépend toujours d'une exécution du workflow CI sur GitHub Actions.

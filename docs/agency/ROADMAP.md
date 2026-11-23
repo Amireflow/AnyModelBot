@@ -273,3 +273,14 @@ Un lot est terminé uniquement si :
 ## Ordre recommandé pour la première livraison commerciale
 
 Les lots 1 à 7 fournissent le premier flux commercial ; le lot 8 commence ensuite le pont avec la machine et l'IDE. Les lots 9 à 11 transforment le pont en service complet de développement et de livraison. Le système doit rechercher et valider une demande réelle pendant sa construction — pas attendre le dernier lot pour découvrir si quelqu'un achète.
+
+
+---
+
+## État d'implémentation — socle CRM
+
+Le noyau API du Lot 2 est maintenant intégré derrière l'authentification du serveur local : organisations, entreprises, contacts, prospects, filtres, pagination, tableau de bord et historique d'audit. La base CRM reste séparée de la base conversationnelle.
+
+**Ce lot n'est pas encore le CRM visuel complet.** L'interface, l'authentification multi-utilisateur, la synchronisation PostgreSQL centralisée, la recherche web de prospects et les workflows de prospection restent à livrer. Les envois commerciaux automatisés demeurent désactivés tant que le consentement et l'intégration officielle du fournisseur ne sont pas vérifiés.
+
+Le contrôle CI doit être exécuté sur le commit livré avant de déclarer le lot validé.

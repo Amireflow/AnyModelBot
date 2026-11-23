@@ -16,7 +16,7 @@ const TRANSITIONS: Record<LeadStage, readonly LeadStage[]> = {
 };
 
 export function canTransitionLead(from: LeadStage, to: LeadStage): boolean {
-  return TRANSITIONS[from].includes(to);
+  return Object.hasOwn(TRANSITIONS, from) && TRANSITIONS[from].includes(to);
 }
 
 export function assertLeadTransition(from: LeadStage, to: LeadStage): void {

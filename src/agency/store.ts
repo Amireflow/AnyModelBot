@@ -155,6 +155,52 @@ CREATE TABLE IF NOT EXISTS agency_idempotency (
   created_at INTEGER NOT NULL,
   PRIMARY KEY(organization_id, scope, idempotency_key)
 );
+
+-- Defense in depth: referenced records must belong to the same organization.
+CREATE TRIGGER IF NOT EXISTS agency_contacts_tenant_guard_insert
+BEFORE INSERT ON agency_contacts
+WHEN NOT EXISTS (SELECT 1 FROM agency_companies WHERE id=NEW.company_id AND organization_id=NEW.organization_id)
+BEGIN SELECT RAISE(ABORT, 'agency contact organization mismatch'); END;
+CREATE TRIGGER IF NOT EXISTS agency_contacts_tenant_guard_update
+BEFORE UPDATE OF organization_id,company_id ON agency_contacts
+WHEN NOT EXISTS (SELECT 1 FROM agency_companies WHERE id=NEW.company_id AND organization_id=NEW.organization_id)
+BEGIN SELECT RAISE(ABORT, 'agency contact organization mismatch'); END;
+CREATE TRIGGER IF NOT EXISTS agency_leads_tenant_guard_insert
+BEFORE INSERT ON agency_leads
+WHEN NOT EXISTS (SELECT 1 FROM agency_companies WHERE id=NEW.company_id AND organization_id=NEW.organization_id)
+  OR (NEW.contact_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM agency_contacts WHERE id=NEW.contact_id AND organization_id=NEW.organization_id AND company_id=NEW.company_id
+  ))
+BEGIN SELECT RAISE(ABORT, 'agency lead organization mismatch'); END;
+CREATE TRIGGER IF NOT EXISTS agency_leads_tenant_guard_update
+BEFORE UPDATE OF organization_id,company_id,contact_id ON agency_leads
+WHEN NOT EXISTS (SELECT 1 FROM agency_companies WHERE id=NEW.company_id AND organization_id=NEW.organization_id)
+  OR (NEW.contact_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM agency_contacts WHERE id=NEW.contact_id AND organization_id=NEW.organization_id AND company_id=NEW.company_id
+  ))
+BEGIN SELECT RAISE(ABORT, 'agency lead organization mismatch'); END;
+CREATE TRIGGER IF NOT EXISTS agency_evidence_tenant_guard_insert
+BEFORE INSERT ON agency_evidence
+WHEN NOT EXISTS (SELECT 1 FROM agency_companies WHERE id=NEW.company_id AND organization_id=NEW.organization_id)
+  OR (NEW.lead_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM agency_leads WHERE id=NEW.lead_id AND organization_id=NEW.organization_id AND company_id=NEW.company_id
+  ))
+BEGIN SELECT RAISE(ABORT, 'agency evidence organization mismatch'); END;
+CREATE TRIGGER IF NOT EXISTS agency_evidence_tenant_guard_update
+BEFORE UPDATE OF organization_id,company_id,lead_id ON agency_evidence
+WHEN NOT EXISTS (SELECT 1 FROM agency_companies WHERE id=NEW.company_id AND organization_id=NEW.organization_id)
+  OR (NEW.lead_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM agency_leads WHERE id=NEW.lead_id AND organization_id=NEW.organization_id AND company_id=NEW.company_id
+  ))
+BEGIN SELECT RAISE(ABORT, 'agency evidence organization mismatch'); END;
+CREATE TRIGGER IF NOT EXISTS agency_consents_tenant_guard_insert
+BEFORE INSERT ON agency_consents
+WHEN NOT EXISTS (SELECT 1 FROM agency_contacts WHERE id=NEW.contact_id AND organization_id=NEW.organization_id)
+BEGIN SELECT RAISE(ABORT, 'agency consent organization mismatch'); END;
+CREATE TRIGGER IF NOT EXISTS agency_consents_tenant_guard_update
+BEFORE UPDATE OF organization_id,contact_id ON agency_consents
+WHEN NOT EXISTS (SELECT 1 FROM agency_contacts WHERE id=NEW.contact_id AND organization_id=NEW.organization_id)
+BEGIN SELECT RAISE(ABORT, 'agency consent organization mismatch'); END;
 `;
 
 function text(row: Row, key: string): string { return String(row[key] ?? ""); }
@@ -168,10 +214,32 @@ function jsonObject(value: string): Record<string, unknown> {
   }
 }
 function canonical(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  const object = value as Record<string, unknown>;
-  return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${canonical(object[key])}`).join(",")}}`;
+  const ancestors=new Set<object>();
+  let visited=0;
+  const encode=(current: unknown,depth: number): string => {
+    visited++;
+    if (visited>10_000 || depth>32) throw new TypeError("payload exceeds canonicalization limits");
+    if (current===null) return "null";
+    if (typeof current==="string" || typeof current==="boolean") return JSON.stringify(current);
+    if (typeof current==="number") {
+      if (!Number.isFinite(current)) throw new TypeError("non-finite number is not JSON-safe");
+      return JSON.stringify(current);
+    }
+    if (typeof current!=="object") throw new TypeError("value is not JSON-safe");
+    if (ancestors.has(current)) throw new TypeError("cyclic values are not JSON-safe");
+    const proto=Object.getPrototypeOf(current);
+    if (!Array.isArray(current) && proto!==Object.prototype && proto!==null) throw new TypeError("only plain objects are JSON-safe");
+    ancestors.add(current);
+    let result: string;
+    if (Array.isArray(current)) result=`[${current.map(item=>encode(item,depth+1)).join(",")}]`;
+    else {
+      const object=current as Record<string,unknown>;
+      result=`{${Object.keys(object).sort().map(key=>`${JSON.stringify(key)}:${encode(object[key],depth+1)}`).join(",")}}`;
+    }
+    ancestors.delete(current);
+    return result;
+  };
+  return encode(value,0);
 }
 function hash(value: string): string { return createHash("sha256").update(value).digest("hex"); }
 
@@ -217,6 +285,8 @@ export class AgencyStore {
     }
     this.db.exec(SCHEMA);
     this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(1, ?)").run(Date.now());
+    // v2 installs the idempotent tenant-integrity triggers on existing v1 databases.
+    this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(2, ?)").run(Date.now());
   }
 
   close(): void { this.db.close(); }
@@ -238,6 +308,11 @@ export class AgencyStore {
   getOrganization(id: string): Organization | undefined {
     const row=this.db.prepare("SELECT * FROM agency_organizations WHERE id=?").get(id) as Row|undefined;
     return row ? organizationOf(row) : undefined;
+  }
+  listOrganizationsForMember(userId: string): Organization[] {
+    return (this.db.prepare(
+      "SELECT o.* FROM agency_organizations o INNER JOIN agency_memberships m ON m.organization_id=o.id WHERE m.user_id=? ORDER BY o.created_at ASC, o.id ASC",
+    ).all(userId) as Row[]).map(organizationOf);
   }
   setOrganizationStatus(id: string, status: OrganizationStatus, now: number): void {
     this.db.prepare("UPDATE agency_organizations SET status=?,updated_at=? WHERE id=?").run(status,now,id);
@@ -266,8 +341,23 @@ export class AgencyStore {
     const row=this.db.prepare("SELECT * FROM agency_companies WHERE organization_id=? AND id=?").get(orgId,id) as Row|undefined;
     return row ? companyOf(row) : undefined;
   }
-  listCompanies(orgId: string, limit: number): Company[] {
-    return (this.db.prepare("SELECT * FROM agency_companies WHERE organization_id=? ORDER BY created_at DESC LIMIT ?").all(orgId,limit) as Row[]).map(companyOf);
+  searchCompanies(orgId: string, filters: {
+    query?: string; industry?: string; countryCode?: string; city?: string; status?: Company["status"]; limit: number; offset: number;
+  }): { items: Company[]; total: number } {
+    const clauses=["organization_id=?"], args: string[]=[orgId];
+    if (filters.query) {
+      clauses.push("(instr(lower(name),lower(?))>0 OR instr(lower(website),lower(?))>0 OR instr(lower(industry),lower(?))>0 OR instr(lower(city),lower(?))>0)");
+      args.push(filters.query,filters.query,filters.query,filters.query);
+    }
+    if (filters.industry) { clauses.push("instr(lower(industry),lower(?))>0"); args.push(filters.industry); }
+    if (filters.countryCode) { clauses.push("country_code=?"); args.push(filters.countryCode); }
+    if (filters.city) { clauses.push("instr(lower(city),lower(?))>0"); args.push(filters.city); }
+    if (filters.status) { clauses.push("status=?"); args.push(filters.status); }
+    const where=clauses.join(" AND ");
+    const totalRow=this.db.prepare(`SELECT COUNT(*) AS count FROM agency_companies WHERE ${where}`).get(...args) as Row;
+    const rows=this.db.prepare(`SELECT * FROM agency_companies WHERE ${where} ORDER BY updated_at DESC, id ASC LIMIT ? OFFSET ?`)
+      .all(...args,filters.limit,filters.offset) as Row[];
+    return {items:rows.map(companyOf),total:number(totalRow,"count")};
   }
 
   insertContact(v: Contact): Contact {
@@ -279,8 +369,21 @@ export class AgencyStore {
     const row=this.db.prepare("SELECT * FROM agency_contacts WHERE organization_id=? AND id=?").get(orgId,id) as Row|undefined;
     return row ? contactOf(row) : undefined;
   }
-  listContacts(orgId: string, companyId: string): Contact[] {
-    return (this.db.prepare("SELECT * FROM agency_contacts WHERE organization_id=? AND company_id=? ORDER BY created_at DESC").all(orgId,companyId) as Row[]).map(contactOf);
+  searchContacts(orgId: string, filters: {
+    companyId?: string; query?: string; status?: Contact["status"]; limit: number; offset: number;
+  }): { items: Contact[]; total: number } {
+    const clauses=["organization_id=?"], args: string[]=[orgId];
+    if (filters.companyId) { clauses.push("company_id=?"); args.push(filters.companyId); }
+    if (filters.query) {
+      clauses.push("(instr(lower(display_name),lower(?))>0 OR instr(lower(role),lower(?))>0 OR instr(lower(email),lower(?))>0 OR instr(lower(phone),lower(?))>0)");
+      args.push(filters.query,filters.query,filters.query,filters.query);
+    }
+    if (filters.status) { clauses.push("status=?"); args.push(filters.status); }
+    const where=clauses.join(" AND ");
+    const totalRow=this.db.prepare(`SELECT COUNT(*) AS count FROM agency_contacts WHERE ${where}`).get(...args) as Row;
+    const rows=this.db.prepare(`SELECT * FROM agency_contacts WHERE ${where} ORDER BY updated_at DESC, id ASC LIMIT ? OFFSET ?`)
+      .all(...args,filters.limit,filters.offset) as Row[];
+    return {items:rows.map(contactOf),total:number(totalRow,"count")};
   }
 
   insertLead(v: Lead): Lead {
@@ -291,6 +394,23 @@ export class AgencyStore {
   getLead(orgId: string, id: string): Lead | undefined {
     const row=this.db.prepare("SELECT * FROM agency_leads WHERE organization_id=? AND id=?").get(orgId,id) as Row|undefined;
     return row ? leadOf(row) : undefined;
+  }
+  searchLeads(orgId: string, filters: {
+    companyId?: string; stage?: LeadStage; query?: string; limit: number; offset: number;
+  }): { items: Lead[]; total: number } {
+    const clauses=["l.organization_id=?"], args: string[]=[orgId];
+    if (filters.companyId) { clauses.push("l.company_id=?"); args.push(filters.companyId); }
+    if (filters.stage) { clauses.push("l.stage=?"); args.push(filters.stage); }
+    if (filters.query) {
+      clauses.push("(instr(lower(l.source),lower(?))>0 OR instr(lower(l.notes),lower(?))>0 OR instr(lower(c.name),lower(?))>0 OR instr(lower(COALESCE(ct.display_name,'')),lower(?))>0)");
+      args.push(filters.query,filters.query,filters.query,filters.query);
+    }
+    const where=clauses.join(" AND ");
+    const joins=" FROM agency_leads l INNER JOIN agency_companies c ON c.id=l.company_id AND c.organization_id=l.organization_id LEFT JOIN agency_contacts ct ON ct.id=l.contact_id AND ct.organization_id=l.organization_id AND ct.company_id=l.company_id";
+    const totalRow=this.db.prepare(`SELECT COUNT(*) AS count${joins} WHERE ${where}`).get(...args) as Row;
+    const rows=this.db.prepare(`SELECT l.*${joins} WHERE ${where} ORDER BY l.updated_at DESC, l.id ASC LIMIT ? OFFSET ?`)
+      .all(...args,filters.limit,filters.offset) as Row[];
+    return {items:rows.map(leadOf),total:number(totalRow,"count")};
   }
   updateLeadStage(orgId: string, id: string, stage: LeadStage, now: number): Lead | undefined {
     this.db.prepare("UPDATE agency_leads SET stage=?,updated_at=? WHERE organization_id=? AND id=?").run(stage,now,orgId,id);
@@ -346,6 +466,29 @@ export class AgencyStore {
   listAudit(orgId: string, limit = 100): AuditEvent[] {
     return (this.db.prepare("SELECT * FROM (SELECT * FROM agency_audit_events WHERE organization_id=? ORDER BY sequence DESC LIMIT ?) ORDER BY sequence ASC")
       .all(orgId,limit) as Row[]).map(auditOf);
+  }
+  listEntityAudit(orgId: string, filters: { entityType?: string; entityId?: string; limit: number }): AuditEvent[] {
+    const clauses=["organization_id=?"], args: string[]=[orgId];
+    if (filters.entityType) { clauses.push("entity_type=?"); args.push(filters.entityType); }
+    if (filters.entityId) { clauses.push("entity_id=?"); args.push(filters.entityId); }
+    return (this.db.prepare(`SELECT * FROM agency_audit_events WHERE ${clauses.join(" AND ")} ORDER BY sequence DESC LIMIT ?`)
+      .all(...args,filters.limit) as Row[]).map(auditOf);
+  }
+  dashboard(orgId: string): {
+    companyCount: number; contactCount: number; leadCount: number; openLeadCount: number; wonLeadCount: number;
+    stageCounts: Record<LeadStage, number>;
+  } {
+    const count=(table: string) => {
+      const row=this.db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE organization_id=?`).get(orgId) as Row;
+      return number(row,"count");
+    };
+    const stageRows=this.db.prepare("SELECT stage,COUNT(*) AS count FROM agency_leads WHERE organization_id=? GROUP BY stage").all(orgId) as Row[];
+    const stages: LeadStage[]=["new","researching","qualified","contact_pending","contacted","engaged","opportunity","proposal","won","lost","archived"];
+    const stageCounts=Object.fromEntries(stages.map(stage=>[stage,0])) as Record<LeadStage,number>;
+    for (const row of stageRows) stageCounts[text(row,"stage") as LeadStage]=number(row,"count");
+    const leadCount=count("agency_leads");
+    return {companyCount:count("agency_companies"),contactCount:count("agency_contacts"),leadCount,
+      openLeadCount:leadCount-stageCounts.won-stageCounts.lost-stageCounts.archived,wonLeadCount:stageCounts.won,stageCounts};
   }
   verifyAuditChain(orgId: string): { valid: boolean; eventsChecked: number; failedSequence?: number } {
     const rows=this.db.prepare("SELECT * FROM agency_audit_events WHERE organization_id=? ORDER BY sequence ASC").all(orgId) as Row[];
