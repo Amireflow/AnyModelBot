@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Readable } from "node:stream";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { agencyRoutes } from "../src/web/routes/agency.js";
+import type { WebContext } from "../src/web/http.js";
 import { AgencyError, AgencyService, AgencyStore, type LeadStage } from "../src/agency/index.js";
 
 describe("Agency CRM query layer and tenant integrity", () => {
@@ -84,5 +88,72 @@ describe("Agency CRM query layer and tenant integrity", () => {
     expect(()=>service.searchCompanies(a.id,"owner-a",{limit:101})).toThrowError(AgencyError);
     expect(()=>service.searchCompanies(a.id,"owner-a",{offset:-1})).toThrowError(AgencyError);
     expect(()=>service.searchCompanies(a.id,"owner-a",{status:"deleted" as never})).toThrowError(AgencyError);
+  });
+});
+
+
+describe("Agency local CRM HTTP routes", () => {
+  let store: AgencyStore;
+  let service: AgencyService;
+  let route: ReturnType<typeof agencyRoutes>;
+  let tick: number;
+  let seq: number;
+
+  beforeEach(() => {
+    tick=1_800_000_000_000;
+    seq=0;
+    store=new AgencyStore(":memory:");
+    service=new AgencyService(store,{now:()=>tick,id:()=>`http-test-${++seq}`});
+    route=agencyRoutes({agency:service} as WebContext);
+  });
+  afterEach(()=>store.close());
+
+  async function invoke(method: string,path: string,body?: unknown,fetchSite="same-origin") {
+    const request=Readable.from(body===undefined?[]:[JSON.stringify(body)]) as unknown as IncomingMessage;
+    Object.defineProperty(request,"headers",{value:{
+      "content-type":body===undefined?"":"application/json",
+      "sec-fetch-site":fetchSite,
+    }});
+    const response={
+      status:0,
+      payload:"",
+      writeHead(status: number) { this.status=status; return this; },
+      end(payload?: string) { this.payload=String(payload??""); return this; },
+    } as unknown as ServerResponse & {status:number;payload:string};
+    const segments=path.split("/").filter(Boolean);
+    await route(request,response,new URL("http://localhost/amb/api"+path),segments,path,method);
+    return {status:response.status,body:response.payload?JSON.parse(response.payload):null};
+  }
+
+  it("creates an organization and serves paginated CRM records", async () => {
+    const created=await invoke("POST","/agency/organizations",{name:"Local Agency",countryCode:"SN",currency:"XOF"});
+    expect(created.status).toBe(201);
+    const orgId=created.body.organization.id;
+    expect((await invoke("GET","/agency/organizations")).body.items).toHaveLength(1);
+
+    const company=await invoke("POST",`/agency/${orgId}/companies`,{name:"Clinic Dakar",industry:"health",city:"Dakar"});
+    expect(company.status).toBe(201);
+    const result=await invoke("GET",`/agency/${orgId}/companies?q=clinic&limit=10&offset=0`);
+    expect(result.status).toBe(200);
+    expect(result.body.total).toBe(1);
+    expect(result.body.items[0].name).toBe("Clinic Dakar");
+
+    const lead=await invoke("POST",`/agency/${orgId}/leads`,{companyId:company.body.company.id,source:"manual"});
+    expect(lead.status).toBe(201);
+    expect((await invoke("GET",`/agency/${orgId}/dashboard`)).body.leadCount).toBe(1);
+  });
+
+  it("rejects cross-site access before reading CRM records", async () => {
+    const org=service.createOrganization({name:"Local",countryCode:"SN",currency:"XOF"},"local-owner");
+    await expect(invoke("GET",`/agency/${org.id}/companies`,undefined,"cross-site"))
+      .rejects.toMatchObject({status:403});
+  });
+
+  it("preserves lead transition rules at the HTTP boundary", async () => {
+    const org=service.createOrganization({name:"Local",countryCode:"SN",currency:"XOF"},"local-owner");
+    const company=service.createCompany(org.id,"local-owner",{name:"Company"});
+    const lead=service.createLead(org.id,"local-owner",{companyId:company.id});
+    await expect(invoke("PATCH",`/agency/${org.id}/leads/${lead.id}/stage`,{stage:"won"}))
+      .rejects.toMatchObject({status:409});
   });
 });

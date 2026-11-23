@@ -184,7 +184,7 @@ export function SideRail(props) {
   return html`<div class="side-rail anim-fade-in"><${SideActions} collapsed ...${props} /></div>`;
 }
 
-export function Sidebar({ bots, botsError, reloadBots, selectedId, view, previews, pending, working, needs = { n: 0, bots: {} }, username, account, update, onUpdateChanged, onNew, onTemplates, onSelect, onNeeds, onDeleted, onOpenSettings, onBotSettings, onGuide, groups = [], groupsLoaded = true, groupId, onNewGroup, onSelectGroup, onEditGroup, onDeletedGroup, catalog = [], catalogId, onDiscover, onOpenCatalog, onOpenSearch, collapsed, onToggleSide }) {
+export function Sidebar({ bots, botsError, reloadBots, selectedId, view, previews, pending, working, needs = { n: 0, bots: {} }, username, account, update, onUpdateChanged, onNew, onTemplates, onSelect, onNeeds, onDeleted, onOpenSettings, onBotSettings, onGuide, groups = [], groupsLoaded = true, groupId, onNewGroup, onSelectGroup, onEditGroup, onDeletedGroup, catalog = [], catalogId, onDiscover, onOpenCatalog, onAgency, onOpenSearch, collapsed, onToggleSide }) {
   const lang = useLang();
   const seen = useStore(catalogSeen);
   const removedNow = useStore(locallyRemoved);
@@ -280,6 +280,7 @@ export function Sidebar({ bots, botsError, reloadBots, selectedId, view, preview
   }, [entered, view === "new"]);
   // 定时常驻于导航区；发现、需要你按已有条件显示，不占用顶部工具栏。
   const discoverOn = view === "discover";
+  const agencyOn = view === "agency";
   const showHeads = sections.length > 1 || catalog.length > 0 || needs.n > 0;
 
   // —— 分组操作 ——
@@ -450,6 +451,9 @@ export function Sidebar({ bots, botsError, reloadBots, selectedId, view, preview
       ${catalog.length > 0 && html`<button type="button" class=${`nav-item${discoverOn ? " sel" : ""}`} aria-current=${discoverOn ? "page" : undefined} onClick=${onDiscover}>
         <${Icon} name="compass" size="md" /><span class="label">${t("botapp.sidebar.discover")}</span>${hasNew && html`<span class="thread-new-dot" title=${t("botapp.sidebar.new")}></span>`}
       </button>`}
+      <button type="button" class=${`nav-item${agencyOn ? " sel" : ""}`} aria-current=${agencyOn ? "page" : undefined} onClick=${onAgency}>
+        <${Icon} name="clipboardCheck" size="md" /><span class="label">${t("agency.nav")}</span>
+      </button>
       <${ScheduledButton} active=${view === "scheduled"} />
       <${NeedsRow} count=${needs.n} on=${view === "needs"} onClick=${onNeeds} />
     </div>

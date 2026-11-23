@@ -43,7 +43,8 @@ import time from "./time.js";
 import troubleshoot from "./troubleshoot.js";
 import ui from "./ui.js";
 import folder from "./folder.js";
-export default { folder, attach, routines, routineLibrary, aboutMe, collab, feedback, skills, mySkills, skillItems, templates, scheduled, welcome, apps, firstUse, updates, search,
+import agency from "./agency.js";
+export default { agency, folder, attach, routines, routineLibrary, aboutMe, collab, feedback, skills, mySkills, skillItems, templates, scheduled, welcome, apps, firstUse, updates, search,
   official,
   access,
   account,

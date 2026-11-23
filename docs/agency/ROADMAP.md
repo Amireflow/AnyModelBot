@@ -281,6 +281,6 @@ Les lots 1 à 7 fournissent le premier flux commercial ; le lot 8 commence ensui
 
 Le noyau API du Lot 2 est maintenant intégré derrière l'authentification du serveur local : organisations, entreprises, contacts, prospects, filtres, pagination, tableau de bord et historique d'audit. La base CRM reste séparée de la base conversationnelle.
 
-**Ce lot n'est pas encore le CRM visuel complet.** L'interface, l'authentification multi-utilisateur, la synchronisation PostgreSQL centralisée, la recherche web de prospects et les workflows de prospection restent à livrer. Les envois commerciaux automatisés demeurent désactivés tant que le consentement et l'intégration officielle du fournisseur ne sont pas vérifiés.
+**Le CRM local dispose maintenant d'un premier écran utilisable**, intégré à la navigation AnyModelBot : création d'organisation, tableau de bord, entreprises, contacts et pipeline des prospects, avec recherche, pagination et transitions de statut. L'authentification multi-utilisateur, PostgreSQL centralisé, la recherche web de prospects et les workflows de qualification restent à livrer. Les envois commerciaux automatisés demeurent désactivés tant que le consentement et l'intégration officielle du fournisseur ne sont pas vérifiés.
 
 Le contrôle CI doit être exécuté sur le commit livré avant de déclarer le lot validé.

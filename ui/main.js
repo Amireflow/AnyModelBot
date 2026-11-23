@@ -21,6 +21,7 @@ import { NeedsYouScreen } from "./screens/needs-you.js";
 import { BotAppScreen } from "./screens/bot-app.js";
 import { DiscoverScreen } from "./screens/discover.js";
 import { AppsScreen } from "./screens/apps.js";
+import { AgencyScreen } from "./screens/agency.js";
 import { AppDialogHost } from "./components/app-dialogs.js";
 import { PairChatHost } from "./components/collab.js";
 import { setKnownBots } from "./lib/collab.js";
@@ -64,6 +65,7 @@ function parseHash() {
   if (kind === "new") return { view: "new", query };
   if (kind === "templates") return { view: a ? "template-preview" : "templates", catalogId: a };
   if (kind === "needs") return { view: "needs" };
+  if (kind === "agency") return { view: "agency" };
   if (kind === "discover") return { view: "discover" };
   if (kind === "scheduled") return { view: "scheduled", sub: a === "library" ? "library" : "" };
   if (kind === "apps") return { view: "apps", tab: a === "connected" ? "connected" : "all" };
@@ -735,7 +737,7 @@ function App() {
           onNew=${newBot} onTemplates=${() => openTemplates()} onSelect=${openChat} onNeeds=${openNeeds} onDeleted=${onDeleted} onOpenSettings=${(tab) => openSettings(tab)} onBotSettings=${openBotSettings} onGuide=${startGuide}
           groups=${groups} groupsLoaded=${!!groupsData} groupId=${route.groupId} onNewGroup=${() => setGroupSheet({})} onSelectGroup=${openGroup} onEditGroup=${(group) => setGroupSheet({ group })} onDeletedGroup=${onDeletedGroup}
           catalog=${catalog} catalogId=${route.catalogId} onDiscover=${openDiscover} onOpenCatalog=${openCatalog}
-          onOpenSearch=${openSearch} />`}
+          onAgency={() => go("/agency")} onOpenSearch=${openSearch} />`}
     ${!sideOff && html`<${Splitter} class="split-side" size="--side-w" label=${t("app.resizeSide")} value=${sideW} room=${room("--panel-track")} onCommit=${(v) => setPrefs({ sideW: v })} />`}
     <main class="main">
       ${mf.keyChangeNotice && html`<div class="key-change-note"><${Notice} action=${html`<${IconButton} icon="close" label=${t("common.close")} onClick=${async () => { await api("/account/key-notice", { method: "DELETE" }); reloadMf(); }} />`}>${t("firstUse.keyChanged")}<//></div>`}
@@ -746,6 +748,7 @@ function App() {
         onWorking=${onWorking} pending=${pending[bot.id] || 0} serverBusy=${!!agentWorking[bot.id]} onOpenSettings=${openSettings} onOpenBotSettings=${openBotSettings} onBotUpdated=${onBotUpdated}
         account=${managed ? account : null} onAccount=${setAccount} cuBlocked=${cuBlocked.includes(bot.id)} />`}
       ${view === "discover" && html`<${DiscoverScreen} catalog=${catalog} onOpen=${openCatalog} onTemplates=${() => openTemplates("discover")} />`}
+      ${view === "agency" && html`<${AgencyScreen} />`}
       ${view === "templates" && html`<${TemplateGallery} bots=${bots || []} />`}
       ${view === "template-preview" && html`<${TemplatePreview} key=${route.catalogId} id=${route.catalogId} bots=${bots || []} models=${models} modelsError=${modelsError} reloadModels=${reloadModels} defaultModel=${settings?.defaultModel || ""} account=${account} onCreated=${onCreated} />`}
       ${view === "scheduled" && (route.sub === "library" ? html`<${RoutineLibraryPage} />` : html`<${ScheduledPage} bots=${bots || []} />`)}

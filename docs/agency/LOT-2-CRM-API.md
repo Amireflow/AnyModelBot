@@ -1,11 +1,10 @@
-# Lot 2 — CRM API foundation
+# Lot 2 — CRM API et espace de travail local
 
 ## Livré
 
 La base CRM est séparée de la base conversationnelle AnyModelBot. Elle est ouverte au démarrage du serveur web et fermée avec lui. Les routes héritent de l'authentification par jeton déjà utilisée par la console.
 
-Le noyau API couvre :
-
+Le noyau métier et HTTP couvre :
 - création et liste des organisations pour l'opérateur local ;
 - création, détail, recherche et filtres d'entreprises ;
 - création et recherche de contacts ;
@@ -14,23 +13,36 @@ Le noyau API couvre :
 - indicateurs du pipeline et tableau de bord ;
 - historique d'audit par organisation ou entité.
 
+## Interface CRM
+
+L'espace CRM est accessible depuis la navigation latérale sous **Agence** (route #/agency). Il fournit une première interface utilisable :
+- sélection ou création d'une organisation ;
+- cartes de synthèse : entreprises, contacts, prospects et affaires gagnées ;
+- recherche paginée des entreprises et des prospects ;
+- création d'une entreprise ;
+- panneau de détail d'une entreprise avec ajout et liste de contacts ;
+- création d'un prospect et déplacement vers une étape autorisée ;
+- libellés de l'espace CRM traduits dans les huit langues déjà prises en charge par AnyModelBot.
+
+Les libellés d'étapes et les transitions de l'interface correspondent à la machine à états du service. La validation définitive reste côté serveur : l'interface ne peut pas contourner les transitions.
+
 ## Routes
 
-Toutes les routes sont sous `/amb/api/agency`.
+Toutes les routes sont sous /amb/api/agency.
 
 | Méthode | Chemin | Fonction |
 |---|---|---|
-| GET, POST | `/organizations` | Lister ou créer une organisation |
-| GET | `/:orgId/dashboard` | Compteurs et répartition du pipeline |
-| GET, POST | `/:orgId/companies` | Rechercher ou créer des entreprises |
-| GET | `/:orgId/companies/:companyId` | Détail d'une entreprise |
-| GET, POST | `/:orgId/companies/:companyId/contacts` | Rechercher ou créer des contacts |
-| GET | `/:orgId/contacts` | Rechercher les contacts d'une organisation |
-| GET, POST | `/:orgId/leads` | Rechercher ou créer des prospects |
-| PATCH | `/:orgId/leads/:leadId/stage` | Déplacer un prospect dans le pipeline |
-| GET | `/:orgId/timeline` | Historique d'audit |
+| GET, POST | /organizations | Lister ou créer une organisation |
+| GET | /:orgId/dashboard | Compteurs et répartition du pipeline |
+| GET, POST | /:orgId/companies | Rechercher ou créer des entreprises |
+| GET | /:orgId/companies/:companyId | Détail d'une entreprise |
+| GET, POST | /:orgId/companies/:companyId/contacts | Rechercher ou créer des contacts |
+| GET | /:orgId/contacts | Rechercher les contacts d'une organisation |
+| GET, POST | /:orgId/leads | Rechercher ou créer des prospects |
+| PATCH | /:orgId/leads/:leadId/stage | Déplacer un prospect dans le pipeline |
+| GET | /:orgId/timeline | Historique d'audit |
 
-Les recherches acceptent `q`, `limit` et `offset`. Les entreprises acceptent aussi `industry`, `countryCode`, `city`, `status`. Les contacts acceptent `status`. Les prospects acceptent `companyId` et `stage`.
+Les recherches acceptent q, limit et offset. Les entreprises acceptent aussi industry, countryCode, city et status. Les contacts acceptent status. Les prospects acceptent companyId et stage.
 
 ## Sécurité et limites
 
@@ -39,15 +51,15 @@ Les recherches acceptent `q`, `limit` et `offset`. Les entreprises acceptent aus
 - Les services vérifient l'appartenance à l'organisation et le rôle.
 - Des triggers SQLite imposent la cohérence d'organisation pour les relations entreprise/contact/prospect/preuve/consentement, même si un futur appelant contourne les services.
 - Les paramètres SQL sont liés ; la pagination est plafonnée à 100 éléments et l'historique à 200 événements.
-- Cette première intégration utilise l'identité locale stable `local-owner`. C'est un **MVP mono-opérateur local**, pas un système de comptes SaaS multi-utilisateurs. Ne pas exposer cette API comme un service public multi-tenant avant l'authentification réelle, la gestion des adhésions et l'adaptateur de base centralisée.
+- Cette première intégration utilise l'identité locale stable local-owner. C'est un **MVP mono-opérateur local**, pas un système de comptes SaaS multi-utilisateurs. Ne pas exposer cette API comme un service public multi-tenant avant l'authentification réelle, la gestion des adhésions et l'adaptateur de base centralisée.
 - Aucun message de prospection WhatsApp, devis, signature, paiement ou déploiement n'est déclenché par cette API.
 
 ## Validation
 
-Les tests couvrent l'isolation entre organisations, les relations inter-tenant, les filtres, la pagination, les compteurs, l'historique, les statuts de consentement et les payloads d'approbation.
+Les tests couvrent l'isolation entre organisations, les relations inter-tenant, les filtres, la pagination, les compteurs, l'historique, les statuts de consentement, les payloads d'approbation et un premier parcours HTTP des routes CRM.
 
-Le workflow CI prend désormais en charge `workflow_dispatch`, pour permettre un lancement manuel après activation de GitHub Actions sur le fork. Les modifications sont regroupées dans un seul commit. Le lot ne sera pas déclaré validé tant qu'une exécution CI ne sera pas terminée avec succès.
+Le workflow CI prend en charge workflow_dispatch, pour permettre un lancement manuel après activation de GitHub Actions sur le fork. Les modifications sont regroupées dans un seul commit. Le lot ne sera pas déclaré validé tant qu'une exécution CI ne sera pas terminée avec succès.
 
-## Hors périmètre de ce lot
+## Hors périmètre
 
-L'interface CRM visuelle, les comptes multi-utilisateurs, PostgreSQL centralisé, la recherche web de prospects et les workflows de recherche/qualification restent à implémenter. La prospection automatique demeure désactivée jusqu'à validation du consentement et intégration officielle du fournisseur de messagerie.
+Les comptes multi-utilisateurs, PostgreSQL centralisé, la recherche web de prospects, la qualification assistée et les workflows de prospection restent à implémenter. La prospection automatique demeure désactivée jusqu'à validation du consentement et intégration officielle du fournisseur de messagerie.
