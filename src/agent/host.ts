@@ -885,6 +885,8 @@ export class AgentHost {
       // 后台任务：聊天会话的 task_start / task_message / task_list；任务会话的限定工具、任务规则、task_report、收尾
       "    - id: amb-tasks",
       `      name: ${yamlStr(path.join(this.o.runtimeDir, "plugins", "amb-tasks.mjs"))}`,
+      // The paired FlowAuto bot is browser-only while running task sessions: Computer Use + task_report.
+      ...(process.env.AMB_EXECUTION_BOT_ID === this.o.botId ? ["    - id: amb-execution-node-gate", `      name: ${yamlStr(path.join(this.o.runtimeDir, "plugins", "amb-execution-node-gate.mjs"))}`] : []),
       ...this.computerUseLines(apps),
       ...this.fullAccessLines(),
       "",
@@ -1145,6 +1147,7 @@ exec "$REAL" "$@"
       AMB_BRIDGE_URL: this.o.bridge.url,
       AMB_BRIDGE_TOKEN: this.o.bridge.token,
       AMB_BOT_ID: this.o.botId,
+      AMB_EXECUTION_BOT_ID: process.env.AMB_EXECUTION_BOT_ID ?? "",
       AMB_PROMPT_FILE: this.promptFile,
       AMB_CONTROL_TOKEN: this.control.id,
       // 任务会话的系统提示词段（amb-tasks 插件加在机器人段之后）
