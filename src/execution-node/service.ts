@@ -253,6 +253,7 @@ export class LocalExecutionNode {
   }
 
   private reportPendingApprovals(): void {
+    this.o.approvals?.sweep();
     for (const row of this.o.store.listApprovals({ status: "pending", limit: 500 })) {
       if (row.kind !== "approval" || !row.taskId || !row.tool.startsWith("mcp__computer-use__")) continue;
       const remote = this.db.prepare(
