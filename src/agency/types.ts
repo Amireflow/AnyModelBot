@@ -112,6 +112,16 @@ export interface ConsentRecord {
 }
 
 export type WhatsAppOutboxStatus = "queued" | "sending" | "accepted" | "failed" | "submission_unknown" | "cancelled";
+export type WhatsAppProviderStatus = "" | "sent" | "delivered" | "read" | "failed";
+
+export interface WhatsAppWebhookProcessResult {
+  accepted: number;
+  duplicates: number;
+  statusEvents: number;
+  inboundMessages: number;
+  optOuts: number;
+  unmatchedOptOuts: number;
+}
 
 export interface WhatsAppOutboxMessage {
   id: string;
@@ -133,6 +143,9 @@ export interface WhatsAppOutboxMessage {
   createdAt: number;
   updatedAt: number;
   submittedAt: number;
+  providerStatus: WhatsAppProviderStatus;
+  providerStatusAt: number;
+  providerErrorCode: string;
 }
 
 export interface QueueWhatsAppTemplateInput {

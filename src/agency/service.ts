@@ -11,7 +11,9 @@ import type {
   CreateOrganizationInput, Evidence, Lead, LeadSearchFilters, LeadStage, Organization,
   Page, RecordConsentInput, RequestApprovalInput, AgencyRole, ResearchAssessment,
   CompanyQualificationAssessment, QualificationProfile, ResearchDomain, UpdateQualificationProfileInput,
+  QueueWhatsAppTemplateInput, WhatsAppOutboxMessage, WhatsAppWebhookProcessResult,
 } from "./types.js";
+import { WhatsAppProviderError, type WhatsAppTemplateSender } from "./whatsapp-cloud.js";
 import {
   confidenceValue, countryCode, currencyCode, emailAddress, normalizedName, optionalText,
   positiveTimestamp, requiredText, websiteUrl,
@@ -20,6 +22,7 @@ import {
 export interface AgencyServiceOptions {
   now?: () => number;
   id?: () => string;
+  whatsapp?: WhatsAppTemplateSender;
 }
 
 const WRITE_ROLES: AgencyRole[] = ["owner","admin","member"];
@@ -534,6 +537,7 @@ export class AgencyService {
       templateName,language,templateComponents:components,approvalId,approvalPayloadHash:payloadHash.hash,
       consentId:consent.id,status:"queued",providerMessageId:"",failureCode:"",
       idempotencyKey,createdAt:now,updatedAt:now,submittedAt:0,
+      providerStatus:"",providerStatusAt:0,providerErrorCode:"",
     };
     return this.store.transaction(()=>{
       // Recheck under BEGIN IMMEDIATE so concurrent retries cannot race the unique key.
@@ -616,6 +620,15 @@ export class AgencyService {
         this.audit(organizationId,actorId,"whatsapp.message.accepted","whatsapp_message",message.id,{
           providerMessageId:result.providerMessageId,
         });
+        // Meta can deliver a status callback before the send HTTP response is committed.
+        // Replay any already-persisted callbacks now that the provider id is known.
+        for (const event of this.store.listWhatsAppWebhookStatusEvents(organizationId,result.providerMessageId)) {
+          const applied=this.store.updateWhatsAppProviderStatus(
+            organizationId,message.id,event.status,event.eventAt,event.errorCode,now,
+          );
+          if (applied) this.audit(organizationId,"system:meta-webhook","whatsapp.message.provider_status",
+            "whatsapp_message",message.id,{providerMessageId:result.providerMessageId,status:event.status,eventAt:event.eventAt});
+        }
       });
     } catch (error) {
       const providerError=error instanceof WhatsAppProviderError ? error : new WhatsAppProviderError("UNEXPECTED_PROVIDER_FAILURE",true);
@@ -629,6 +642,136 @@ export class AgencyService {
       });
     }
     return this.store.getWhatsAppOutbox(organizationId,message.id)!;
+  }
+
+  processWhatsAppWebhook(organizationId: string, expectedPhoneNumberId: string, payload: unknown): WhatsAppWebhookProcessResult {
+    const organization=this.store.getOrganization(organizationId);
+    if (!organization || organization.status!=="active") throw new AgencyError("NOT_FOUND","Webhook organization is unavailable");
+    if (!payload || typeof payload!=="object" || Array.isArray(payload)) throw new AgencyError("VALIDATION_ERROR","Webhook payload must be an object");
+    const root=payload as Record<string,unknown>;
+    if (root.object!=="whatsapp_business_account" || !Array.isArray(root.entry)) {
+      throw new AgencyError("VALIDATION_ERROR","Unsupported Meta webhook object");
+    }
+    const result: WhatsAppWebhookProcessResult={
+      accepted:0,duplicates:0,statusEvents:0,inboundMessages:0,optOuts:0,unmatchedOptOuts:0,
+    };
+    const now=this.now();
+    for (const entryValue of root.entry) {
+      if (!entryValue || typeof entryValue!=="object" || Array.isArray(entryValue)) continue;
+      const entry=entryValue as Record<string,unknown>;
+      if (!Array.isArray(entry.changes)) continue;
+      for (const changeValue of entry.changes) {
+        if (!changeValue || typeof changeValue!=="object" || Array.isArray(changeValue)) continue;
+        const change=changeValue as Record<string,unknown>;
+        if (change.field!=="messages" || !change.value || typeof change.value!=="object" || Array.isArray(change.value)) continue;
+        const value=change.value as Record<string,unknown>;
+        const metadata=value.metadata && typeof value.metadata==="object"
+          ? value.metadata as Record<string,unknown> : {};
+        if (metadata.phone_number_id!==expectedPhoneNumberId) {
+          throw new AgencyError("FORBIDDEN","Webhook phone number does not match the configured Meta number");
+        }
+
+        if (Array.isArray(value.statuses)) for (const statusValue of value.statuses) {
+          if (!statusValue || typeof statusValue!=="object" || Array.isArray(statusValue)) continue;
+          const statusRecord=statusValue as Record<string,unknown>;
+          const providerMessageId=typeof statusRecord.id==="string" ? statusRecord.id : "";
+          const status=typeof statusRecord.status==="string" ? statusRecord.status : "";
+          const recipientId=typeof statusRecord.recipient_id==="string" ? statusRecord.recipient_id : "";
+          const seconds=typeof statusRecord.timestamp==="string" && /^\d{1,12}$/.test(statusRecord.timestamp)
+            ? Number(statusRecord.timestamp) : Number.NaN;
+          const supportedStatus=status==="sent" || status==="delivered" || status==="read" || status==="failed";
+          if (!providerMessageId || !supportedStatus || !Number.isSafeInteger(seconds) || seconds<=0) continue;
+          const eventAt=seconds*1000;
+          if (!Number.isSafeInteger(eventAt)) continue;
+          const eventKey=createHash("sha256")
+            .update(["status",providerMessageId,status,String(eventAt),recipientId].join("|")).digest("hex");
+          const errorValue=Array.isArray(statusRecord.errors) ? statusRecord.errors[0] : undefined;
+          const errorRecord=errorValue && typeof errorValue==="object" && !Array.isArray(errorValue)
+            ? errorValue as Record<string,unknown> : {};
+          const errorCode=typeof errorRecord.code==="number" || typeof errorRecord.code==="string"
+            ? String(errorRecord.code).slice(0,80) : "";
+          this.store.transaction(()=>{
+            const inserted=this.store.insertWhatsAppWebhookEvent({
+              organizationId,eventKey,providerMessageId,eventType:"status",providerStatus:status,errorCode,
+              eventAt,contactId:"",receivedAt:now,
+            });
+            if (!inserted) { result.duplicates++; return; }
+            result.accepted++;
+            result.statusEvents++;
+            const message=this.store.getWhatsAppOutboxByProviderId(organizationId,providerMessageId);
+            if (message) {
+              const updated=this.store.updateWhatsAppProviderStatus(
+                organizationId,message.id,status as "sent"|"delivered"|"read"|"failed",eventAt,errorCode,now,
+              );
+              if (updated) this.audit(organizationId,"system:meta-webhook","whatsapp.message.provider_status",
+                "whatsapp_message",message.id,{providerMessageId,status,eventAt,errorCode});
+            }
+          });
+        }
+
+        if (Array.isArray(value.messages)) for (const messageValue of value.messages) {
+          if (!messageValue || typeof messageValue!=="object" || Array.isArray(messageValue)) continue;
+          const inbound=messageValue as Record<string,unknown>;
+          const providerMessageId=typeof inbound.id==="string" ? inbound.id : "";
+          const sender=typeof inbound.from==="string" ? inbound.from.replace(/\D/g,"") : "";
+          const seconds=typeof inbound.timestamp==="string" && /^\d{1,12}$/.test(inbound.timestamp)
+            ? Number(inbound.timestamp) : Number.NaN;
+          if (!providerMessageId || !/^\d{8,15}$/.test(sender) || !Number.isSafeInteger(seconds) || seconds<=0) continue;
+          const eventAt=seconds*1000;
+          if (!Number.isSafeInteger(eventAt)) continue;
+          const eventKey=createHash("sha256").update(["inbound",providerMessageId].join("|")).digest("hex");
+          const textRecord=inbound.text && typeof inbound.text==="object"
+            ? inbound.text as Record<string,unknown> : {};
+          const textBody=typeof textRecord.body==="string" ? textRecord.body : "";
+          const normalized=textBody.normalize("NFD").replace(/\p{Diacritic}/gu,"")
+            .trim().toUpperCase().replace(/[.!?,;:]+$/g,"");
+          const isOptOut=new Set<string>(["STOP","STOP ALL","UNSUBSCRIBE","CANCEL","END","QUIT","ARRET",
+            "DESINSCRIRE","DESABONNER","NE PLUS ME CONTACTER"]).has(normalized);
+          this.store.transaction(()=>{
+            const candidates=this.store.findContactsByPhone(organizationId,sender);
+            const contact=candidates.length===1 ? candidates[0] : undefined;
+            const inserted=this.store.insertWhatsAppWebhookEvent({
+              organizationId,eventKey,providerMessageId,eventType:"inbound_message",
+              providerStatus:"",errorCode:"",eventAt,contactId:contact?.id ?? "",receivedAt:now,
+            });
+            if (!inserted) { result.duplicates++; return; }
+            result.accepted++;
+            result.inboundMessages++;
+            if (!isOptOut) return;
+            if (!contact) {
+              result.unmatchedOptOuts++;
+              this.audit(organizationId,"system:meta-webhook","whatsapp.opt_out.unmatched",
+                "whatsapp_webhook_event",eventKey,{providerMessageId});
+              return;
+            }
+
+            const history=this.store.listConsents(organizationId,contact.id,"whatsapp");
+            const latestByPurpose=new Map<string, typeof history[number]>();
+            for (const consent of history) if (!latestByPurpose.has(consent.purpose)) latestByPurpose.set(consent.purpose,consent);
+            const activePurposes=[...latestByPurpose.values()].filter(consent=>
+              consent.status==="granted" && (!consent.expiresAt || consent.expiresAt>now)).map(consent=>consent.purpose);
+            if (!activePurposes.includes("marketing") && !latestByPurpose.has("marketing")) activePurposes.push("marketing");
+            let withdrawn=0;
+            for (const purpose of activePurposes) {
+              const record={
+                id:this.id(),organizationId,contactId:contact.id,channel:"whatsapp",purpose,
+                status:"withdrawn" as const,source:"whatsapp_inbound",
+                proof:"meta-wamid:"+providerMessageId,textVersion:"",expiresAt:0,createdAt:now,
+              };
+              this.store.insertConsent(record);
+              this.audit(organizationId,"system:meta-webhook","consent.withdrawn","consent",record.id,{
+                contactId:contact.id,channel:"whatsapp",purpose,source:record.source,providerMessageId,
+              });
+              withdrawn++;
+            }
+            result.optOuts+=withdrawn>0 ? 1 : 0;
+            this.audit(organizationId,"system:meta-webhook","whatsapp.opt_out.received",
+              "contact",contact.id,{providerMessageId,purposesWithdrawn:withdrawn});
+          });
+        }
+      }
+    }
+    return result;
   }
 
   requestApproval(organizationId: string, actorId: string, input: RequestApprovalInput): Approval {

@@ -67,16 +67,23 @@ Les changements sont protégés par le contrôle anti-cross-site déjà présent
 
 ### Limites ouvertes avant de fermer le Lot 4
 
-1. Route callback HTTPS publiquement accessible pour le challenge Meta et les webhooks WhatsApp.
-2. Validation HMAC sur le corps brut dans la route, puis déduplication persistante des événements et mise à jour des statuts message.
-3. Tests de simulation des webhooks entrants, doublons, statuts et retraits reçus via WhatsApp.
-4. Stockage du token dans le trousseau sécurisé du système plutôt que dans l'environnement du processus.
-5. Interface utilisateur pour revoir les preuves, préparer les demandes d'approbation et examiner les messages en file.
-6. Simulation réelle avec un numéro de test Meta, sans utiliser un compte ou numéro de production.
-7. Exécution du typecheck, des tests et du build. Ces commandes n'ont pas été exécutées pendant cette tranche.
+1. Déployer ou exposer le callback sur un hôte HTTPS public avec certificat TLS valide, puis valider le challenge Meta réel.
+2. Stocker les secrets dans le trousseau sécurisé du système plutôt que dans l'environnement du processus.
+3. Ajouter une interface de revue des preuves, demandes d'approbation, messages et statuts.
+4. Ajouter les reçus Meta réels et tester sur un numéro de test, sans compte ou numéro de production.
+5. Exécuter typecheck, tests, build et simulation complète avant de fermer le Lot 4. Ces commandes n'ont pas été exécutées pendant cette tranche.
 
 ## Références officielles Meta
 
 - [WhatsApp Business Platform — aperçu et Cloud API](https://developers.facebook.com/documentation/business-messaging/whatsapp/overview/)
 - [WhatsApp Business Account — lecture des modèles](https://developers.facebook.com/docs/graph-api/reference/whats-app-business-account/message_templates/)
 - [Webhook Meta — signature X-Hub-Signature-256](https://developers.facebook.com/docs/graph-api/webhooks/getting-started/)
+
+
+## Variables complémentaires pour le callback
+
+- `AGENCY_WHATSAPP_ORGANIZATION_ID` : organisation locale qui reçoit les événements du numéro configuré ;
+- `AGENCY_WHATSAPP_APP_SECRET` : App Secret Meta utilisé pour la signature HMAC ;
+- `AGENCY_WHATSAPP_VERIFY_TOKEN` : secret choisi par l'exploitant et configuré à l'identique dans Meta.
+
+Le callback n'est pas exposé derrière l'authentification par cookie de la console, mais il exige séparément le verify token pour GET et l'App Secret pour POST. La protection contre les connexions de processus agents est conservée. Les secrets sont capturés en mémoire au démarrage, enregistrés pour la redaction des logs, puis retirés de `process.env` afin de ne pas être hérités directement par les sous-processus. Il faut publier le callback derrière HTTPS avant de l'enregistrer dans Meta. Une instance locale est associée à une organisation et à un numéro WhatsApp configurés ; une future plateforme multi-organisation devra remplacer cette correspondance par une configuration provider dédiée par tenant.

@@ -1,6 +1,6 @@
 # Agency OS — blueprint de référence
 
-**Statut :** architecture de référence en cours d'implémentation ; Agency Core, CRM local, registre de preuves, recherche Company Research et première tranche consentement/outbox WhatsApp Cloud API sont intégrés sur master. Les webhooks publics, statuts de livraison, coffre système et interface de revue restent à faire.  
+**Statut :** architecture de référence en cours d'implémentation ; Agency Core, CRM local, registre de preuves, recherche Company Research et première tranche consentement/outbox WhatsApp Cloud API sont intégrés sur master. Le callback Meta, la déduplication des événements et la synchronisation des statuts sont maintenant implémentés ; l'exposition HTTPS réelle, le coffre système et l'interface de revue restent à faire.  
 **Suivi des lots :** [Roadmap](./ROADMAP.md) · [Lot 2 — CRM](./LOT-2-CRM-API.md) · [Lot 3 — preuves et import de recherche](./LOT-3-RESEARCH-EVIDENCE.md) · [Lot 4 — consentement et WhatsApp Cloud API](./LOT-4-WHATSAPP.md)
 **Dépôt :** fork Amireflow/AnyModelBot.  
 **Branche de travail :** `master`, conformément à `AGENTS.md`.

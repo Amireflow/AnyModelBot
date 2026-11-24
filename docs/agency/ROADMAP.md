@@ -302,4 +302,17 @@ Une première tranche du contrôle des envois WhatsApp est intégrée dans le co
 - adaptateur officiel Cloud API : vérification à distance du statut APPROVED du modèle, puis soumission via l'endpoint messages ;
 - aucun envoi libre, aucune automatisation WhatsApp Web et aucun retry automatique quand le résultat de soumission est ambigu.
 
-**Le Lot 4 reste ouvert.** L'ingress public des webhooks Meta, la vérification de challenge, la déduplication persistante des événements entrants, la mise à jour des statuts de livraison, le stockage des secrets dans le trousseau système, l'interface de revue et la simulation réelle avec un compte Meta de test doivent encore être implémentés et vérifiés. Un statut `accepted` signifie que l'API a accepté la requête, pas que le destinataire a reçu le message.
+**Le callback webhook est maintenant implémenté dans le serveur local.** GET vérifie le challenge, POST vérifie le HMAC sur le corps brut, les événements sont dédupliqués dans SQLite, les statuts fournisseur sont synchronisés et les mots-clés STOP créent les retraits de consentement. Le Lot 4 reste ouvert tant que l'URL n'est pas exposée en HTTPS public et validée dans Meta, que les secrets ne sont pas migrés vers le trousseau système, que l'interface de revue et les essais réels de livraison ne sont pas terminés. Un statut `accepted` signifie que l'API a accepté la requête, pas que le destinataire a reçu le message.
+
+
+### État complémentaire du Lot 4 — callback et synchronisation Meta (24 novembre 2026)
+
+- `GET/POST /webhooks/whatsapp/meta` ;
+- vérification du challenge par verify token et vérification HMAC avant parsing ;
+- numéro WhatsApp attendu lié à l'organisation locale configurée ;
+- table durable d'événements entrants, clé idempotente par organisation ;
+- synchronisation des statuts `sent`, `delivered`, `read` et `failed`, y compris les callbacks arrivés avant l'enregistrement de la réponse d'envoi ;
+- opt-out par mots-clés exacts, avec retrait des finalités WhatsApp actives ;
+- aucun texte de message ni média entrant archivé.
+
+Le callback est une route applicative, pas une publication réseau. Meta exige HTTPS avec certificat TLS valide ; un reverse proxy ou un endpoint public reste à configurer.

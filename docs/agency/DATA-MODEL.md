@@ -133,6 +133,15 @@ Un accord ne peut autoriser un envoi que si sa source, sa référence de preuve 
 
 Les pièces jointes sont conservées séparément avec accès privé.
 
+### WhatsAppWebhookEvent
+- organisation et clé idempotente de l'événement ;
+- identifiant du message Meta ;
+- nature de l'événement (message entrant ou statut) ;
+- statut provider, timestamp et contact CRM associé lorsqu'il est identifié ;
+- date de réception.
+
+Ne pas conserver le payload JSON brut par défaut : les textes entrants et médias ne sont pas nécessaires à la synchronisation de statuts ou à la désinscription. Les événements de statut alimentent `provider_status` de la ligne sortante sans confondre acceptation HTTP et livraison.
+
 Pour WhatsApp Cloud API, une ligne de file sortante doit référencer exactement le contact, le consentement actif, l'approbation propriétaire, l'empreinte du payload, le modèle approuvé, la clé d'idempotence, le statut de soumission et l'identifiant provider. Une acceptation HTTP par Meta ne vaut pas confirmation de livraison ; les statuts delivered/read/failed viennent des webhooks vérifiés.
 
 ### ChannelTemplate

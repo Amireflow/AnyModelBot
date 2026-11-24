@@ -42,6 +42,7 @@ import { AgencyStore } from "../agency/store.js";
 import { AgencyService } from "../agency/service.js";
 import { WhatsAppCloudApiClient } from "../agency/whatsapp-cloud.js";
 import { agencyRoutes } from "./routes/agency.js";
+import { handleWhatsAppMetaWebhook, WHATSAPP_META_WEBHOOK_PATH } from "./routes/whatsapp-webhook.js";
 
 const log = logger("web");
 const require = createRequire(import.meta.url);
@@ -90,12 +91,27 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
   const cfg = app.config;
   const host = opts.host ?? cfg.ui.host;
   const agencyStore = new AgencyStore(path.join(cfg.dataDir,"agency.db"));
-  const whatsappCloud = new WhatsAppCloudApiClient({
+  const whatsappRuntimeConfig = {
     accessToken:process.env.AGENCY_WHATSAPP_ACCESS_TOKEN,
     phoneNumberId:process.env.AGENCY_WHATSAPP_PHONE_NUMBER_ID,
     businessAccountId:process.env.AGENCY_WHATSAPP_BUSINESS_ACCOUNT_ID,
     apiVersion:process.env.AGENCY_WHATSAPP_GRAPH_VERSION ?? "v27.0",
-  });
+  };
+  const whatsappWebhookConfig = {
+    organizationId:process.env.AGENCY_WHATSAPP_ORGANIZATION_ID,
+    phoneNumberId:process.env.AGENCY_WHATSAPP_PHONE_NUMBER_ID,
+    appSecret:process.env.AGENCY_WHATSAPP_APP_SECRET,
+    verifyToken:process.env.AGENCY_WHATSAPP_VERIFY_TOKEN,
+  };
+  // Register secrets for log redaction and keep them out of child-process environments.
+  for (const secretName of [
+    "AGENCY_WHATSAPP_ACCESS_TOKEN","AGENCY_WHATSAPP_APP_SECRET","AGENCY_WHATSAPP_VERIFY_TOKEN",
+  ]) {
+    const secret=process.env[secretName];
+    if (secret) registerSecret(secret);
+    delete process.env[secretName];
+  }
+  const whatsappCloud = new WhatsAppCloudApiClient(whatsappRuntimeConfig);
   const agency = new AgencyService(agencyStore,{whatsapp:whatsappCloud});
   const uiDir = path.join(findAppRoot(), "ui");
   const vendor = vendorFiles();
@@ -227,7 +243,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
     return app.runtime.interceptReply(ev);
   }
 
-  function authorized(req: http.IncomingMessage, url: URL, res: http.ServerResponse): boolean {
+  function authorized(req: http.IncomingMessage, url: URL, res: http.ServerResponse, allowWebhookWithoutUiToken = false): boolean {
     // 代理沙箱可访问回环网络：拒绝一切来自 DSH 子进程及其工具进程的请求（防止自行批准/读取配置）
     const pids = app.agent.childPids();
     if (pids.length && connectionFromPids(req.socket.remotePort, req.socket.localPort, pids)) {
@@ -235,11 +251,14 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
       res.writeHead(403, { "content-type": "text/plain; charset=utf-8" }).end("forbidden from agent sandbox");
       return false;
     }
-    // 防 DNS rebinding：回环模式只接受 127.0.0.1/localhost 的 Host
-    if (isLoopback(host) && !allowedHosts().has(String(req.headers.host))) {
+    // Browser/UI requests on a loopback listener must use its local Host.
+    // Meta callbacks intentionally use the public proxy Host and authenticate via verify token/HMAC.
+    if (!allowWebhookWithoutUiToken && isLoopback(host) && !allowedHosts().has(String(req.headers.host))) {
       res.writeHead(421).end("bad host");
       return false;
     }
+    // Keep the process-origin check above, but do not require the console cookie for Meta callbacks.
+    if (allowWebhookWithoutUiToken) return true;
     // This path validates its own expiring, directory-scoped capability in serve().
     if (FilePreviews.isAssetRequest(req, url)) return true;
     // 启动时一定有令牌（配置的、桌面版生成的，或上面生成的）；万一没有也不放行
@@ -360,6 +379,14 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
     }
     if (url.pathname === APPS_CALLBACK && req.method === "GET") {
       void appsCallback(res, url);
+      return;
+    }
+    if (url.pathname===WHATSAPP_META_WEBHOOK_PATH) {
+      if (!authorized(req,url,res,true)) return;
+      void handleWhatsAppMetaWebhook(req,res,url,whatsappWebhookConfig,agency).catch(error=>{
+        log.warn("WhatsApp Meta webhook handler failed",{message:(error as Error).message});
+        if (!res.headersSent) res.writeHead(500,{"content-type":"text/plain; charset=utf-8"}).end("Webhook processing failed");
+      });
       return;
     }
     if (!authorized(req, url, res)) return;

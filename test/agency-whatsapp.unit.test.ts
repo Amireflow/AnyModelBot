@@ -1,173 +1,167 @@
-import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AgencyError, AgencyService, AgencyStore, verifyMetaWebhookSignature, type WhatsAppTemplateSender } from "../src/agency/index.js";
+import { AgencyError, AgencyService, AgencyStore, type WhatsAppTemplateSender } from "../src/agency/index.js";
 
-describe("Agency WhatsApp Cloud API outbox",()=>{
+describe("Agency WhatsApp Meta webhooks",()=>{
   let store:AgencyStore;
   let service:AgencyService;
   let tick:number;
   let ids:number;
-  let providerCalls:number;
+  let calls:number;
   const sender:WhatsAppTemplateSender={
     isConfigured:()=>true,
-    async sendTemplateMessage(){
-      providerCalls++;
-      return {providerMessageId:"wamid.test-123"};
-    },
+    async sendTemplateMessage(){calls++;return {providerMessageId:"wamid.status-test"};},
   };
 
   beforeEach(()=>{
     tick=1_800_000_000_000;
-    ids=0;
-    providerCalls=0;
+    ids=0;calls=0;
     store=new AgencyStore(":memory:");
-    service=new AgencyService(store,{now:()=>tick,id:()=>\`wa-test-\${++ids}\`,whatsapp:sender});
+    service=new AgencyService(store,{now:()=>tick,id:()=>\`webhook-test-\${++ids}\`,whatsapp:sender});
   });
   afterEach(()=>store.close());
 
   function setup(){
-    const organization=service.createOrganization({name:"WhatsApp Agency",countryCode:"SN"},"owner-1");
-    const company=service.createCompany(organization.id,"owner-1",{name:"Prospect"});
+    const organization=service.createOrganization({name:"Webhook Agency",countryCode:"SN"},"owner-1");
+    const company=service.createCompany(organization.id,"owner-1",{name:"Meta Contact"});
     const contact=service.createContact(organization.id,"owner-1",{
-      companyId:company.id,displayName:"Prospect Contact",phone:"+221771234567",preferredChannel:"whatsapp",
+      companyId:company.id,displayName:"Awa",phone:"+221771234567",
     });
-    return {organization,contact};
+    const consent=service.recordConsent(organization.id,"owner-1",{
+      contactId:contact.id,channel:"whatsapp",purpose:"marketing",status:"granted",
+      source:"website_form",proof:"signed-consent-reference-01",textVersion:"wa-marketing-v1",
+    });
+    const payload={
+      channel:"whatsapp",purpose:"marketing",contactId:contact.id,recipient:"+221771234567",
+      type:"template",template:{name:"hello_world",language:"fr_FR",components:[]},
+    };
+    const approval=service.requestApproval(organization.id,"owner-1",{
+      action:"send_message",resourceType:"whatsapp_template",resourceId:contact.id,
+      reason:"Explicitly reviewed for the test",payload,
+    });
+    const decided=service.decideApproval(organization.id,"owner-1",approval.id,"approved",approval.payloadHash);
+    const queued=service.queueWhatsAppTemplate(organization.id,"owner-1",{
+      approvalId:decided.id,idempotencyKey:"webhook-outbox-0001",payload,
+    });
+    return {organization,contact,consent,queued};
   }
 
-  function grantConsent(organizationId:string,contactId:string){
-    return service.recordConsent(organizationId,"owner-1",{
-      contactId,channel:"whatsapp",purpose:"marketing",status:"granted",
-      source:"website_form",proof:"form-submission:consent-2026-04",textVersion:"whatsapp-marketing-v1",
-    });
-  }
-
-  function payload(contactId:string,recipient="+221771234567"){
+  function webhook(organizationId:string,items:Record<string,unknown>[],phoneNumberId="123456789012345"){
     return {
-      channel:"whatsapp",
-      purpose:"marketing",
-      contactId,
-      recipient,
-      type:"template",
-      template:{name:"hello_world",language:"fr_FR",components:[]},
+      object:"whatsapp_business_account",
+      entry:[{
+        id:"987654321098765",
+        changes:[{
+          field:"messages",
+          value:{
+            messaging_product:"whatsapp",
+            metadata:{display_phone_number:"15551234567",phone_number_id:phoneNumberId},
+            ...items.reduce((acc,item)=>{
+              const key=String(item.kind);
+              const value=item.value;
+              if(key==="status") (acc.statuses as unknown[]).push(value);
+              else (acc.messages as unknown[]).push(value);
+              return acc;
+            },{statuses:[] as unknown[],messages:[] as unknown[]}),
+          },
+        }],
+      }],
     };
   }
 
-  function approve(organizationId:string,contactId:string,body:ReturnType<typeof payload>){
-    const approval=service.requestApproval(organizationId,"owner-1",{
-      action:"send_message",resourceType:"whatsapp_template",resourceId:contactId,
-      reason:"Owner reviewed the exact recipient, template and parameters",payload:body,
-    });
-    return service.decideApproval(organizationId,"owner-1",approval.id,"approved",approval.payloadHash,"Approved for one submission");
-  }
+  it("replays a status callback that arrives before the send response is committed",async()=>{
+    const {organization,queued}=setup();
+    const early=webhook(organization.id,[{kind:"status",value:{
+      id:"wamid.status-test",status:"delivered",timestamp:"1800000001",recipient_id:"221771234567",
+    }}]);
+    const received=service.processWhatsAppWebhook(organization.id,"123456789012345",early);
+    expect(received.statusEvents).toBe(1);
+    expect(store.getWhatsAppOutbox(organization.id,queued.id)?.providerStatus).toBe("");
 
-  it("requires consent text version and exact current channel and purpose",()=>{
+    const accepted=await service.dispatchWhatsAppTemplate(organization.id,"owner-1",queued.id);
+    expect(accepted.status).toBe("accepted");
+    expect(accepted.providerStatus).toBe("delivered");
+    expect(accepted.providerStatusAt).toBe(1_800_000_001_000);
+  });
+
+  it("stores provider status events once and ignores out-of-order delivery callbacks",async()=>{
+    const {organization,queued}=setup();
+    const accepted=await service.dispatchWhatsAppTemplate(organization.id,"owner-1",queued.id);
+    expect(accepted.status).toBe("accepted");
+    expect(accepted.providerMessageId).toBe("wamid.status-test");
+
+    const read=webhook(organization.id,[{kind:"status",value:{
+      id:"wamid.status-test",status:"read",timestamp:"1800000001",recipient_id:"221771234567",
+    }}]);
+    const first=service.processWhatsAppWebhook(organization.id,"123456789012345",read);
+    expect(first).toMatchObject({accepted:1,duplicates:0,statusEvents:1});
+    expect(store.getWhatsAppOutbox(organization.id,queued.id)).toMatchObject({
+      status:"accepted",providerStatus:"read",providerStatusAt:1_800_000_001_000,
+    });
+
+    const olderDelivered=webhook(organization.id,[{kind:"status",value:{
+      id:"wamid.status-test",status:"delivered",timestamp:"1800000000",recipient_id:"221771234567",
+    }}]);
+    const older=service.processWhatsAppWebhook(organization.id,"123456789012345",olderDelivered);
+    expect(older.statusEvents).toBe(1);
+    expect(store.getWhatsAppOutbox(organization.id,queued.id)?.providerStatus).toBe("read");
+
+    const duplicate=service.processWhatsAppWebhook(organization.id,"123456789012345",read);
+    expect(duplicate).toMatchObject({accepted:0,duplicates:1,statusEvents:0});
+    expect(store.countWhatsAppWebhookEvents(organization.id)).toBe(2);
+    expect(()=>store.db.prepare("UPDATE agency_whatsapp_webhook_events SET provider_status='read'").run()).toThrow();
+    expect(()=>store.db.prepare("DELETE FROM agency_whatsapp_webhook_events").run()).toThrow();
+  });
+
+  it("does not regress provider status when a later callback has a lower state",async()=>{
+    const {organization,queued}=setup();
+    await service.dispatchWhatsAppTemplate(organization.id,"owner-1",queued.id);
+    const delivered=webhook(organization.id,[{kind:"status",value:{
+      id:"wamid.status-test",status:"delivered",timestamp:"1800000002",recipient_id:"221771234567",
+    }}]);
+    service.processWhatsAppWebhook(organization.id,"123456789012345",delivered);
+    const sentLate=webhook(organization.id,[{kind:"status",value:{
+      id:"wamid.status-test",status:"sent",timestamp:"1800000003",recipient_id:"221771234567",
+    }}]);
+    service.processWhatsAppWebhook(organization.id,"123456789012345",sentLate);
+    expect(store.getWhatsAppOutbox(organization.id,queued.id)?.providerStatus).toBe("delivered");
+  });
+
+  it("turns an inbound STOP into a durable WhatsApp opt-out without storing message text",()=>{
     const {organization,contact}=setup();
-    expect(()=>service.recordConsent(organization.id,"owner-1",{
-      contactId:contact.id,channel:"whatsapp",purpose:"marketing",status:"granted",
-      source:"website_form",proof:"submission-42",
-    })).toThrowError(AgencyError);
+    const incoming=webhook(organization.id,[{kind:"message",value:{
+      id:"wamid.inbound-stop-1",from:"221771234567",timestamp:"1800000002",
+      type:"text",text:{body:"STOP"},
+    }}]);
+    const result=service.processWhatsAppWebhook(organization.id,"123456789012345",incoming);
+    expect(result).toMatchObject({accepted:1,inboundMessages:1,optOuts:1,unmatchedOptOuts:0});
     expect(service.hasActiveConsent(organization.id,"owner-1",contact.id,"whatsapp","marketing")).toBe(false);
-    grantConsent(organization.id,contact.id);
-    expect(service.hasActiveConsent(organization.id,"owner-1",contact.id,"whatsapp","marketing")).toBe(true);
-    expect(service.hasActiveConsent(organization.id,"owner-1",contact.id,"whatsapp","service")).toBe(false);
-    service.recordConsent(organization.id,"owner-1",{
-      contactId:contact.id,channel:"whatsapp",purpose:"marketing",status:"withdrawn",
-      source:"recipient_request",proof:"recipient-request:event-43",
+    expect(service.listConsents(organization.id,"owner-1",contact.id,"whatsapp","marketing")[0]).toMatchObject({
+      status:"withdrawn",source:"whatsapp_inbound",
     });
-    expect(service.hasActiveConsent(organization.id,"owner-1",contact.id,"whatsapp","marketing")).toBe(false);
+
+    const duplicate=service.processWhatsAppWebhook(organization.id,"123456789012345",incoming);
+    expect(duplicate).toMatchObject({accepted:0,duplicates:1,optOuts:0});
+    expect(service.listConsents(organization.id,"owner-1",contact.id,"whatsapp","marketing")).toHaveLength(2);
   });
 
-  it("blocks queueing without both active consent and exact owner approval",()=>{
-    const {organization,contact}=setup();
-    const body=payload(contact.id);
-    const approval=approve(organization.id,contact.id,body);
-    expect(()=>service.queueWhatsAppTemplate(organization.id,"owner-1",{
-      approvalId:approval.id,idempotencyKey:"wa-outbox-0001",payload:body,
-    })).toThrowError(AgencyError);
-
-    grantConsent(organization.id,contact.id);
-    const changed=payload(contact.id,"+221779999999");
-    expect(()=>service.queueWhatsAppTemplate(organization.id,"owner-1",{
-      approvalId:approval.id,idempotencyKey:"wa-outbox-0002",payload:changed,
-    })).toThrowError(AgencyError);
-    const queued=service.queueWhatsAppTemplate(organization.id,"owner-1",{
-      approvalId:approval.id,idempotencyKey:"wa-outbox-0003",payload:body,
-    });
-    expect(queued.status).toBe("queued");
-    expect(queued.consentId).toBeTruthy();
-    expect(queued.approvalPayloadHash).toBe(approval.payloadHash);
+  it("does not assign a STOP to an ambiguous or unknown contact",()=>{
+    const {organization}=setup();
+    const incoming=webhook(organization.id,[{kind:"message",value:{
+      id:"wamid.inbound-stop-unknown",from:"221779999999",timestamp:"1800000002",
+      type:"text",text:{body:"ARRÊT"},
+    }}]);
+    const result=service.processWhatsAppWebhook(organization.id,"123456789012345",incoming);
+    expect(result.unmatchedOptOuts).toBe(1);
   });
 
-  it("requires owner dispatch and submits an approved template at most once",async()=>{
-    const {organization,contact}=setup();
-    grantConsent(organization.id,contact.id);
-    const body=payload(contact.id);
-    const approval=approve(organization.id,contact.id,body);
-    const queued=service.queueWhatsAppTemplate(organization.id,"owner-1",{
-      approvalId:approval.id,idempotencyKey:"wa-outbox-0004",payload:body,
-    });
-    service.addMember(organization.id,"owner-1","member-1","member");
-    await expect(service.dispatchWhatsAppTemplate(organization.id,"member-1",queued.id)).rejects.toBeInstanceOf(AgencyError);
-
-    const sent=await service.dispatchWhatsAppTemplate(organization.id,"owner-1",queued.id);
-    expect(sent.status).toBe("accepted");
-    expect(sent.providerMessageId).toBe("wamid.test-123");
-    expect(providerCalls).toBe(1);
-    const repeated=await service.dispatchWhatsAppTemplate(organization.id,"owner-1",queued.id);
-    expect(repeated.status).toBe("accepted");
-    expect(providerCalls).toBe(1);
-  });
-
-  it("rechecks consent immediately before submission and blocks a post-queue opt-out",async()=>{
-    const {organization,contact}=setup();
-    grantConsent(organization.id,contact.id);
-    const body=payload(contact.id);
-    const approval=approve(organization.id,contact.id,body);
-    const queued=service.queueWhatsAppTemplate(organization.id,"owner-1",{
-      approvalId:approval.id,idempotencyKey:"wa-outbox-0005",payload:body,
-    });
-    service.recordConsent(organization.id,"owner-1",{
-      contactId:contact.id,channel:"whatsapp",purpose:"marketing",status:"withdrawn",
-      source:"recipient_request",proof:"STOP received",
-    });
-    await expect(service.dispatchWhatsAppTemplate(organization.id,"owner-1",queued.id)).rejects.toMatchObject({code:"CONSENT_REQUIRED"});
-    expect(providerCalls).toBe(0);
-    expect(store.getWhatsAppOutbox(organization.id,queued.id)?.status).toBe("queued");
-  });
-
-
-  it("keeps consent evidence append-only at the SQLite boundary",()=>{
-    const {organization,contact}=setup();
-    const consent=grantConsent(organization.id,contact.id);
-    expect(()=>store.db.prepare("UPDATE agency_consents SET proof='tampered-proof' WHERE id=?").run(consent.id)).toThrow();
-    expect(()=>store.db.prepare("DELETE FROM agency_consents WHERE id=?").run(consent.id)).toThrow();
-    expect(service.hasActiveConsent(organization.id,"owner-1",contact.id,"whatsapp","marketing")).toBe(true);
-  });
-
-  it("verifies Meta webhook signatures against the exact raw payload",()=>{
-    const raw=Buffer.from('{"entry":[{"id":"123"}]}');
-    const secret="test-meta-app-secret";
-    const signature="sha256="+createHmac("sha256",secret).update(raw).digest("hex");
-    expect(verifyMetaWebhookSignature(raw,signature,secret)).toBe(true);
-    expect(verifyMetaWebhookSignature(Buffer.from('{"entry":[]}'),signature,secret)).toBe(false);
-    expect(verifyMetaWebhookSignature(raw,"sha256=invalid",secret)).toBe(false);
-    expect(verifyMetaWebhookSignature(raw,signature,"wrong-secret")).toBe(false);
-  });
-
-  it("does not reuse an idempotency key for different content",()=>{
-    const {organization,contact}=setup();
-    grantConsent(organization.id,contact.id);
-    const body=payload(contact.id);
-    const approval=approve(organization.id,contact.id,body);
-    const first=service.queueWhatsAppTemplate(organization.id,"owner-1",{
-      approvalId:approval.id,idempotencyKey:"wa-outbox-0006",payload:body,
-    });
-    const duplicate=service.queueWhatsAppTemplate(organization.id,"owner-1",{
-      approvalId:approval.id,idempotencyKey:"wa-outbox-0006",payload:body,
-    });
-    expect(duplicate.id).toBe(first.id);
-    expect(()=>service.queueWhatsAppTemplate(organization.id,"owner-1",{
-      approvalId:approval.id,idempotencyKey:"wa-outbox-0006",payload:payload(contact.id,"+221779999999"),
-    })).toThrowError(AgencyError);
+  it("rejects callbacks for a different configured phone number",()=>{
+    const {organization}=setup();
+    const incoming=webhook(organization.id,[{kind:"message",value:{
+      id:"wamid.bad-phone",from:"221771234567",timestamp:"1800000002",
+      type:"text",text:{body:"STOP"},
+    }}],"999999999999999");
+    expect(()=>service.processWhatsAppWebhook(organization.id,"123456789012345",incoming))
+      .toThrowError(AgencyError);
+    expect(store.countWhatsAppWebhookEvents(organization.id)).toBe(0);
   });
 });

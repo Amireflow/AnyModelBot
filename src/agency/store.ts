@@ -158,10 +158,35 @@ CREATE TABLE IF NOT EXISTS agency_whatsapp_outbox (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   submitted_at INTEGER NOT NULL DEFAULT 0,
+  provider_status TEXT NOT NULL DEFAULT '',
+  provider_status_at INTEGER NOT NULL DEFAULT 0,
+  provider_error_code TEXT NOT NULL DEFAULT '',
   UNIQUE(organization_id,idempotency_key)
 );
 CREATE INDEX IF NOT EXISTS agency_whatsapp_outbox_org_status
   ON agency_whatsapp_outbox(organization_id,status,created_at);
+
+CREATE TABLE IF NOT EXISTS agency_whatsapp_webhook_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  organization_id TEXT NOT NULL REFERENCES agency_organizations(id),
+  event_key TEXT NOT NULL,
+  provider_message_id TEXT NOT NULL,
+  event_type TEXT NOT NULL CHECK(event_type IN ('status','inbound_message')),
+  provider_status TEXT NOT NULL DEFAULT '',
+  provider_error_code TEXT NOT NULL DEFAULT '',
+  event_at INTEGER NOT NULL,
+  contact_id TEXT NOT NULL DEFAULT '',
+  received_at INTEGER NOT NULL,
+  UNIQUE(organization_id,event_key)
+);
+CREATE INDEX IF NOT EXISTS agency_whatsapp_webhook_provider
+  ON agency_whatsapp_webhook_events(organization_id,provider_message_id,event_type);
+CREATE TRIGGER IF NOT EXISTS agency_whatsapp_webhook_no_update
+BEFORE UPDATE ON agency_whatsapp_webhook_events
+BEGIN SELECT RAISE(ABORT, 'agency WhatsApp webhook events are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS agency_whatsapp_webhook_no_delete
+BEFORE DELETE ON agency_whatsapp_webhook_events
+BEGIN SELECT RAISE(ABORT, 'agency WhatsApp webhook events are immutable'); END;
 
 CREATE TABLE IF NOT EXISTS agency_audit_events (
   sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -377,6 +402,8 @@ function whatsappOutboxOf(r: Row): import("./types.js").WhatsAppOutboxMessage {
     providerMessageId:text(r,"provider_message_id"), failureCode:text(r,"failure_code"),
     idempotencyKey:text(r,"idempotency_key"), createdAt:number(r,"created_at"),
     updatedAt:number(r,"updated_at"), submittedAt:number(r,"submitted_at"),
+    providerStatus:text(r,"provider_status") as import("./types.js").WhatsAppProviderStatus,
+    providerStatusAt:number(r,"provider_status_at"), providerErrorCode:text(r,"provider_error_code"),
   };
 }
 function approvalOf(r: Row): Approval {
@@ -406,6 +433,13 @@ export class AgencyStore {
     this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(3, ?)").run(Date.now());
     // v4 adds an approval-bound, tenant-isolated WhatsApp Cloud API outbox.
     this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(4, ?)").run(Date.now());
+    // v5 adds delivery status columns and durable, deduplicated Meta webhook events.
+    const columns=this.db.prepare("PRAGMA table_info(agency_whatsapp_outbox)").all() as Row[];
+    const existingColumns=new Set(columns.map(row=>text(row,"name")));
+    if (!existingColumns.has("provider_status")) this.db.exec("ALTER TABLE agency_whatsapp_outbox ADD COLUMN provider_status TEXT NOT NULL DEFAULT ''");
+    if (!existingColumns.has("provider_status_at")) this.db.exec("ALTER TABLE agency_whatsapp_outbox ADD COLUMN provider_status_at INTEGER NOT NULL DEFAULT 0");
+    if (!existingColumns.has("provider_error_code")) this.db.exec("ALTER TABLE agency_whatsapp_outbox ADD COLUMN provider_error_code TEXT NOT NULL DEFAULT ''");
+    this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(5, ?)").run(Date.now());
   }
 
   close(): void { this.db.close(); }
@@ -487,6 +521,16 @@ export class AgencyStore {
   getContact(orgId: string, id: string): Contact | undefined {
     const row=this.db.prepare("SELECT * FROM agency_contacts WHERE organization_id=? AND id=?").get(orgId,id) as Row|undefined;
     return row ? contactOf(row) : undefined;
+  }
+  findContactsByPhone(orgId: string, digits: string): Contact[] {
+    if (!/^\d{8,15}$/.test(digits)) return [];
+    const rows=this.db.prepare(`
+      SELECT * FROM agency_contacts
+      WHERE organization_id=? AND status='active'
+        AND replace(replace(replace(replace(replace(replace(replace(phone,'+',''),' ',''),'-',''),'(',''),')',''),'.',''),'/','')=?
+      ORDER BY id ASC LIMIT 2
+    `).all(orgId,digits) as Row[];
+    return rows.map(contactOf);
   }
   searchContacts(orgId: string, filters: {
     companyId?: string; query?: string; status?: Contact["status"]; limit: number; offset: number;
@@ -601,11 +645,13 @@ export class AgencyStore {
       INSERT INTO agency_whatsapp_outbox(
         id,organization_id,contact_id,channel,purpose,recipient,template_name,language,
         template_components_json,approval_id,approval_payload_hash,consent_id,status,
-        provider_message_id,failure_code,idempotency_key,created_at,updated_at,submitted_at
-      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        provider_message_id,failure_code,idempotency_key,created_at,updated_at,submitted_at,
+        provider_status,provider_status_at,provider_error_code
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(v.id,v.organizationId,v.contactId,v.channel,v.purpose,v.recipient,v.templateName,v.language,
       JSON.stringify(v.templateComponents),v.approvalId,v.approvalPayloadHash,v.consentId,v.status,
-      v.providerMessageId,v.failureCode,v.idempotencyKey,v.createdAt,v.updatedAt,v.submittedAt);
+      v.providerMessageId,v.failureCode,v.idempotencyKey,v.createdAt,v.updatedAt,v.submittedAt,
+      v.providerStatus,v.providerStatusAt,v.providerErrorCode);
     return v;
   }
   getWhatsAppOutbox(orgId: string, id: string): import("./types.js").WhatsAppOutboxMessage | undefined {
@@ -631,6 +677,55 @@ export class AgencyStore {
       WHERE organization_id=? AND id=? AND status=?
     `).run(status,providerMessageId,failureCode,now,submittedAt,orgId,id,expectedStatus);
     return Number(result.changes) === 1;
+  }
+
+  getWhatsAppOutboxByProviderId(orgId: string, providerMessageId: string): import("./types.js").WhatsAppOutboxMessage | undefined {
+    const row=this.db.prepare("SELECT * FROM agency_whatsapp_outbox WHERE organization_id=? AND provider_message_id=? LIMIT 1")
+      .get(orgId,providerMessageId) as Row|undefined;
+    return row ? whatsappOutboxOf(row) : undefined;
+  }
+  listWhatsAppWebhookStatusEvents(orgId: string, providerMessageId: string): {status:"sent"|"delivered"|"read"|"failed";eventAt:number;errorCode:string}[] {
+    const rows=this.db.prepare(`
+      SELECT provider_status,provider_error_code,event_at FROM agency_whatsapp_webhook_events
+      WHERE organization_id=? AND provider_message_id=? AND event_type='status'
+        AND provider_status IN ('sent','delivered','read','failed')
+      ORDER BY event_at ASC,id ASC
+    `).all(orgId,providerMessageId) as Row[];
+    return rows.map(row=>({status:text(row,"provider_status") as "sent"|"delivered"|"read"|"failed",
+      eventAt:number(row,"event_at"),errorCode:text(row,"provider_error_code")}));
+  }
+  updateWhatsAppProviderStatus(
+    orgId: string, id: string, status: "sent"|"delivered"|"read"|"failed",
+    eventAt: number, errorCode: string, now: number,
+  ): boolean {
+    const current=this.getWhatsAppOutbox(orgId,id);
+    if (!current) return false;
+    const rank: Record<string,number>={"":0,sent:1,delivered:2,read:3,failed:4};
+    if (current.providerStatus==="read" || current.providerStatus==="failed") return false;
+    if (rank[status]<=rank[current.providerStatus] || eventAt<current.providerStatusAt) return false;
+    const result=this.db.prepare(\`
+      UPDATE agency_whatsapp_outbox
+      SET provider_status=?,provider_status_at=?,provider_error_code=?,updated_at=?
+      WHERE organization_id=? AND id=? AND provider_status_at<=?
+    \`).run(status,eventAt,errorCode,now,orgId,id,eventAt);
+    return Number(result.changes)===1;
+  }
+  insertWhatsAppWebhookEvent(input: {
+    organizationId:string;eventKey:string;providerMessageId:string;
+    eventType:"status"|"inbound_message";providerStatus:string;errorCode:string;
+    eventAt:number;contactId:string;receivedAt:number;
+  }): boolean {
+    const result=this.db.prepare(\`
+      INSERT INTO agency_whatsapp_webhook_events(
+        organization_id,event_key,provider_message_id,event_type,provider_status,provider_error_code,event_at,contact_id,received_at
+      ) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(organization_id,event_key) DO NOTHING
+    \`).run(input.organizationId,input.eventKey,input.providerMessageId,input.eventType,input.providerStatus,input.errorCode,
+      input.eventAt,input.contactId,input.receivedAt);
+    return Number(result.changes)===1;
+  }
+  countWhatsAppWebhookEvents(orgId: string): number {
+    const row=this.db.prepare("SELECT COUNT(*) AS count FROM agency_whatsapp_webhook_events WHERE organization_id=?").get(orgId) as Row;
+    return number(row,"count");
   }
 
   insertApproval(v: Approval): Approval {
