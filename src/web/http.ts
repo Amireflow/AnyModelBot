@@ -161,9 +161,16 @@ export function isLoopback(host: string): boolean {
 }
 
 /** 各组接口共用的东西（web/server.ts 里建好传进来） */
+export interface WhatsAppConfigController {
+  status(organizationId: string): Promise<Record<string, unknown>>;
+  save(organizationId: string, config: unknown): Promise<void>;
+  clear(organizationId: string): Promise<void>;
+}
+
 export interface WebContext {
   app: App;
   agency: AgencyService;
+  whatsappConfig?: WhatsAppConfigController;
   /** 监听的地址（判断是不是回环） */
   host: string;
   /** 访问令牌；回环模式下可能为空 */

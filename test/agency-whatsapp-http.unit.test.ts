@@ -11,6 +11,7 @@ describe("Agency WhatsApp HTTP API",()=>{
   let route:ReturnType<typeof agencyRoutes>;
   let organizationId:string;
   let contactId:string;
+  let savedConfig:Record<string,unknown>|undefined;
   beforeEach(()=>{
     const sender:WhatsAppTemplateSender={isConfigured:()=>true,async sendTemplateMessage(){return {providerMessageId:"wamid.http-test"};}};
     store=new AgencyStore(":memory:");
@@ -20,7 +21,34 @@ describe("Agency WhatsApp HTTP API",()=>{
     contactId=service.createContact(organizationId,"local-owner",{
       companyId:company.id,displayName:"Contact",phone:"+221771234567",
     }).id;
-    route=agencyRoutes({agency:service} as WebContext);
+    savedConfig=undefined;
+    route=agencyRoutes({
+      agency:service,
+      whatsappConfig:{
+        async status(orgId){
+          return {
+            configured:savedConfig?.organizationId===orgId,
+            organizationId:orgId,
+            savedInSecureStorage:!!savedConfig,
+            secureStorageAvailable:true,
+            secureStorageBackend:"mock-keychain",
+            secureStorageReason:"",
+            environmentConfigured:false,
+            phoneNumberId:savedConfig?.phoneNumberId,
+            webhookConfigured:!!savedConfig?.appSecret&&!!savedConfig?.verifyToken,
+            secretReturned:false,
+          };
+        },
+        async save(orgId,input){
+          if(!input || typeof input!=="object" || Array.isArray(input))throw new TypeError("invalid config");
+          savedConfig={...input as Record<string,unknown>,organizationId:orgId};
+        },
+        async clear(orgId){
+          if(savedConfig && savedConfig.organizationId!==orgId)throw new Error("wrong organization");
+          savedConfig=undefined;
+        },
+      },
+    } as WebContext);
   });
   afterEach(()=>store.close());
 
@@ -74,6 +102,38 @@ describe("Agency WhatsApp HTTP API",()=>{
     const submitted=await invoke("POST",\`/agency/\${organizationId}/whatsapp/outbox/\${queued.body.message.id}/send\`);
     expect(submitted.status).toBe(200);
     expect(submitted.body.message.status).toBe("accepted");
+  });
+
+  it("stores WhatsApp credentials without returning the secret and supports explicit removal",async()=>{
+    const path=`/agency/${organizationId}/whatsapp/config`;
+    const initial=await invoke("GET",path);
+    expect(initial.status).toBe(200);
+    expect(initial.body.configured).toBe(false);
+
+    const credentials={
+      accessToken:"EAAB-secret-access-token-0123456789",
+      phoneNumberId:"123456789012345",
+      businessAccountId:"987654321098765",
+      apiVersion:"v27.0",
+      appSecret:"meta-app-secret-0123456789",
+      verifyToken:"verify-token-0123456789",
+    };
+    const saved=await invoke("PUT",path,credentials);
+    expect(saved.status).toBe(200);
+    expect(saved.body).toMatchObject({
+      saved:true,secretReturned:false,
+      configuration:{configured:true,savedInSecureStorage:true},
+    });
+    expect(JSON.stringify(saved.body)).not.toContain(credentials.accessToken);
+    expect(JSON.stringify(saved.body)).not.toContain(credentials.appSecret);
+
+    const read=await invoke("GET",path);
+    expect(read.body.configured).toBe(true);
+    expect(JSON.stringify(read.body)).not.toContain(credentials.accessToken);
+
+    const cleared=await invoke("DELETE",path);
+    expect(cleared.status).toBe(200);
+    expect(cleared.body).toMatchObject({cleared:true,configuration:{configured:false}});
   });
 
   it("rejects cross-site consent changes",async()=>{

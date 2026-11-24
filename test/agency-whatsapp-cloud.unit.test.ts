@@ -11,17 +11,26 @@ describe("WhatsApp Cloud API adapter",()=>{
   afterEach(()=>vi.unstubAllGlobals());
 
   const config={
+    organizationId:"agency-unit-test",
     accessToken:"unit-test-token",
     phoneNumberId:"123456789012345",
     businessAccountId:"987654321098765",
     apiVersion:"v27.0",
   };
   const message={
+    organizationId:"agency-unit-test",
     recipient:"+221771234567",
     templateName:"hello_world",
     language:"fr_FR",
     components:[],
   };
+
+  it("binds configured credentials to a single Agency organization",()=>{
+    const client=new WhatsAppCloudApiClient(config);
+    expect(client.isConfigured("agency-unit-test")).toBe(true);
+    expect(client.isConfigured("another-agency")).toBe(false);
+    expect(client.isConfigured()).toBe(true);
+  });
 
   it("checks the requested template language and APPROVED status before sending",async()=>{
     const fetchMock=vi.fn()

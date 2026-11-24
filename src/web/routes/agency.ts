@@ -42,6 +42,20 @@ function queryInteger(url: URL,name: string,fallback: number): number {
   if (value===null) return fallback;
   return /^(0|[1-9][0-9]*)$/.test(value) ? Number(value) : Number.NaN;
 }
+async function whatsappConfigStatus(
+  controller: NonNullable<WebContext["whatsappConfig"]>, organizationId: string,
+): Promise<Record<string,unknown>> {
+  try { return await controller.status(organizationId); }
+  catch (error) {
+    const message=(error as Error).message || "";
+    if (/Agency organization not found/i.test(message)) throw new HttpError(404,"Organization not found");
+    if (/requires organization owner access/i.test(message)) throw new HttpError(403,"Organization owner access is required");
+    if (/secure storage|safeStorage|keychain|DPAPI|secret service|decrypt|temporarily unavailable/i.test(message)) {
+      throw new HttpError(503,"The operating-system secure storage is locked or unavailable. Unlock it and retry.");
+    }
+    throw error;
+  }
+}
 
 export function agencyRoutes(ctx: WebContext): Route {
   const service: AgencyService=ctx.agency;
@@ -119,6 +133,40 @@ export function agencyRoutes(ctx: WebContext): Route {
         if (typeof body.expectedPayloadHash!=="string") throw new HttpError(400,"expectedPayloadHash is required");
         const approval=service.decideApproval(organizationId,actor,approvalId,body.decision,body.expectedPayloadHash,body.reason as string|undefined);
         return send(res,200,{approval});
+      }
+
+      if (seg[2]==="whatsapp" && seg.length===4 && seg[3]==="config") {
+        const controller=ctx.whatsappConfig;
+        if (!controller) throw new HttpError(409,"WhatsApp credential management is unavailable in this runtime");
+        if (method==="GET") return send(res,200,await whatsappConfigStatus(controller,organizationId));
+        if (method==="PUT") {
+          const body=await readObject(req);
+          try {
+            await controller.save(organizationId,body);
+          } catch (error) {
+            const message=(error as Error).message || "WhatsApp credentials could not be saved";
+            if (error instanceof TypeError) throw new HttpError(400,message);
+            if (/Agency organization not found/i.test(message)) throw new HttpError(404,"Organization not found");
+            if (/requires organization owner access/i.test(message)) throw new HttpError(403,"Organization owner access is required");
+            if (/secure storage|safeStorage|keychain|DPAPI|Secret Service|decrypt|temporarily unavailable/i.test(message)) throw new HttpError(503,"The operating-system secure storage is locked or unavailable. Unlock it and retry.");
+            throw new HttpError(409,message);
+          }
+          return send(res,200,{saved:true,secretReturned:false,configuration:await whatsappConfigStatus(controller,organizationId)});
+        }
+        if (method==="DELETE") {
+          try { await controller.clear(organizationId); }
+          catch (error) {
+            const message=(error as Error).message || "WhatsApp credentials could not be cleared";
+            if (/Agency organization not found/i.test(message)) throw new HttpError(404,"Organization not found");
+            if (/requires organization owner access/i.test(message)) throw new HttpError(403,"Organization owner access is required");
+            if (/secure storage|safeStorage|keychain|DPAPI|secret service|decrypt|temporarily unavailable/i.test(message)) {
+              throw new HttpError(503,"The operating-system secure storage is locked or unavailable. Unlock it and retry.");
+            }
+            throw new HttpError(409,message);
+          }
+          return send(res,200,{cleared:true,configuration:await whatsappConfigStatus(controller,organizationId)});
+        }
+        throw new HttpError(405,"Method not allowed");
       }
 
       if (seg[2]==="whatsapp" && seg.length===4 && seg[3]==="outbox") {

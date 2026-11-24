@@ -316,3 +316,16 @@ Une première tranche du contrôle des envois WhatsApp est intégrée dans le co
 - aucun texte de message ni média entrant archivé.
 
 Le callback est une route applicative, pas une publication réseau. Meta exige HTTPS avec certificat TLS valide ; un reverse proxy ou un endpoint public reste à configurer.
+
+
+### État complémentaire — coffre sécurisé et panneau WhatsApp (24 novembre 2026)
+
+- Coffre Electron `safeStorage` pour les identifiants WhatsApp, ciphertext uniquement, écriture atomique.
+- Pas de fallback plaintext ; Linux `basic_text` ou backend inconnu refusé.
+- Rotation de clé gérée en relisant les données avec la nouvelle clé avant réécriture.
+- API GET/PUT/DELETE de configuration protégée par l'authentification locale ; aucun secret n'est renvoyé au navigateur.
+- Panneau de configuration intégré à l'écran CRM dans les huit langues disponibles du dépôt (en, es, ja, ko, pt, ru, tr, zh-CN ; pas de locale française dans ce dépôt).
+- Credentials liés à une seule organisation par nœud ; coffre illisible = envois bloqués, sans fallback silencieux vers l'environnement.
+- CLI/Docker conservent le mode configuration par variables d'environnement, nettoyées de `process.env` après capture.
+
+Le Lot 4 reste ouvert jusqu'à l'exposition HTTPS réelle, la revue visuelle des messages/approbations, la simulation avec un numéro Meta de test et les vérifications du dépôt. Aucun test, typecheck ou build n'a été exécuté pendant cette tranche.

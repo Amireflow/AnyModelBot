@@ -7,3 +7,4 @@ export * from "./research-quality.js";
 export * from "./qualification.js";
 export * from "./company-research-import.js";
 export * from "./whatsapp-cloud.js";
+export * from "./whatsapp-secrets.js";

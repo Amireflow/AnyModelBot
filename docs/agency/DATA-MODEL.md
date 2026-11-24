@@ -399,3 +399,13 @@ Une promesse de paiement ou un webhook non vérifié ne constitue pas un encaiss
 8. Toute exécution locale est liée à un projet, un workspace et une tâche.
 9. Une livraison référence un commit et des preuves de vérification.
 10. Les données personnelles et secrets ne sont jamais copiés dans l'audit non protégé.
+
+
+### WhatsAppSecretConfig
+- organisation CRM propriétaire du numéro ;
+- Phone Number ID, WABA ID, version Graph API ;
+- token d'accès, App Secret et verify token ;
+- fichier local chiffré par Electron safeStorage ; pas de données secrètes en clair ;
+- statut de disponibilité du magasin système, date de dernière lecture et source (coffre ou environnement).
+
+Les secrets ne doivent jamais être renvoyés par l'API de configuration ni inscrits dans le registre d'audit. Un coffre présent mais non déverrouillable bloque l'usage et n'autorise pas de fallback vers des credentials de l'environnement.

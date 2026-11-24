@@ -581,7 +581,7 @@ export class AgencyService {
     if (message.status==="accepted") return message;
     if (message.status!=="queued") throw new AgencyError("CONFLICT","Only queued messages can be submitted; ambiguous submissions must be reconciled manually");
     const sender=this.options.whatsapp;
-    if (!sender?.isConfigured()) throw new AgencyError("WHATSAPP_NOT_CONFIGURED","WhatsApp Cloud API credentials are not configured");
+    if (!sender || !(await sender.isConfigured(organizationId))) throw new AgencyError("WHATSAPP_NOT_CONFIGURED","WhatsApp Cloud API credentials are not configured for this organization");
     const approval=this.store.getApproval(organizationId,message.approvalId);
     if (!approval || approval.status!=="approved" || approval.action!=="send_message"
       || approval.resourceType!=="whatsapp_template" || approval.resourceId!==message.contactId
@@ -609,7 +609,7 @@ export class AgencyService {
 
     try {
       const result=await sender.sendTemplateMessage({
-        recipient:message.recipient,templateName:message.templateName,
+        organizationId,recipient:message.recipient,templateName:message.templateName,
         language:message.language,components:message.templateComponents,
       });
       const now=this.now();

@@ -98,4 +98,21 @@
 .agency-evidence-row a{overflow-wrap:anywhere;font-size:var(--fs-sm)}.agency-evidence-row p{margin:0;font-size:var(--fs-sm);color:var(--muted);white-space:pre-wrap}
 .agency-research-import{grid-template-columns:minmax(0,1fr)}
 @media(max-width:620px){.agency-screen{padding-top:var(--space-6)}.agency-header{align-items:stretch;flex-direction:column}.agency-org-picker{width:100%}.agency-form-grid,.agency-create-org{grid-template-columns:minmax(0,1fr)}.agency-toolbar{align-items:stretch}.agency-tabs{width:100%}.agency-tabs button{flex:1}.agency-search{max-width:none;flex-basis:100%}.agency-table{min-width:600px}}
+
+.agency-whatsapp-card{display:grid;gap:var(--space-3);padding:var(--card-pad);border:1px solid var(--line);border-radius:var(--r-card);background:var(--card)}
+.agency-whatsapp-heading{display:flex;align-items:center;justify-content:space-between;gap:var(--space-4)}
+.agency-whatsapp-heading h2{margin:4px 0;font-size:var(--fs-lg)}
+.agency-whatsapp-heading p{margin:0;color:var(--muted);font-size:var(--fs-sm);max-width:720px}
+.agency-whatsapp-status{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2);padding:var(--space-2) var(--space-3);border:1px solid var(--line);border-radius:var(--r-item);background:var(--well);font-size:var(--fs-xs)}
+.agency-whatsapp-status strong{font-weight:var(--fw-medium);color:var(--fg)}
+.agency-whatsapp-status>span:not(.agency-whatsapp-dot){color:var(--muted)}
+.agency-whatsapp-status code{font-size:var(--fs-xs);font-variant-numeric:tabular-nums}
+.agency-whatsapp-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.agency-whatsapp-dot.ready{background:var(--accent)}
+.agency-whatsapp-webhook-ready{color:var(--success)!important}
+.agency-whatsapp-form{margin-top:var(--space-2)}
+.agency-whatsapp-note{padding:var(--space-3);border:1px dashed var(--line);border-radius:var(--r-item);color:var(--muted);font-size:var(--fs-sm)}
+.agency-whatsapp-clear{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:var(--space-2);padding-top:var(--space-2);border-top:1px solid var(--line);font-size:var(--fs-xs)}
+.agency-whatsapp-clear span{color:var(--muted);margin-inline-end:auto}
+@media(max-width:620px){.agency-whatsapp-heading{align-items:stretch;flex-direction:column}.agency-whatsapp-heading>.btn{align-self:flex-start}.agency-whatsapp-form{grid-template-columns:minmax(0,1fr)}.agency-whatsapp-status{align-items:flex-start}}
 }

@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 export interface WhatsAppTemplateSendInput {
+  organizationId: string;
   recipient: string;
   templateName: string;
   language: string;
@@ -12,7 +13,7 @@ export interface WhatsAppTemplateSendResult {
 }
 
 export interface WhatsAppTemplateSender {
-  isConfigured(): boolean;
+  isConfigured(organizationId?: string): boolean | Promise<boolean>;
   sendTemplateMessage(input: WhatsAppTemplateSendInput): Promise<WhatsAppTemplateSendResult>;
 }
 
@@ -24,6 +25,7 @@ export class WhatsAppProviderError extends Error {
 }
 
 export interface WhatsAppCloudApiConfig {
+  organizationId?: string;
   accessToken?: string;
   phoneNumberId?: string;
   businessAccountId?: string;
@@ -37,33 +39,40 @@ export interface WhatsAppCloudApiConfig {
  * A template must be found with APPROVED status before any send request is attempted.
  */
 export class WhatsAppCloudApiClient implements WhatsAppTemplateSender {
-  private readonly accessToken: string;
-  private readonly phoneNumberId: string;
-  private readonly businessAccountId: string;
-  private readonly apiVersion: string;
+  private organizationId = "";
+  private accessToken = "";
+  private phoneNumberId = "";
+  private businessAccountId = "";
+  private apiVersion = "v27.0";
   private readonly timeoutMs: number;
 
   constructor(config: WhatsAppCloudApiConfig = {}) {
-    this.accessToken = config.accessToken?.trim() ?? "";
-    this.phoneNumberId = config.phoneNumberId?.trim() ?? "";
-    this.businessAccountId = config.businessAccountId?.trim() ?? "";
-    const version = config.apiVersion?.trim() || "v27.0";
-    if (!/^v\d+\.\d+$/.test(version)) throw new TypeError("Invalid WhatsApp Graph API version");
-    this.apiVersion = version;
     this.timeoutMs = config.timeoutMs ?? 20_000;
     if (!Number.isInteger(this.timeoutMs) || this.timeoutMs < 1_000 || this.timeoutMs > 120_000) {
       throw new TypeError("WhatsApp request timeout must be between 1000 and 120000 ms");
     }
+    this.setCredentials(config);
   }
 
-  isConfigured(): boolean {
-    return !!this.accessToken
+  setCredentials(config: WhatsAppCloudApiConfig = {}): void {
+    const version = config.apiVersion?.trim() || "v27.0";
+    if (!/^v\d+\.\d+$/.test(version)) throw new TypeError("Invalid WhatsApp Graph API version");
+    this.organizationId = config.organizationId?.trim() ?? "";
+    this.accessToken = config.accessToken?.trim() ?? "";
+    this.phoneNumberId = config.phoneNumberId?.trim() ?? "";
+    this.businessAccountId = config.businessAccountId?.trim() ?? "";
+    this.apiVersion = version;
+  }
+
+  isConfigured(organizationId?: string): boolean {
+    return !!this.organizationId && (!organizationId || this.organizationId===organizationId)
+      && !!this.accessToken
       && /^\d{5,30}$/.test(this.phoneNumberId)
       && /^\d{5,30}$/.test(this.businessAccountId);
   }
 
   async sendTemplateMessage(input: WhatsAppTemplateSendInput): Promise<WhatsAppTemplateSendResult> {
-    if (!this.isConfigured()) throw new WhatsAppProviderError("WHATSAPP_NOT_CONFIGURED", false);
+    if (!this.isConfigured(input.organizationId)) throw new WhatsAppProviderError("WHATSAPP_NOT_CONFIGURED", false);
     const headers = {
       Authorization: \`Bearer \${this.accessToken}\`,
       "Content-Type": "application/json",

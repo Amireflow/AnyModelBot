@@ -53,13 +53,14 @@ Variables attendues :
 
 Le compte/token doit disposer des permissions Meta nécessaires pour lire les modèles et envoyer des messages. Le dépôt ne contient aucun secret de compte.
 
-L'utilitaire \`verifyMetaWebhookSignature\` vérifie la signature HMAC-SHA256 de Meta sur les octets bruts du corps. Il n'est pas encore raccordé à une route webhook publique.
+Le callback public \`GET/POST /webhooks/whatsapp/meta\` est raccordé au serveur local. GET vérifie le challenge par verify token ; POST vérifie HMAC-SHA256 sur le corps brut avant parsing, puis traite les événements dédupliqués et refuse les numéros non configurés.
 
 ### API locale
 
 - \`GET/POST /amb/api/agency/:orgId/contacts/:contactId/consents\`
 - \`POST /amb/api/agency/:orgId/approvals\`
 - \`POST /amb/api/agency/:orgId/approvals/:approvalId/decision\`
+- \`GET/PUT/DELETE /amb/api/agency/:orgId/whatsapp/config\`
 - \`GET/POST /amb/api/agency/:orgId/whatsapp/outbox\`
 - \`POST /amb/api/agency/:orgId/whatsapp/outbox/:messageId/send\`
 
@@ -68,10 +69,9 @@ Les changements sont protégés par le contrôle anti-cross-site déjà présent
 ### Limites ouvertes avant de fermer le Lot 4
 
 1. Déployer ou exposer le callback sur un hôte HTTPS public avec certificat TLS valide, puis valider le challenge Meta réel.
-2. Stocker les secrets dans le trousseau sécurisé du système plutôt que dans l'environnement du processus.
-3. Ajouter une interface de revue des preuves, demandes d'approbation, messages et statuts.
-4. Ajouter les reçus Meta réels et tester sur un numéro de test, sans compte ou numéro de production.
-5. Exécuter typecheck, tests, build et simulation complète avant de fermer le Lot 4. Ces commandes n'ont pas été exécutées pendant cette tranche.
+2. Ajouter une interface de revue des preuves de consentement, demandes d'approbation, messages sortants et statuts de livraison. Le panneau de configuration des credentials est déjà disponible dans le CRM.
+3. Ajouter les reçus Meta réels et tester sur un numéro de test, sans compte ou numéro de production.
+4. Exécuter typecheck, tests, build et simulation complète avant de fermer le Lot 4. Ces commandes n'ont pas été exécutées pendant cette tranche.
 
 ## Références officielles Meta
 
@@ -87,3 +87,19 @@ Les changements sont protégés par le contrôle anti-cross-site déjà présent
 - `AGENCY_WHATSAPP_VERIFY_TOKEN` : secret choisi par l'exploitant et configuré à l'identique dans Meta.
 
 Le callback n'est pas exposé derrière l'authentification par cookie de la console, mais il exige séparément le verify token pour GET et l'App Secret pour POST. La protection contre les connexions de processus agents est conservée. Les secrets sont capturés en mémoire au démarrage, enregistrés pour la redaction des logs, puis retirés de `process.env` afin de ne pas être hérités directement par les sous-processus. Il faut publier le callback derrière HTTPS avant de l'enregistrer dans Meta. Une instance locale est associée à une organisation et à un numéro WhatsApp configurés ; une future plateforme multi-organisation devra remplacer cette correspondance par une configuration provider dédiée par tenant.
+
+
+## Coffre sécurisé Electron — tranche d'intégration
+
+L'application Electron peut maintenant stocker la configuration WhatsApp dans `whatsapp-secrets.json`. Le fichier contient uniquement le ciphertext d'Electron `safeStorage`, écrit de façon atomique avec permissions restreintes ; aucun token ou App Secret n'est écrit dans SQLite ou un fichier de configuration lisible. macOS s'appuie sur Keychain, Windows sur DPAPI et Linux exige un backend Secret Service reconnu. Le backend Linux `basic_text` ou inconnu est refusé ; aucun repli plaintext n'est accepté.
+
+Le coffre utilise les méthodes asynchrones `isAsyncEncryptionAvailable`, `encryptStringAsync` et `decryptStringAsync` lorsqu'elles sont disponibles. Si Electron signale `shouldReEncrypt`, le code relit le ciphertext avec la nouvelle clé avant de réécrire le fichier chiffré. Le chargement est paresseux et une erreur de déverrouillage bloque l'envoi ; elle ne réactive pas silencieusement les variables d'environnement.
+
+L'API locale de configuration est :
+- `GET /amb/api/agency/:orgId/whatsapp/config` : état, backend, présence du coffre, numéro non secret ; aucun secret n'est retourné ;
+- `PUT /amb/api/agency/:orgId/whatsapp/config` : remplace les credentials dans le coffre Electron ;
+- `DELETE /amb/api/agency/:orgId/whatsapp/config` : efface explicitement le coffre local, même si la clé système est verrouillée.
+
+Le panneau de configuration est intégré à l'écran CRM et traduit dans les huit langues disponibles. L'interface ne relit jamais les valeurs secrètes après sauvegarde ; le remplacement nécessite de saisir à nouveau les valeurs. Les credentials sont liés à une organisation précise et un seul jeu de credentials peut être conservé par nœud local. CLI/Docker utilisent les variables d'environnement, capturées au démarrage, enregistrées pour la redaction des logs puis retirées de `process.env` avant le lancement des sous-processus.
+
+**Limite :** l'interface de gestion des messages/approbations et l'exposition HTTPS publique du webhook restent distinctes de ce panneau de configuration.
