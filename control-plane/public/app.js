@@ -180,7 +180,12 @@
       head.append(title, status);
       const details = document.createElement("p");
       details.className = "muted";
-      details.textContent = `${date(task.created_at)} · ${task.node_id}`;
+      const nodeHealth = task.node_connected
+        ? "Poste connecté"
+        : task.node_last_seen_at
+          ? `Poste hors ligne · dernier signal ${date(task.node_last_seen_at)}`
+          : "Poste jamais connecté";
+      details.textContent = `${date(task.created_at)} · ${task.node_id} · ${nodeHealth}`;
       const summary = document.createElement("p");
       summary.textContent = task.summary || (task.cancel_requested ? "Annulation demandée…" : "En attente de mise à jour du poste.");
       const controls = document.createElement("div");

@@ -207,6 +207,9 @@ function taskView(row) {
     artifacts: storedTaskArtifacts(row.artifacts),
     local_task_id: row.local_task_id || null,
     cancel_requested: !!row.cancel_requested,
+    node_connected: Number(row.node_connected ?? 0) === 1,
+    node_state: row.node_state || "unknown",
+    node_last_seen_at: Number(row.node_last_seen_at) || null,
     created_at: Number(row.created_at),
     updated_at: Number(row.updated_at),
     completed_at: Number(row.completed_at) || null,
@@ -565,9 +568,14 @@ export function createControlPlaneServer(options = {}) {
         if (url.pathname === "/api/v1/tasks" && req.method === "GET") {
           const nodeId = url.searchParams.get("node_id");
           const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") || 50)));
+          const select = `
+            SELECT t.*, n.connected AS node_connected, n.reported_state AS node_state,
+              n.last_seen_at AS node_last_seen_at
+            FROM tasks t LEFT JOIN nodes n ON n.id = t.node_id
+          `;
           const rows = nodeId
-            ? db.prepare("SELECT * FROM tasks WHERE node_id = ? ORDER BY created_at DESC LIMIT ?").all(nodeId, limit)
-            : db.prepare("SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?").all(limit);
+            ? db.prepare(select + " WHERE t.node_id = ? ORDER BY t.created_at DESC LIMIT ?").all(nodeId, limit)
+            : db.prepare(select + " ORDER BY t.created_at DESC LIMIT ?").all(limit);
           return json(res, 200, { tasks: rows.map(taskView) });
         }
         if (url.pathname === "/api/v1/tasks" && req.method === "POST") {

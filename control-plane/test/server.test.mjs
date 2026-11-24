@@ -84,10 +84,12 @@ test("task instruction limit counts UTF-8 bytes rather than characters", async (
   assert.equal(tooLong.status,400);
 });
 
-test("authenticated node receives persisted FlowAuto tasks and reports status", async (t) => {
+test("authenticated node receives tasks and task API exposes workstation connectivity", async (t) => {
   const s = await setup();
-  t.after(async () => { try { node.ws.close(); } catch {} await s.close(); });
-  const node = await connectNode(s.wsUrl);
+  let node;
+  let reconnected;
+  t.after(async () => { try { node?.ws.close(); reconnected?.ws.close(); } catch {} await s.close(); });
+  node = await connectNode(s.wsUrl);
   const nodeData = await waitFor(async () => {
     const data = await (await request(s.base, "/api/v1/nodes")).json();
     return data.nodes.length === 1 ? data : undefined;
@@ -113,8 +115,33 @@ test("authenticated node receives persisted FlowAuto tasks and reports status", 
   });
   node.ws.send(JSON.stringify({ type: "task.update", task_id: taskId, local_task_id: "t_123", status: "running", summary: "Opening Google Flow." }));
   await waitFor(() => node.messages.length >= 1);
-  const tasks = await (await request(s.base, "/api/v1/tasks")).json();
-  assert.equal(tasks.tasks.find((item) => item.id === taskId).status, "running");
+  let tasks = await (await request(s.base, "/api/v1/tasks")).json();
+  let task = tasks.tasks.find((item) => item.id === taskId);
+  assert.equal(task.status, "running");
+  assert.equal(task.node_connected, true);
+  assert.equal(task.node_state, "active");
+  assert.ok(task.node_last_seen_at > 0);
+
+  node.ws.close();
+  tasks = await waitFor(async () => {
+    const data = await (await request(s.base, "/api/v1/tasks")).json();
+    const row = data.tasks.find((item) => item.id === taskId);
+    return row && !row.node_connected ? data : undefined;
+  });
+  task = tasks.tasks.find((item) => item.id === taskId);
+  assert.equal(task.status, "running");
+  assert.equal(task.node_connected, false);
+  assert.ok(task.node_last_seen_at > 0);
+
+  reconnected = await connectNode(s.wsUrl);
+  tasks = await waitFor(async () => {
+    const data = await (await request(s.base, "/api/v1/tasks")).json();
+    const row = data.tasks.find((item) => item.id === taskId);
+    return row?.node_connected ? data : undefined;
+  });
+  task = tasks.tasks.find((item) => item.id === taskId);
+  assert.equal(task.status, "running");
+  assert.equal(task.node_connected, true);
 });
 
 test("task updates persist only safe relative artifact metadata", async (t) => {
