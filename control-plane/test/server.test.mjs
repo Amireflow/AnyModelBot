@@ -482,3 +482,48 @@ test("a task rejection from the workstation closes the matching queued task", as
   assert.equal(task.status, "rejected");
   assert.equal(task.summary, "The workstation is paused.");
 });
+
+
+test("late cancellation acknowledgements cannot overwrite a terminal task", async (t) => {
+  const server = await setup();
+  let node;
+  t.after(async () => { try { node?.ws.close(); } catch {} await server.close(); });
+
+  node = await connectNode(server.wsUrl, "late-cancel-node");
+  await waitFor(async () => {
+    const data = await (await request(server.base, "/api/v1/nodes")).json();
+    return data.nodes.find((item) => item.id === "late-cancel-node")?.connected ? data : undefined;
+  });
+
+  const created = await request(server.base, "/api/v1/tasks", ADMIN, {
+    method: "POST",
+    body: JSON.stringify({
+      node_id: "late-cancel-node",
+      kind: "flowauto",
+      title: "Task completed during cancellation",
+      instruction: "Generate and verify one image.",
+    }),
+  });
+  assert.equal(created.status, 201);
+  const taskId = (await created.json()).task.id;
+  await waitFor(() => node.messages.find((message) => message.type === "task.submit" && message.task?.id === taskId));
+
+  node.ws.send(JSON.stringify({
+    type: "task.update",
+    task_id: taskId,
+    status: "succeeded",
+    summary: "The image was generated and verified.",
+  }));
+  await waitFor(async () => {
+    const data = await (await request(server.base, "/api/v1/tasks")).json();
+    return data.tasks.find((item) => item.id === taskId)?.status === "succeeded" ? data : undefined;
+  });
+
+  node.ws.send(JSON.stringify({ type: "task.cancelled", task_id: taskId, cancelled: true }));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const data = await (await request(server.base, "/api/v1/tasks")).json();
+  const task = data.tasks.find((item) => item.id === taskId);
+  assert.equal(task.status, "succeeded");
+  assert.equal(task.summary, "The image was generated and verified.");
+});

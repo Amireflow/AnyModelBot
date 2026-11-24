@@ -476,14 +476,19 @@ export function createControlPlaneServer(options = {}) {
       case "task.cancelled": {
         const taskId = String(message.task_id ?? "");
         if (!taskId || !db.prepare("SELECT id FROM tasks WHERE id = ? AND node_id = ?").get(taskId, nodeId)) return;
+        const activeTaskWhere = "id = ? AND status NOT IN ('succeeded','failed','cancelled','rejected','interrupted')";
+        let applied = false;
         if (message.cancelled === true) {
-          db.prepare("UPDATE tasks SET status = 'cancelled', summary = 'Stopped from the Control Plane.', cancel_requested = 0, completed_at = ?, updated_at = ? WHERE id = ?")
+          const updated = db.prepare(`UPDATE tasks SET status = 'cancelled', summary = 'Stopped from the Control Plane.', cancel_requested = 0, completed_at = ?, updated_at = ? WHERE ${activeTaskWhere}`)
             .run(now, now, taskId);
-          cancelPendingApprovals(taskId, nodeId, "task_cancelled", now);
+          applied = Number(updated.changes) > 0;
+          if (applied) cancelPendingApprovals(taskId, nodeId, "task_cancelled", now);
         } else {
-          db.prepare("UPDATE tasks SET cancel_requested = 0, updated_at = ? WHERE id = ?").run(now, taskId);
+          const updated = db.prepare(`UPDATE tasks SET cancel_requested = 0, updated_at = ? WHERE ${activeTaskWhere}`).run(now, taskId);
+          applied = Number(updated.changes) > 0;
         }
-        logEvent(nodeId, taskId, "task.cancelled", { cancelled: message.cancelled === true });
+        // A late cancellation acknowledgement must never rewrite a terminal task state.
+        logEvent(nodeId, taskId, "task.cancelled", { cancelled: message.cancelled === true, applied });
         return;
       }
       default:
