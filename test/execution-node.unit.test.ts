@@ -59,6 +59,55 @@ describe("LocalExecutionNode", () => {
     expect(() => buildFlowAutoBrief("x".repeat(801))).toThrow(/800 UTF-8 bytes/);
   });
 
+
+  it("passes the FlowAuto safety policy into the durable local task", async () => {
+    store = new Store(":memory:");
+    const bot = {
+      origin: "user",
+      app: null,
+      settings: {
+        permission: "workspace",
+        computerUse: { enabled: true, approval: "ask-input" },
+        memory: { enabled: false },
+        apps: { mode: "selected", selected: [] },
+        paused: false,
+      },
+    };
+    vi.spyOn(store, "getBot").mockReturnValue(bot as never);
+    vi.spyOn(store, "ensureConversation").mockReturnValue({ id: "flow-conversation" } as never);
+    vi.spyOn(store, "listMessages").mockReturnValue([] as never);
+    vi.spyOn(store, "addMessage").mockReturnValue(undefined as never);
+    const create = vi.fn((input: { brief: string }) => ({ task: {} as never }));
+    const node = new LocalExecutionNode({
+      store,
+      tasks: { create } as never,
+      workspace: () => "/tmp/anymodelbot-flowauto-test",
+      env: { AMB_EXECUTION_BOT_ID: "flow-bot" },
+    });
+    const internal = node as unknown as {
+      submitTask(value: unknown): Promise<void>;
+      send(value: Record<string, unknown>): void;
+      reportOneTask(row: unknown, force?: boolean): Promise<void>;
+    };
+    internal.send = vi.fn();
+    internal.reportOneTask = vi.fn(async () => {});
+
+    await internal.submitTask({
+      id: "remote-flow-task-1",
+      kind: "flowauto",
+      title: "Generate video",
+      instruction: "Generate a product video in Google Flow.",
+    });
+
+    expect(create).toHaveBeenCalledOnce();
+    const brief = create.mock.calls[0]?.[0]?.brief ?? "";
+    expect(brief).toContain("Generate a product video in Google Flow.");
+    expect(brief).toContain("approved Computer Use");
+    expect(brief).toContain("task_report(needs_you)");
+    expect(brief).toContain("save only in this bot's workspace");
+    expect(brief.length).toBeLessThanOrEqual(1_500);
+  });
+
   it("allows only TLS Control Plane URLs except loopback development", () => {
     expect(validateControlPlaneUrl("wss://control.example.test/node").protocol).toBe("wss:");
     expect(validateControlPlaneUrl("ws://127.0.0.1:8787/node").hostname).toBe("127.0.0.1");
