@@ -117,6 +117,31 @@ test("remote Computer Use approvals can be reviewed and relayed to the workstati
   await waitFor(async()=>{const d=await(await request(s.base,"/api/v1/approvals?status=all")).json();return d.approvals.find(a=>a.id===approvalId)?.status==="allowed";});
 });
 
+test("approval decisions queued while offline are replayed after node reconnect", async (t) => {
+  const server=await setup();let first,second;
+  t.after(async()=>{try{first?.ws.close();second?.ws.close();}catch{}await server.close();});
+  first=await connectNode(server.wsUrl,"approval-reconnect-node");
+  await waitFor(async()=>{const d=await(await request(server.base,"/api/v1/nodes")).json();return d.nodes[0]?.connected?d:undefined;});
+  const created=await request(server.base,"/api/v1/tasks",ADMIN,{method:"POST",body:JSON.stringify({
+    node_id:"approval-reconnect-node",kind:"flowauto",title:"Reconnect approval",instruction:"Click Generate",
+  })});
+  assert.equal(created.status,201);const taskId=(await created.json()).task.id;
+  await waitFor(()=>first.messages.find(m=>m.type==="task.submit"&&m.task?.id===taskId));
+  const approvalId="approval-reconnect-1";
+  first.ws.send(JSON.stringify({type:"task.approval",task_id:taskId,approval:{
+    id:approvalId,tool:"mcp__computer-use__click",detail:"Generate button",created_at:Date.now(),expires_at:Date.now()+60000,
+  }}));
+  await waitFor(async()=>{const d=await(await request(server.base,"/api/v1/approvals?status=pending")).json();return d.approvals.find(a=>a.id===approvalId);});
+  first.ws.close();
+  await waitFor(async()=>{const d=await(await request(server.base,"/api/v1/nodes")).json();return d.nodes[0]?.connected===false?d:undefined;});
+  const decision=await request(server.base,`/api/v1/approvals/${approvalId}/deny`,ADMIN,{method:"POST"});
+  assert.equal(decision.status,202);
+  assert.equal((await decision.json()).delivery,"queued_until_reconnect");
+  second=await connectNode(server.wsUrl,"approval-reconnect-node");
+  const replay=await waitFor(()=>second.messages.find(m=>m.type==="task.approval.decision"&&m.approval_id===approvalId));
+  assert.equal(replay.allow,false);
+});
+
 test("tasks remain queued while the workstation is offline", async (t) => {
   const s = await setup();
   t.after(s.close);
