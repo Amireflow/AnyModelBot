@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto";
 import { AgencyError } from "./errors.js";
 import { AgencyStore, stablePayloadHash } from "./store.js";
 import { assertLeadTransition } from "./transitions.js";
+import { assessResearchEvidence } from "./research-quality.js";
 import type {
   AddEvidenceInput, AgencyDashboard, Approval, ApprovalAction, AuditEvent, Company, CompanySearchFilters,
   Contact, ContactSearchFilters, CreateCompanyInput, CreateContactInput, CreateLeadInput,
   CreateOrganizationInput, Evidence, Lead, LeadSearchFilters, LeadStage, Organization,
-  Page, RecordConsentInput, RequestApprovalInput, AgencyRole,
+  Page, RecordConsentInput, RequestApprovalInput, AgencyRole, ResearchAssessment,
 } from "./types.js";
 import {
   confidenceValue, countryCode, currencyCode, emailAddress, normalizedName, optionalText,
@@ -262,6 +263,12 @@ export class AgencyService {
     this.requireMember(organizationId,actorId,["owner","admin","member","client","auditor"]);
     if (!this.store.getCompany(organizationId,companyId)) throw new AgencyError("NOT_FOUND","Company not found");
     return this.store.listEvidence(organizationId,companyId);
+  }
+
+  assessCompanyResearch(organizationId: string, actorId: string, companyId: string): ResearchAssessment {
+    this.requireMember(organizationId,actorId,["owner","admin","member","client","auditor"]);
+    if (!this.store.getCompany(organizationId,companyId)) throw new AgencyError("NOT_FOUND","Company not found");
+    return assessResearchEvidence(this.store.listEvidence(organizationId,companyId),this.now());
   }
 
   recordConsent(organizationId: string, actorId: string, input: RecordConsentInput) {

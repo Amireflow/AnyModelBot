@@ -1,6 +1,7 @@
 # Agency OS — blueprint de référence
 
-**Statut :** architecture cible proposée, à implémenter par lots validés.  
+**Statut :** architecture de référence en cours d'implémentation ; le socle Agency Core, le CRM local et le registre initial de preuves sont intégrés sur master. La validation CI reste à effectuer.  
+**Suivi des lots :** [Roadmap](./ROADMAP.md) · [Lot 2 — CRM](./LOT-2-CRM-API.md) · [Lot 3 — preuves de recherche](./LOT-3-RESEARCH-EVIDENCE.md)
 **Dépôt :** fork Amireflow/AnyModelBot.  
 **Branche de travail :** `master`, conformément à `AGENTS.md`.
 

@@ -8,6 +8,7 @@ const NEXT={new:["researching","archived"],researching:["new","qualified","lost"
 const blankCompany={name:"",website:"",industry:"",countryCode:"SN",city:""};
 const blankLead={companyId:"",source:"",notes:""};
 const blankContact={displayName:"",role:"",email:"",phone:""};
+const blankEvidence={evidenceType:"company",sourceUrl:"",summary:"",confidence:"0.7"};
 const enc=encodeURIComponent;
 const qs=(o)=>new URLSearchParams(Object.entries(o).filter(([,v])=>v!==""&&v!==undefined&&v!==null).map(([k,v])=>[k,String(v)])).toString();
 const storedOrg=()=>{try{return localStorage.getItem("amb-agency-org")||"";}catch{return "";}};
@@ -38,6 +39,9 @@ export function AgencyScreen() {
   const [companyOptions,setCompanyOptions]=useState([]);
   const [selected,setSelected]=useState("");
   const [contacts,setContacts]=useState([]);
+  const [research,setResearch]=useState({items:[],assessment:null});
+  const [evidenceForm,setEvidenceForm]=useState(false);
+  const [evidenceDraft,setEvidenceDraft]=useState(blankEvidence);
   const [busy,setBusy]=useState("");
   const [error,setError]=useState("");
   const [revision,setRevision]=useState(0);
@@ -92,6 +96,14 @@ export function AgencyScreen() {
     return ()=>{live=false;};
   },[orgId,selected,revision,lang]);
 
+  useEffect(()=>{
+    if(!orgId||!selected){setResearch({items:[],assessment:null});return;}
+    let live=true;
+    api("/agency/"+enc(orgId)+"/companies/"+enc(selected)+"/evidence")
+      .then(d=>live&&setResearch(d)).catch(e=>live&&setError(e.message));
+    return ()=>{live=false;};
+  },[orgId,selected,revision,lang]);
+
   const update=(setter,key,value)=>setter(prev=>({...prev,[key]:value}));
   const changeOrg=(id)=>{setOrgId(id);rememberOrg(id);setSelected("");setPage(0);};
   const createOrg=async(e)=>{
@@ -120,6 +132,15 @@ export function AgencyScreen() {
     setBusy("stage");setError("");
     try{await api(`/agency/${enc(orgId)}/leads/${enc(id)}/stage`,{method:"PATCH",body:{stage}});setRevision(v=>v+1);}
     catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const createEvidence=async(e)=>{
+    e.preventDefault();setBusy("evidence");setError("");
+    try{
+      await api("/agency/"+enc(orgId)+"/companies/"+enc(selected)+"/evidence",{
+        method:"POST",body:{...evidenceDraft,confidence:Number(evidenceDraft.confidence)}
+      });
+      setEvidenceDraft(blankEvidence);setEvidenceForm(false);setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const selectedCompany=(tab==="companies"?(rows.items||[]).find(x=>x.id===selected):null);
   const totalPages=Math.max(1,Math.ceil((rows.total||0)/SIZE));
@@ -181,7 +202,21 @@ export function AgencyScreen() {
           <div class="agency-contact-heading"><h3>${t("agency.contacts")}</h3><button class="text" onClick=${()=>setContactForm(v=>!v)}>${t("agency.addContact")}</button></div>
           ${contactForm&&html`<form class="agency-form agency-contact-form" onSubmit=${createContact}><${Field} label=${t("agency.contactName")} value=${contact.displayName} required onInput=${v=>update(setContact,"displayName",v)}/><${Field} label=${t("agency.role")} value=${contact.role} onInput=${v=>update(setContact,"role",v)}/><${Field} label=${t("agency.email")} value=${contact.email} type="email" onInput=${v=>update(setContact,"email",v)}/><${Field} label=${t("agency.phone")} value=${contact.phone} type="tel" onInput=${v=>update(setContact,"phone",v)}/><button class="btn primary block" type="submit">${t("agency.saveContact")}</button></form>`}
           ${contacts.map(p=>html`<div class="agency-contact-row"><span class="agency-contact-avatar">${(p.displayName||"?").slice(0,1).toUpperCase()}</span><span><strong>${p.displayName}</strong><small>${p.role||p.email||p.phone||"—"}</small></span></div>`)}
+
           ${!contacts.length&&html`<p class="agency-muted">${t("agency.noContacts")}</p>`}
+          <section class="agency-research">
+            <div class="agency-contact-heading"><h3>${t("agency.researchTitle")}</h3><button class="text" onClick=${()=>setEvidenceForm(v=>!v)}>${t("agency.addEvidence")}</button></div>
+            ${research.assessment&&html`<div class="agency-research-score"><strong>${research.assessment.score}/100</strong><span>${t("agency.researchStatus."+research.assessment.status)}</span><small>${research.assessment.evidenceCount} ${t("agency.evidenceCount")} · ${research.assessment.distinctSourceHosts} ${t("agency.sources")}</small></div>`}
+            ${evidenceForm&&html`<form class="agency-form agency-evidence-form" onSubmit=${createEvidence}>
+              <${Field} label=${t("agency.evidenceType")} value=${evidenceDraft.evidenceType} required onInput=${v=>update(setEvidenceDraft,"evidenceType",v)}/>
+              <${Field} label=${t("agency.sourceUrl")} value=${evidenceDraft.sourceUrl} type="url" placeholder="https://" required onInput=${v=>update(setEvidenceDraft,"sourceUrl",v)}/>
+              <${Field} label=${t("agency.evidenceConfidence")} value=${evidenceDraft.confidence} type="number" onInput=${v=>update(setEvidenceDraft,"confidence",v)}/>
+              <label class="agency-field"><span>${t("agency.evidenceSummary")}</span><textarea class="field" rows="3" required value=${evidenceDraft.summary} onInput=${e=>update(setEvidenceDraft,"summary",e.currentTarget.value)}></textarea></label>
+              <button class="btn primary block" type="submit" disabled=${!!busy}>${busy==="evidence"?t("agency.creating"):t("agency.saveEvidence")}</button>
+            </form>`}
+            ${(research.items||[]).map(item=>html`<article class="agency-evidence-row"><div><strong>${item.evidenceType}</strong><small>${Math.round(item.confidence*100)}% · ${new Date(item.observedAt).toLocaleDateString()}</small></div><a href=${item.sourceUrl} target="_blank" rel="noopener noreferrer">${item.sourceUrl}</a><p>${item.summary}</p></article>`)}
+            ${!research.items?.length&&html`<p class="agency-muted">${t("agency.noEvidence")}</p>`}
+          </section>
         </aside>`}
       </div>`}
       ${tab==="leads"&&rows.items?.length>0&&html`<div class="agency-lead-list">${rows.items.map(l=>html`<article class="agency-lead-card"><div class="agency-lead-main"><div><strong>${companyOptions.find(c=>c.id===l.companyId)?.name||l.companyId}</strong><p>${l.notes||l.source||t("agency.noLeadNotes")}</p></div><${Badge} s=${t("agency.stage."+l.stage)}/></div>

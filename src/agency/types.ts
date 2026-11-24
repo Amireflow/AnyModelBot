@@ -229,6 +229,24 @@ export interface ContactSearchFilters {
 export interface LeadSearchFilters {
   companyId?: string; stage?: LeadStage; query?: string; limit?: number; offset?: number;
 }
+export type ResearchDomain = "company" | "industry" | "financial" | "news";
+export interface ResearchAssessment {
+  modelVersion: string;
+  score: number;
+  status: "insufficient" | "developing" | "review_ready";
+  evidenceCount: number;
+  coveredDomains: ResearchDomain[];
+  missingDomains: ResearchDomain[];
+  coverage: Record<ResearchDomain, number>;
+  distinctSourceHosts: number;
+  averageConfidence: number;
+  freshEvidenceCount: number;
+  breakdown: { coverage: number; sourceDiversity: number; confidence: number; freshness: number };
+  reasons: string[];
+  recommendations: string[];
+  assessedAt: number;
+}
+
 export interface AgencyDashboard {
   companyCount: number; contactCount: number; leadCount: number;
   openLeadCount: number; wonLeadCount: number; stageCounts: Record<LeadStage, number>;

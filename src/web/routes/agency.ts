@@ -4,7 +4,7 @@
  */
 import { AgencyError } from "../../agency/errors.js";
 import type { AgencyService } from "../../agency/service.js";
-import type { CompanySearchFilters, ContactSearchFilters, LeadSearchFilters, LeadStage } from "../../agency/types.js";
+import type { AddEvidenceInput, CompanySearchFilters, ContactSearchFilters, LeadSearchFilters, LeadStage } from "../../agency/types.js";
 import { HttpError, readJson, send, type Route, type WebContext } from "../http.js";
 
 export const LOCAL_AGENCY_ACTOR = "local-owner";
@@ -86,6 +86,26 @@ export function agencyRoutes(ctx: WebContext): Route {
         }
         if (seg.length===4 && method==="GET") {
           return send(res,200,{company:service.getCompany(organizationId,actor,decodeSegment(seg[3],"company id"))});
+        }
+        if (seg.length===5 && seg[4]==="evidence" && (method==="GET" || method==="POST")) {
+          const companyId=decodeSegment(seg[3],"company id");
+          if (method==="GET") {
+            return send(res,200,{
+              items:service.listEvidence(organizationId,actor,companyId),
+              assessment:service.assessCompanyResearch(organizationId,actor,companyId),
+            });
+          }
+          const body=await readObject(req);
+          const evidence=service.addEvidence(organizationId,actor,{
+            companyId, leadId:body.leadId as string|undefined,
+            evidenceType:body.evidenceType as string, sourceUrl:body.sourceUrl as string,
+            summary:body.summary as string, contentHash:body.contentHash as string|undefined,
+            confidence:body.confidence as number|undefined, observedAt:body.observedAt as number|undefined,
+          } satisfies AddEvidenceInput);
+          return send(res,201,{
+            evidence,
+            assessment:service.assessCompanyResearch(organizationId,actor,companyId),
+          });
         }
         if (seg.length===5 && seg[4]==="contacts" && (method==="GET" || method==="POST")) {
           const companyId=decodeSegment(seg[3],"company id");
