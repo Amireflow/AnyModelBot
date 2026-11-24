@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+// @ts-expect-error -- untyped JS DSH plugin
 import { apply } from "../dsh-runtime/plugins/amb-execution-node-gate.mjs";
 
 const originalBot = process.env.AMB_BOT_ID;

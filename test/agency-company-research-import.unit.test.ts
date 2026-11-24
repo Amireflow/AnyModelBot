@@ -104,7 +104,7 @@ describe("Company Research workspace importer", () => {
     fs.rmSync(path.join(appRoot, "jobs"), { recursive: true, force: true });
     expect(listCompanyResearchJobs(dataDir, botId, company)).toEqual([]);
   });
-\n  it("loads only valid HTTP sources and preserves report relevance separately from confidence", () => {
+  it("loads only valid HTTP sources and preserves report relevance separately from confidence", () => {
     const loaded = loadCompanyResearchSources(dataDir, botId, company, jobId);
     expect(loaded.job.id).toBe(jobId);
     expect(loaded.sources).toHaveLength(2);
@@ -136,7 +136,7 @@ describe("Company Research workspace importer", () => {
   });
 
   it("rejects importing a completed report for a different company", () => {
-    expect(() => loadCompanyResearchSources(dataDir, botId, { ...company, normalizedName: "someone else" }, jobId))
+    expect(() => loadCompanyResearchSources(dataDir, botId, { ...company, name: "Someone Else", normalizedName: "someone else", website: "https://other.example" }, jobId))
       .toThrowError(CompanyResearchImportError);
   });
 

@@ -78,7 +78,7 @@ export class AgencyService {
   addMember(organizationId: string, actorId: string, userId: string, role: Exclude<AgencyRole,"owner">): void {
     this.requireMember(organizationId,actorId,["owner"]);
     const target=requiredText(userId,"userId",160);
-    if (role === "owner") throw new AgencyError("VALIDATION_ERROR","Use an explicit ownership-transfer workflow");
+    if ((role as string) === "owner") throw new AgencyError("VALIDATION_ERROR","Use an explicit ownership-transfer workflow");
     this.store.transaction(() => {
       this.store.addMembership({organizationId,userId:target,role,now:this.now()});
       this.audit(organizationId,actorId,"membership.created","membership",target,{role});

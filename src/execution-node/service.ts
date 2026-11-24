@@ -757,7 +757,7 @@ export class LocalExecutionNode {
   private async reportTaskStates(force = false): Promise<void> {
     const rows = this.db.prepare(
       "SELECT * FROM execution_node_tasks ORDER BY updated_at DESC LIMIT 100",
-    ).all() as RemoteTaskRow[];
+    ).all() as unknown as RemoteTaskRow[];
     for (const row of rows) await this.reportOneTask(row, force);
   }
 }

@@ -249,7 +249,7 @@ describe("LocalExecutionNode", () => {
     expect(validateControlPlaneUrl("wss://control.example.test/node").protocol).toBe("wss:");
     expect(validateControlPlaneUrl("ws://127.0.0.1:8787/node").hostname).toBe("127.0.0.1");
     expect(() => validateControlPlaneUrl("ws://control.example.test/node")).toThrow(/wss/);
-    expect(() => validateControlPlaneUrl("https://control.example.test/node")).toThrow(/WebSocket/);
+    expect(() => validateControlPlaneUrl("https://control.example.test/node")).toThrow(/wss:\/\//);
     expect(() => validateControlPlaneUrl("wss://user:pass@control.example.test/node")).toThrow(/credentials/);
   });
 

@@ -91,12 +91,13 @@ describe("Agency Company Research import HTTP routes", () => {
       "content-type": body === undefined ? "" : "application/json",
       "sec-fetch-site": "same-origin",
     } });
-    const response = {
+    const raw = {
       status: 0,
       payload: "",
-      writeHead(status: number) { this.status = status; return this; },
-      end(payload?: string) { this.payload = String(payload ?? ""); return this; },
-    } as unknown as ServerResponse & { status: number; payload: string };
+      writeHead(status: number) { raw.status = status; return raw; },
+      end(payload?: string) { raw.payload = String(payload ?? ""); return raw; },
+    };
+    const response = raw as unknown as ServerResponse & { status: number; payload: string };
     const segments = pathname.split("/").filter(Boolean);
     try {
       await route(request, response, new URL("http://localhost/amb/api" + pathname), segments, pathname, method);

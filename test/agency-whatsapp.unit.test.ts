@@ -16,7 +16,7 @@ describe("Agency WhatsApp Meta webhooks",()=>{
     tick=1_800_000_000_000;
     ids=0;calls=0;
     store=new AgencyStore(":memory:");
-    service=new AgencyService(store,{now:()=>tick,id:()=>\`webhook-test-\${++ids}\`,whatsapp:sender});
+    service=new AgencyService(store,{now:()=>tick,id:()=>`webhook-test-${++ids}`,whatsapp:sender});
   });
   afterEach(()=>store.close());
 

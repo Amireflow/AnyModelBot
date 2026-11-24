@@ -526,7 +526,7 @@ export function AgencyScreen() {
                 const expired=approval.status==="pending"&&approval.expiresAt&&approval.expiresAt<=Date.now();
                 const queued=whatsappOutbox.some(item=>item.approvalId===approval.id);
                 return html`<article class="agency-whatsapp-item">
-                  <div class="agency-whatsapp-item-head"><strong>${payload?.template?.name||approval.resourceId}</strong><span class=${"agency-whatsapp-state "+(expired?"expired":approval.status)}>${t("agency.whatsappApprovalStatus."+(expired?"expired":approval.status))}</span></div>
+                  <div class="agency-whatsapp-item-head"><strong>${payload?.template?.name||approval.resourceId}</strong><span class=${"agency-whatsapp-state "+(expired?"expired":approval.status)}>${t(`agency.whatsappApprovalStatus.${expired?"expired":approval.status}`)}</span></div>
                   <p>${payload?.recipient||approval.resourceId} · ${payload?.purpose||"—"} · ${payload?.template?.language||"—"}</p>
                   <small>${approval.reason}</small>
                   <small>${t("agency.whatsappPayloadHash")} <code>${approval.payloadHash}</code></small>
@@ -546,9 +546,9 @@ export function AgencyScreen() {
             <section class="agency-whatsapp-list">
               <div class="agency-contact-heading"><h3>${t("agency.whatsappOutbox")}</h3><span class="agency-qualification-status">${whatsappOutbox.length}</span></div>
               ${whatsappOutbox.map(message=>html`<article class="agency-whatsapp-item">
-                <div class="agency-whatsapp-item-head"><strong>${message.templateName}</strong><span class=${"agency-whatsapp-state "+message.status}>${t("agency.whatsappOutboxStatus."+message.status)}</span></div>
+                <div class="agency-whatsapp-item-head"><strong>${message.templateName}</strong><span class=${"agency-whatsapp-state "+message.status}>${t(`agency.whatsappOutboxStatus.${message.status}`)}</span></div>
                 <p>${message.recipient} · ${message.language}</p>
-                <small>${t("agency.whatsappProviderStatus")} ${message.providerStatus?t("agency.whatsappProviderStatusValues."+message.providerStatus):t("agency.whatsappProviderPending")}</small>
+                <small>${t("agency.whatsappProviderStatus")} ${message.providerStatus?t(`agency.whatsappProviderStatusValues.${message.providerStatus}`):t("agency.whatsappProviderPending")}</small>
                 ${(message.failureCode||message.providerErrorCode)&&html`<small>${t("agency.whatsappFailure")} ${message.failureCode||message.providerErrorCode}</small>`}
                 ${message.status==="queued"&&html`
                   ${whatsappSendConfirmId!==message.id
@@ -622,7 +622,7 @@ export function AgencyScreen() {
               </div>
               ${consentContactId===p.id&&html`
                 <section class="agency-consent-panel">
-                  <div class="agency-contact-heading"><h4>${t("agency.whatsappConsentTitle")}</h4><span class="agency-qualification-status">${latest?t("agency.whatsappConsentStatus."+latest.status):t("agency.whatsappConsentMissing")}</span></div>
+                  <div class="agency-contact-heading"><h4>${t("agency.whatsappConsentTitle")}</h4><span class="agency-qualification-status">${latest?t(`agency.whatsappConsentStatus.${latest.status}`):t("agency.whatsappConsentMissing")}</span></div>
                   ${whatsappConsentError&&html`<div class="agency-alert" role="alert">${whatsappConsentError}</div>`}
                   ${whatsappConsentNotice&&html`<p class="agency-research-feedback" role="status">${whatsappConsentNotice}</p>`}
                   ${whatsappConsentBusy&&html`<div class="agency-loading"><${Spinner}/>${t("agency.loading")}</div>`}
@@ -635,7 +635,7 @@ export function AgencyScreen() {
                     <button class="btn primary" type="submit" disabled=${whatsappConsentBusy}>${t("agency.whatsappSaveConsent")}</button>
                   </form>
                   <div class="agency-consent-history">
-                    ${whatsappConsents.map(item=>html`<div><strong>${t("agency.whatsappConsentStatus."+item.status)} · ${item.purpose}</strong><small>${item.source} · ${item.textVersion||"—"} · ${new Date(item.createdAt).toLocaleString()}</small><small>${t("agency.whatsappConsentProof")}: ${item.proof}</small></div>`)}
+                    ${whatsappConsents.map(item=>html`<div><strong>${t(`agency.whatsappConsentStatus.${item.status}`)} · ${item.purpose}</strong><small>${item.source} · ${item.textVersion||"—"} · ${new Date(item.createdAt).toLocaleString()}</small><small>${t("agency.whatsappConsentProof")}: ${item.proof}</small></div>`)}
                   </div>
                   <div class="agency-contact-heading"><h4>${t("agency.whatsappPrepareTemplate")}</h4><span class="agency-qualification-status">${consentActive?t("agency.whatsappConsentActive"):t("agency.whatsappConsentRequired")}</span></div>
                   ${!phoneValid&&html`<p class="agency-muted">${t("agency.whatsappPhoneInvalid")}</p>`}
@@ -652,9 +652,9 @@ export function AgencyScreen() {
 
           ${!contacts.length&&html`<p class="agency-muted">${t("agency.noContacts")}</p>`}
           <section class="agency-qualification">
-            <div class="agency-contact-heading"><h3>${t("agency.qualificationTitle")}</h3><span class="agency-qualification-status">${qualification?t("agency.qualificationStatus."+qualification.status):"—"}</span></div>
-            ${qualification&&html`<div class="agency-qualification-score"><strong>${qualification.score===null?"—":qualification.score+"/100"}</strong><span>${t("agency.qualificationCoverage",{coverage:qualification.coverage})}</span></div>
-              ${qualification.criteria.map(item=>html`<div class="agency-qualification-criterion"><strong>${t("agency.qualificationCriteria."+item.id)}</strong><span class=${"agency-qualification-result "+item.result}>${t("agency.qualificationResult."+item.result)}</span><small>${t("agency.qualificationExpected",{value:item.expected.join(", ")})} · ${item.observed||t("agency.qualificationUnknownValue")} · ${t("agency.qualificationWeight",{weight:Math.round(item.weight)})}</small></div>`)}
+            <div class="agency-contact-heading"><h3>${t("agency.qualificationTitle")}</h3><span class="agency-qualification-status">${qualification?t(`agency.qualificationStatus.${qualification.status}`):"—"}</span></div>
+            ${qualification?html`<div class="agency-qualification-score"><strong>${qualification.score===null?"—":qualification.score+"/100"}</strong><span>${t("agency.qualificationCoverage",{coverage:qualification.coverage})}</span></div>
+              ${qualification.criteria.map(item=>html`<div class="agency-qualification-criterion"><strong>${t(`agency.qualificationCriteria.${item.id}`)}</strong><span class=${"agency-qualification-result "+item.result}>${t(`agency.qualificationResult.${item.result}`)}</span><small>${t("agency.qualificationExpected",{value:item.expected.join(", ")})} · ${item.observed||t("agency.qualificationUnknownValue")} · ${t("agency.qualificationWeight",{weight:Math.round(item.weight)})}</small></div>`)}
               ${qualification.blockingReasons.length?html`<p class="agency-qualification-warning">${t("agency.qualificationBlocked")}</p>`:null}
               ${qualification.status==="unconfigured"?html`<p class="agency-muted">${t("agency.qualificationNoProfile")}</p>`:null}
             ` : html`<p class="agency-muted">${t("agency.qualificationNoProfile")}</p>`}
@@ -662,15 +662,15 @@ export function AgencyScreen() {
           </section>
           <section class="agency-research">
             <div class="agency-contact-heading"><h3>${t("agency.researchImportTitle")}</h3><button class="btn" disabled=${!!busy||activeResearchJobs.length>0||researchLaunchActive} onClick=${startResearch}>${busy==="research-start"?t("agency.startingResearch"):t("agency.startResearch")}</button></div>
-            ${activeResearchJobs.map(job=>html`<div class="agency-active-job"><div><strong>${t("agency.jobStatus."+job.status)}</strong><span class="num">${job.progress}%</span></div><div class="agency-job-progress"><i style=${{width:Math.max(0,Math.min(100,job.progress))+"%"}}></i></div><small>${job.currentStep||job.id}</small></div>`)}
+            ${activeResearchJobs.map(job=>html`<div class="agency-active-job"><div><strong>${t(`agency.jobStatus.${job.status}`)}</strong><span class="num">${job.progress}%</span></div><div class="agency-job-progress"><i style=${{width:Math.max(0,Math.min(100,job.progress))+"%"}}></i></div><small>${job.currentStep||job.id}</small></div>`)}
             ${stalledResearchJobs.map(job=>html`<div class="agency-research-stalled"><strong>${t("agency.researchStalled")}</strong><span>${job.company} · ${job.id}</span></div>`)}
-            ${failedResearchJobs.map(job=>html`<div class="agency-research-failed"><strong>${t("agency.jobStatus."+job.status)}</strong><span>${job.company} · ${job.id}</span></div>`)}
+            ${failedResearchJobs.map(job=>html`<div class="agency-research-failed"><strong>${t(`agency.jobStatus.${job.status}`)}</strong><span>${job.company} · ${job.id}</span></div>`)}
             ${researchLaunch?.status==="failed"&&!failedResearchJobs.length&&html`<div class="agency-research-failed"><strong>${t("agency.researchLaunchFailed")}</strong></div>`}
             ${researchLaunch?.status==="done"&&!activeResearchJobs.length&&!completedResearchJobs.length&&!failedResearchJobs.length&&html`<div class="agency-research-stalled"><strong>${t("agency.researchFinishedNoReport")}</strong></div>`}
             ${completedResearchJobs.length?html`<div class="agency-research-import"><label class="agency-field"><span>${t("agency.chooseResearchJob")}</span><select class="field" value=${researchJobId} onChange=${e=>setResearchJobId(e.currentTarget.value)}><option value="">—</option>${completedResearchJobs.map(job=>html`<option value=${job.id}>${job.company} · ${job.sourceCount} ${t("agency.sources")} · ${job.id}</option>`)}</select></label><button class="btn" disabled=${!researchJobId||!!busy} onClick=${importResearch}>${busy==="research-import"?t("agency.importingResearch"):t("agency.importResearch")}</button></div>`:activeResearchJobs.length?null:html`<p class="agency-muted">${t("agency.noResearchJobs")}</p>`}
             ${researchImportMessage&&html`<p class="agency-research-feedback" role="status">${researchImportMessage}</p>`}
             <div class="agency-contact-heading"><h3>${t("agency.researchTitle")}</h3><button class="text" onClick=${()=>setEvidenceForm(v=>!v)}>${t("agency.addEvidence")}</button></div>
-            ${research.assessment&&html`<div class="agency-research-score"><strong>${research.assessment.score}/100</strong><span>${t("agency.researchStatus."+research.assessment.status)}</span><small>${research.assessment.evidenceCount} ${t("agency.evidenceCount")} · ${research.assessment.distinctSourceHosts} ${t("agency.sources")}</small></div>`}
+            ${research.assessment&&html`<div class="agency-research-score"><strong>${research.assessment.score}/100</strong><span>${t(`agency.researchStatus.${research.assessment.status}`)}</span><small>${research.assessment.evidenceCount} ${t("agency.evidenceCount")} · ${research.assessment.distinctSourceHosts} ${t("agency.sources")}</small></div>`}
             ${evidenceForm&&html`<form class="agency-form agency-evidence-form" onSubmit=${createEvidence}>
               <${Field} label=${t("agency.evidenceType")} value=${evidenceDraft.evidenceType} required onInput=${v=>update(setEvidenceDraft,"evidenceType",v)}/>
               <${Field} label=${t("agency.sourceUrl")} value=${evidenceDraft.sourceUrl} type="url" placeholder="https://" required onInput=${v=>update(setEvidenceDraft,"sourceUrl",v)}/>
@@ -683,8 +683,8 @@ export function AgencyScreen() {
           </section>
         </aside>`}
       </div>`}
-      ${tab==="leads"&&rows.items?.length>0&&html`<div class="agency-lead-list">${rows.items.map(l=>html`<article class="agency-lead-card"><div class="agency-lead-main"><div><strong>${companyOptions.find(c=>c.id===l.companyId)?.name||l.companyId}</strong><p>${l.notes||l.source||t("agency.noLeadNotes")}</p></div><${Badge} s=${t("agency.stage."+l.stage)}/></div>
-        <div class="agency-lead-footer"><span>${t("agency.updated")} · ${new Date(l.updatedAt).toLocaleDateString()}</span><label class="agency-stage-select"><span>${t("agency.moveTo")}</span><select class="field" value=${l.stage} disabled=${busy==="stage"||!NEXT[l.stage]?.length} onChange=${e=>moveLead(l.id,e.currentTarget.value)}><option value=${l.stage}>${t("agency.stage."+l.stage)}</option>${(NEXT[l.stage]||[]).map(s=>html`<option value=${s}>${t("agency.stage."+s)}</option>`)}</select></label></div>
+      ${tab==="leads"&&rows.items?.length>0&&html`<div class="agency-lead-list">${rows.items.map(l=>html`<article class="agency-lead-card"><div class="agency-lead-main"><div><strong>${companyOptions.find(c=>c.id===l.companyId)?.name||l.companyId}</strong><p>${l.notes||l.source||t("agency.noLeadNotes")}</p></div><${Badge} s=${t(`agency.stage.${l.stage}`)}/></div>
+        <div class="agency-lead-footer"><span>${t("agency.updated")} · ${new Date(l.updatedAt).toLocaleDateString()}</span><label class="agency-stage-select"><span>${t("agency.moveTo")}</span><select class="field" value=${l.stage} disabled=${busy==="stage"||!NEXT[l.stage]?.length} onChange=${e=>moveLead(l.id,e.currentTarget.value)}><option value=${l.stage}>${t(`agency.stage.${l.stage}`)}</option>${(NEXT[l.stage]||[]).map(s=>html`<option value=${s}>${t(`agency.stage.${s}`)}</option>`)}</select></label></div>
       </article>`)}</div>`}
       ${tab==="leads"&&!busy&&!rows.items?.length&&html`<${Empty} title=${t("agency.noLeads")} detail=${query?t("agency.noSearchResults"):t("agency.noLeadsHint")}/>`}
       ${rows.total>SIZE&&html`<div class="agency-pagination"><button class="btn" disabled=${page===0} onClick=${()=>setPage(v=>Math.max(0,v-1))}>${t("agency.previous")}</button><span>${t("agency.page",{current:page+1,total:Math.ceil(rows.total/SIZE)})}</span><button class="btn" disabled=${(page+1)*SIZE>=rows.total} onClick=${()=>setPage(v=>v+1)}>${t("agency.next")}</button></div>`}

@@ -25,7 +25,7 @@ describe("Agency WhatsApp HTTP API",()=>{
     route=agencyRoutes({
       agency:service,
       whatsappConfig:{
-        async status(orgId){
+        async status(orgId: string){
           return {
             configured:savedConfig?.organizationId===orgId,
             organizationId:orgId,
@@ -39,16 +39,16 @@ describe("Agency WhatsApp HTTP API",()=>{
             secretReturned:false,
           };
         },
-        async save(orgId,input){
+        async save(orgId: string,input: unknown){
           if(!input || typeof input!=="object" || Array.isArray(input))throw new TypeError("invalid config");
           savedConfig={...input as Record<string,unknown>,organizationId:orgId};
         },
-        async clear(orgId){
+        async clear(orgId: string){
           if(savedConfig && savedConfig.organizationId!==orgId)throw new Error("wrong organization");
           savedConfig=undefined;
         },
       },
-    } as WebContext);
+    } as unknown as WebContext);
   });
   afterEach(()=>store.close());
 
@@ -57,13 +57,14 @@ describe("Agency WhatsApp HTTP API",()=>{
     Object.defineProperty(request,"headers",{value:{
       "content-type":body===undefined?"":"application/json","sec-fetch-site":"same-origin",
     }});
-    const response={
+    const raw={
       status:0,payload:"",
-      writeHead(status:number){this.status=status;return this;},
-      end(payload?:string){this.payload=String(payload??"");return this;},
-    } as unknown as ServerResponse & {status:number;payload:string};
+      writeHead(status:number){raw.status=status;return raw;},
+      end(payload?:string){raw.payload=String(payload??"");return raw;},
+    };
+    const response=raw as unknown as ServerResponse & {status:number;payload:string};
     const requestUrl=new URL("http://localhost/amb/api"+path);
-    const segments=requestUrl.pathname.split("/").filter(Boolean);
+    const segments=requestUrl.pathname.replace(/^\/amb\/api\/?/,"").split("/").filter(Boolean);
     try{await route(request,response,requestUrl,segments,path,method);}
     catch(error){
       if(!(error instanceof HttpError))throw error;
@@ -82,7 +83,7 @@ describe("Agency WhatsApp HTTP API",()=>{
       },
     });
     expect(denied.status).toBe(409);
-    const consent=await invoke("POST",\`/agency/\${organizationId}/contacts/\${contactId}/consents\`,{
+    const consent=await invoke("POST",`/agency/${organizationId}/contacts/${contactId}/consents`,{
       channel:"whatsapp",purpose:"marketing",status:"granted",source:"website_form",
       proof:"form-submission:42",textVersion:"wa-marketing-v1",
     });
@@ -92,7 +93,7 @@ describe("Agency WhatsApp HTTP API",()=>{
       channel:"whatsapp",purpose:"marketing",contactId,recipient:"+221771234567",
       type:"template",template:{name:"hello_world",language:"fr_FR",components:[]},
     };
-    const requested=await invoke("POST",\`/agency/\${organizationId}/approvals\`,{
+    const requested=await invoke("POST",`/agency/${organizationId}/approvals`,{
       action:"send_message",resourceType:"whatsapp_template",resourceId:contactId,
       reason:"Explicit review of first prospect contact",payload,
     });
@@ -109,18 +110,18 @@ describe("Agency WhatsApp HTTP API",()=>{
     expect(otherApprovals.status).toBe(200);
     expect(otherApprovals.body.items).toHaveLength(0);
     const approvalId=requested.body.approval.id as string;
-    const decision=await invoke("POST",\`/agency/\${organizationId}/approvals/\${approvalId}/decision\`,{
+    const decision=await invoke("POST",`/agency/${organizationId}/approvals/${approvalId}/decision`,{
       decision:"approved",expectedPayloadHash:requested.body.approval.payloadHash,reason:"Approved",
     });
     expect(decision.status).toBe(200);
 
-    const queued=await invoke("POST",\`/agency/\${organizationId}/whatsapp/outbox\`,{
+    const queued=await invoke("POST",`/agency/${organizationId}/whatsapp/outbox`,{
       approvalId,idempotencyKey:"wa-http-0001",payload,
     });
     expect(queued.status).toBe(201);
     expect(queued.body.message.status).toBe("queued");
 
-    const submitted=await invoke("POST",\`/agency/\${organizationId}/whatsapp/outbox/\${queued.body.message.id}/send\`);
+    const submitted=await invoke("POST",`/agency/${organizationId}/whatsapp/outbox/${queued.body.message.id}/send`);
     expect(submitted.status).toBe(200);
     expect(submitted.body.message.status).toBe("accepted");
   });
@@ -158,10 +159,11 @@ describe("Agency WhatsApp HTTP API",()=>{
   });
 
   it("rejects cross-site consent changes",async()=>{
-    const path=\`/agency/\${organizationId}/contacts/\${contactId}/consents\`;
+    const path=`/agency/${organizationId}/contacts/${contactId}/consents`;
     const request=Readable.from([JSON.stringify({channel:"whatsapp",purpose:"marketing",status:"granted",source:"form",proof:"ref",textVersion:"v1"})]) as unknown as IncomingMessage;
     Object.defineProperty(request,"headers",{value:{"content-type":"application/json","sec-fetch-site":"cross-site"}});
-    const response={status:0,payload:"",writeHead(status:number){this.status=status;return this;},end(payload?:string){this.payload=String(payload??"");return this;}} as unknown as ServerResponse & {status:number;payload:string};
+    const raw={status:0,payload:"",writeHead(status:number){raw.status=status;return raw;},end(payload?:string){raw.payload=String(payload??"");return raw;}};
+    const response=raw as unknown as ServerResponse & {status:number;payload:string};
     await expect(route(request,response,new URL("http://localhost/amb/api"+path),path.split("/").filter(Boolean),path,"POST"))
       .rejects.toMatchObject({status:403});
   });

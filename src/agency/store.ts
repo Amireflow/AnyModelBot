@@ -703,11 +703,11 @@ export class AgencyStore {
     const rank: Record<string,number>={"":0,sent:1,delivered:2,read:3,failed:4};
     if (current.providerStatus==="read" || current.providerStatus==="failed") return false;
     if (rank[status]<=rank[current.providerStatus] || eventAt<current.providerStatusAt) return false;
-    const result=this.db.prepare(\`
+    const result=this.db.prepare(`
       UPDATE agency_whatsapp_outbox
       SET provider_status=?,provider_status_at=?,provider_error_code=?,updated_at=?
       WHERE organization_id=? AND id=? AND provider_status_at<=?
-    \`).run(status,eventAt,errorCode,now,orgId,id,eventAt);
+    `).run(status,eventAt,errorCode,now,orgId,id,eventAt);
     return Number(result.changes)===1;
   }
   insertWhatsAppWebhookEvent(input: {
@@ -715,11 +715,11 @@ export class AgencyStore {
     eventType:"status"|"inbound_message";providerStatus:string;errorCode:string;
     eventAt:number;contactId:string;receivedAt:number;
   }): boolean {
-    const result=this.db.prepare(\`
+    const result=this.db.prepare(`
       INSERT INTO agency_whatsapp_webhook_events(
         organization_id,event_key,provider_message_id,event_type,provider_status,provider_error_code,event_at,contact_id,received_at
       ) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(organization_id,event_key) DO NOTHING
-    \`).run(input.organizationId,input.eventKey,input.providerMessageId,input.eventType,input.providerStatus,input.errorCode,
+    `).run(input.organizationId,input.eventKey,input.providerMessageId,input.eventType,input.providerStatus,input.errorCode,
       input.eventAt,input.contactId,input.receivedAt);
     return Number(result.changes)===1;
   }

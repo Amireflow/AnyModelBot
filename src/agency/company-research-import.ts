@@ -173,11 +173,13 @@ function completedJobs(appRoot: string): { state: Record<string, unknown>; root:
     throw new CompanyResearchImportError("file_invalid", "Company Research jobs directory is unsafe");
   }
   const validStatuses = new Set(["pending", "grounding", "researching", "collecting", "curating", "enriching", "briefing", "editing", "completed", "failed", "cancelled"]);
-  const jobs = (state as any).jobs.filter((job: unknown): job is Record<string, unknown> =>
-    !!job && typeof job === "object" && !Array.isArray(job) && job.sample !== true &&
-    typeof job.status === "string" && validStatuses.has(job.status) &&
-    typeof job.id === "string" && JOB_ID.test(job.id),
-  );
+  const jobs = (state as any).jobs.filter((job: unknown): job is Record<string, unknown> => {
+    if (!job || typeof job !== "object" || Array.isArray(job)) return false;
+    const rec = job as Record<string, unknown>;
+    return rec.sample !== true &&
+      typeof rec.status === "string" && validStatuses.has(rec.status) &&
+      typeof rec.id === "string" && JOB_ID.test(rec.id);
+  });
   return { state: state as Record<string, unknown>, root: realJobsRoot, jobs };
 }
 

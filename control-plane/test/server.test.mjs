@@ -418,6 +418,7 @@ test("answers to FlowAuto questions are replayed after the workstation reconnect
 });
 
 
+test("lists no nodes initially and rejects tasks for an unknown node", async (t) => {
   const s = await setup();
   t.after(s.close);
   const hello = await request(s.base, "/api/v1/nodes", ADMIN);

@@ -74,10 +74,10 @@ export class WhatsAppCloudApiClient implements WhatsAppTemplateSender {
   async sendTemplateMessage(input: WhatsAppTemplateSendInput): Promise<WhatsAppTemplateSendResult> {
     if (!this.isConfigured(input.organizationId)) throw new WhatsAppProviderError("WHATSAPP_NOT_CONFIGURED", false);
     const headers = {
-      Authorization: \`Bearer \${this.accessToken}\`,
+      Authorization: `Bearer ${this.accessToken}`,
       "Content-Type": "application/json",
     };
-    const templateUrl = new URL(\`https://graph.facebook.com/\${this.apiVersion}/\${this.businessAccountId}/message_templates\`);
+    const templateUrl = new URL(`https://graph.facebook.com/${this.apiVersion}/${this.businessAccountId}/message_templates`);
     templateUrl.searchParams.set("name",input.templateName);
     templateUrl.searchParams.set("fields","name,language,status,id");
 
@@ -93,7 +93,7 @@ export class WhatsAppCloudApiClient implements WhatsAppTemplateSender {
     let templatePayload: unknown;
     try { templatePayload = await templateResponse.json(); } catch { templatePayload = null; }
     if (!templateResponse.ok) {
-      throw new WhatsAppProviderError(\`TEMPLATE_LOOKUP_HTTP_\${templateResponse.status}\`,false);
+      throw new WhatsAppProviderError(`TEMPLATE_LOOKUP_HTTP_${templateResponse.status}`,false);
     }
     const templateRoot = templatePayload && typeof templatePayload === "object"
       ? templatePayload as Record<string, unknown> : {};
@@ -105,7 +105,7 @@ export class WhatsAppCloudApiClient implements WhatsAppTemplateSender {
     });
     if (!approved) throw new WhatsAppProviderError("TEMPLATE_NOT_APPROVED",false);
 
-    const url = \`https://graph.facebook.com/\${this.apiVersion}/\${this.phoneNumberId}/messages\`;
+    const url = `https://graph.facebook.com/${this.apiVersion}/${this.phoneNumberId}/messages`;
     const body = {
       messaging_product: "whatsapp",
       recipient_type: "individual",
@@ -136,8 +136,8 @@ export class WhatsAppCloudApiClient implements WhatsAppTemplateSender {
     if (!response.ok) {
       const error = root.error && typeof root.error === "object" ? root.error as Record<string, unknown> : {};
       const code = typeof error.code === "number" || typeof error.code === "string"
-        ? String(error.code) : \`HTTP_\${response.status}\`;
-      throw new WhatsAppProviderError(\`META_\${code}\`, response.status >= 500 || response.status === 429);
+        ? String(error.code) : `HTTP_${response.status}`;
+      throw new WhatsAppProviderError(`META_${code}`, response.status >= 500 || response.status === 429);
     }
 
     const messages = Array.isArray(root.messages) ? root.messages : [];

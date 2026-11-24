@@ -27,11 +27,12 @@ describe("Agency qualification HTTP API",()=>{
     Object.defineProperty(request,"headers",{value:{
       "content-type":body===undefined?"":"application/json","sec-fetch-site":"same-origin",
     }});
-    const response={
+    const raw={
       status:0,payload:"",
-      writeHead(status:number){this.status=status;return this;},
-      end(payload?:string){this.payload=String(payload??"");return this;},
-    } as unknown as ServerResponse & {status:number;payload:string};
+      writeHead(status:number){raw.status=status;return raw;},
+      end(payload?:string){raw.payload=String(payload??"");return raw;},
+    };
+    const response=raw as unknown as ServerResponse & {status:number;payload:string};
     const segments=path.split("/").filter(Boolean);
     try{await route(request,response,new URL("http://localhost/amb/api"+path),segments,path,method);}
     catch(error){if(!(error instanceof HttpError))throw error;response.writeHead(error.status);response.end(JSON.stringify({error:error.message}));}
@@ -54,7 +55,8 @@ describe("Agency qualification HTTP API",()=>{
   it("does not let cross-site requests edit a qualification profile",async()=>{
     const request=Readable.from([JSON.stringify({targetIndustries:["software"]})]) as unknown as IncomingMessage;
     Object.defineProperty(request,"headers",{value:{"content-type":"application/json","sec-fetch-site":"cross-site"}});
-    const response={status:0,payload:"",writeHead(status:number){this.status=status;return this;},end(payload?:string){this.payload=String(payload??"");return this;}} as unknown as ServerResponse & {status:number;payload:string};
+    const raw={status:0,payload:"",writeHead(status:number){raw.status=status;return raw;},end(payload?:string){raw.payload=String(payload??"");return raw;}};
+    const response=raw as unknown as ServerResponse & {status:number;payload:string};
     const path="/agency/"+orgId+"/qualification-profile";
     await expect(route(request,response,new URL("http://localhost/amb/api"+path),path.split("/").filter(Boolean),path,"PUT"))
       .rejects.toMatchObject({status:403});
