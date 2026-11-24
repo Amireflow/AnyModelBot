@@ -25,6 +25,7 @@
     "bot": "tsx src/cli/amb-bot.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "test:control-plane": "npm --prefix control-plane test",
     "docs:check": "node scripts/check-readme.mjs",
     "i18n:check": "node scripts/i18n-check.mjs && tsx scripts/locales-check.ts && node scripts/check-readme.mjs --all-languages",
     "i18n:status": "tsx scripts/locales-check.ts --status",

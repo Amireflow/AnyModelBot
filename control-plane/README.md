@@ -73,16 +73,22 @@ All endpoints except `GET /healthz` and static dashboard assets require `Authori
 
 The admin token is held only in dashboard memory and is not written to localStorage or cookies. Revoke is irreversible from the dashboard: the workstation requires a local re-pair reset and a newly issued token to reconnect.
 
-## Local test
+## Validation
 
-From this folder:
+From the repository root, after installing the main dependencies:
+
+```sh
+npm run test:control-plane
+```
+
+Or run the suite independently from this folder:
 
 ```sh
 npm install
 npm test
 ```
 
-The integration tests start the real HTTP/WebSocket server on loopback with a temporary SQLite database.
+The integration tests start the real HTTP/WebSocket server on loopback with a temporary SQLite database. The root command is also part of the main GitHub Actions CI workflow.
 
 ## Current limitation
 
