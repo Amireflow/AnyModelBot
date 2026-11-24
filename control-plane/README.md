@@ -69,9 +69,12 @@ All endpoints except `GET /healthz` and static dashboard assets require `Authori
 - `GET /api/v1/tasks?limit=50`
 - `POST /api/v1/tasks` JSON: `{ "node_id": "...", "kind": "flowauto", "title": "...", "instruction": "..." }`
 - `POST /api/v1/tasks/:id/cancel`
+- `POST /api/v1/approvals/:id/answer` JSON: `{ "answer": "..." }` (FlowAuto `task_report` questions only)
 - `POST /api/v1/nodes/:id/pause`
 - `POST /api/v1/nodes/:id/resume`
 - `POST /api/v1/nodes/:id/revoke`
+
+The administrator dashboard can answer non-blocking FlowAuto `task_report(needs_you)` questions remotely. Answers are persisted while the workstation is offline and replayed on reconnect; the local ApprovalCenter revalidates the question before applying an answer. Computer Use input approvals remain allow/deny decisions and cannot be substituted with a free-text answer.
 
 The admin token is held only in dashboard memory and is not written to localStorage or cookies. Revoke is irreversible from the dashboard: the workstation requires a local re-pair reset and a newly issued token to reconnect.
 
@@ -94,4 +97,4 @@ The integration tests start the real HTTP/WebSocket server on loopback with a te
 
 ## Current limitation
 
-The Control Plane transports and queues jobs but does not stream a live desktop video feed. The administrator sees task status and local approval prompts through the AnyModelBot app. A future live-view feature must be designed separately and must not bypass the per-action local approval mechanism.
+The Control Plane does not stream a live desktop video feed. Remote task-question and Computer Use approval transport are protocol-tested, but a real Chrome/Google Flow generation, download and playback-verification run is still required before treating the workflow as production-ready. Live view must be designed separately and must not bypass the per-action local approval mechanism.

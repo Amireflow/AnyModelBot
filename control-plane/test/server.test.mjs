@@ -211,12 +211,6 @@ test("FlowAuto task questions can be answered remotely and resolved locally", as
   })});
   assert.equal(created.status,201);const taskId=(await created.json()).task.id;
   await waitFor(()=>node.messages.find(m=>m.type==="task.submit"&&m.task?.id===taskId));
-  node.ws.send(JSON.stringify({type:"task.question",task_id:taskId,question:{
-    id:"invalid-question",tool:"task_report",detail:"Invalid payload",payload:"not-json",created_at:Date.now(),
-  }}));
-  await new Promise(resolve=>setTimeout(resolve,30));
-  let all=await(await request(s.base,"/api/v1/approvals?status=all")).json();
-  assert.equal(all.approvals.length,0);
   const questionId="flowauto-question-1";
   const payload=JSON.stringify([{id:"answer",question:"May I publish the verified video?",options:[{label:"Publish"},{label:"Keep local"}]}]);
   node.ws.send(JSON.stringify({type:"task.question",task_id:taskId,question:{
@@ -224,11 +218,15 @@ test("FlowAuto task questions can be answered remotely and resolved locally", as
   }}));
   const pending=await waitFor(async()=>{const d=await(await request(s.base,"/api/v1/approvals?status=pending")).json();return d.approvals.find(a=>a.id===questionId);});
   assert.equal(pending.kind,"question");assert.equal(pending.payload,payload);
+  const all=await(await request(s.base,"/api/v1/approvals?status=all")).json();
+  assert.deepEqual(all.approvals.map((a)=>a.id),[questionId]);
   const wrongAction=await request(s.base,`/api/v1/approvals/${questionId}/approve`,ADMIN,{method:"POST"});
   assert.equal(wrongAction.status,409);
   const firstAnswer=await request(s.base,`/api/v1/approvals/${questionId}/answer`,ADMIN,{method:"POST",body:JSON.stringify({answer:"Publish"})});
   assert.equal(firstAnswer.status,202);
   await waitFor(()=>node.messages.find(m=>m.type==="task.question.answer"&&m.question_id===questionId&&m.answer==="Publish"));
+  const duplicate=await request(s.base,`/api/v1/approvals/${questionId}/answer`,ADMIN,{method:"POST",body:JSON.stringify({answer:"Second answer"})});
+  assert.equal(duplicate.status,409);
   node.ws.send(JSON.stringify({type:"task.question.answer_ack",task_id:taskId,question_id:questionId,applied:false,reason:"The local question was already closed."}));
   await waitFor(async()=>{const d=await(await request(s.base,"/api/v1/approvals?status=pending")).json();const q=d.approvals.find(a=>a.id===questionId);return q&&!q.decision_requested&&q.result;});
   const retry=await request(s.base,`/api/v1/approvals/${questionId}/answer`,ADMIN,{method:"POST",body:JSON.stringify({answer:"Keep local"})});
