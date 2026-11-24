@@ -636,3 +636,279 @@ export interface CreateContractInput {
   paymentTerms?: string;
   depositAmount?: number;
 }
+
+export type ProjectStatus =
+  | "handoff_pending"
+  | "scoping"
+  | "in_progress"
+  | "qa_review"
+  | "ready_for_delivery"
+  | "delivered"
+  | "accepted"
+  | "maintenance"
+  | "archived";
+
+export type ProjectLotStatus = "pending" | "in_progress" | "in_qa" | "verified" | "done" | "blocked";
+export type ScopeChangeStatus = "proposed" | "approval_requested" | "approved" | "rejected" | "applied";
+export type QaCategory = "functional" | "technical" | "ui_ux" | "security";
+export type QaCheckStatus = "pending" | "passed" | "failed" | "blocked";
+export type DeliveryStatus = "prepared" | "approval_requested" | "deployed" | "accepted" | "rejected";
+export type FollowUpType = "satisfaction" | "maintenance" | "upsell" | "support" | "case_study";
+export type FollowUpStatus = "scheduled" | "contacted" | "completed" | "dismissed";
+export type AgencyMissionStatus = "planned" | "running" | "blocked" | "completed" | "failed";
+
+export type AgencyAgentRole =
+  | "prospecting"
+  | "qualification"
+  | "commercial"
+  | "estimator"
+  | "project_manager"
+  | "architect"
+  | "developer"
+  | "ui_ux"
+  | "qa_functional"
+  | "qa_technical"
+  | "qa_ui_ux"
+  | "qa_security"
+  | "retention";
+
+export interface Project {
+  id: string;
+  organizationId: string;
+  leadId: string;
+  contractId: string;
+  title: string;
+  status: ProjectStatus;
+  workspacePath: string;
+  technicalSpecs: string;
+  targetStack: string[];
+  budgetAmount: number;
+  currency: string;
+  estimatedDays: number;
+  handoffSummary: string;
+  handoffAt: number;
+  deliveredAt: number | null;
+  acceptedAt: number | null;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ProjectLot {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  lotOrder: number;
+  title: string;
+  description: string;
+  acceptanceCriteria: string[];
+  dependencies: string[];
+  ownerRole: AgencyAgentRole;
+  status: ProjectLotStatus;
+  estimatedHours: number;
+  actualHours: number;
+  evidenceSummary: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ScopeChange {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  title: string;
+  description: string;
+  budgetDelta: number;
+  daysDelta: number;
+  status: ScopeChangeStatus;
+  approvalId: string | null;
+  requestedBy: string;
+  decidedBy: string | null;
+  decidedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface QaCheck {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  lotId: string | null;
+  category: QaCategory;
+  title: string;
+  status: QaCheckStatus;
+  evidence: string;
+  findings: string;
+  checkedBy: string;
+  checkedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface QaGateEvaluation {
+  readyForDelivery: boolean;
+  totalLots: number;
+  verifiedLots: number;
+  totalChecks: number;
+  passedCategories: QaCategory[];
+  missingCategories: QaCategory[];
+  failedChecks: number;
+  blockedChecks: number;
+  missingEvidenceChecks: number;
+  blockers: string[];
+}
+
+export interface ProjectDelivery {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  version: number;
+  status: DeliveryStatus;
+  environmentUrl: string;
+  releaseNotes: string;
+  qaSummary: string;
+  approvalId: string | null;
+  clientFeedback: string;
+  deployedAt: number | null;
+  acceptedAt: number | null;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ClientFollowUp {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  leadId: string;
+  type: FollowUpType;
+  status: FollowUpStatus;
+  dueAt: number;
+  notes: string;
+  outcome: string;
+  createdBy: string;
+  completedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AgentProfile {
+  role: AgencyAgentRole;
+  name: string;
+  mission: string;
+  canWriteCode: boolean;
+  canApproveExternal: boolean;
+  independentFromBuild: boolean;
+  defaultTools: string[];
+}
+
+export interface DetectedDevTool {
+  id: string;
+  name: string;
+  command: string;
+  category: "ide" | "cli_agent" | "runtime" | "vcs";
+  available: boolean;
+  version: string;
+}
+
+export interface AgencyMission {
+  id: string;
+  organizationId: string;
+  projectId: string | null;
+  leadId: string | null;
+  agentRole: AgencyAgentRole;
+  title: string;
+  objective: string;
+  status: AgencyMissionStatus;
+  preferredTool: string;
+  brief: string;
+  outputSummary: string;
+  evidencePaths: string[];
+  startedAt: number | null;
+  completedAt: number | null;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AgencyMetrics {
+  organizationId: string;
+  leadsTotal: number;
+  leadsQualified: number;
+  quotesSent: number;
+  quotesAccepted: number;
+  contractsSigned: number;
+  projectsTotal: number;
+  projectsDelivered: number;
+  projectsAccepted: number;
+  quoteAcceptanceRate: number;
+  qaFirstPassRate: number;
+  signedRevenue: number;
+  pendingFollowUps: number;
+  openMissions: number;
+}
+
+export interface CreateProjectInput {
+  contractId: string;
+  title?: string;
+  workspacePath?: string;
+  technicalSpecs?: string;
+  targetStack?: string[];
+  estimatedDays?: number;
+  handoffSummary?: string;
+}
+
+export interface CreateProjectLotInput {
+  lotOrder?: number;
+  title: string;
+  description?: string;
+  acceptanceCriteria?: string[];
+  dependencies?: string[];
+  ownerRole?: AgencyAgentRole;
+  estimatedHours?: number;
+}
+
+export interface UpdateProjectLotInput {
+  status?: ProjectLotStatus;
+  actualHours?: number;
+  evidenceSummary?: string;
+  ownerRole?: AgencyAgentRole;
+}
+
+export interface ProposeScopeChangeInput {
+  title: string;
+  description?: string;
+  budgetDelta?: number;
+  daysDelta?: number;
+}
+
+export interface RecordQaCheckInput {
+  lotId?: string;
+  category: QaCategory;
+  title: string;
+  status: QaCheckStatus;
+  evidence?: string;
+  findings?: string;
+}
+
+export interface PrepareDeliveryInput {
+  environmentUrl?: string;
+  releaseNotes?: string;
+}
+
+export interface ScheduleFollowUpInput {
+  leadId?: string;
+  type: FollowUpType;
+  dueAt: number;
+  notes?: string;
+}
+
+export interface CreateMissionInput {
+  projectId?: string;
+  leadId?: string;
+  agentRole: AgencyAgentRole;
+  title: string;
+  objective?: string;
+  preferredTool?: string;
+}
+

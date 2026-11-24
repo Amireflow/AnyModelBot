@@ -14,6 +14,17 @@ const blankCatalogDraft={code:"",name:"",category:"web_app",description:"",estim
 const blankRulesDraft={minMarginPct:"30",maxAutonomousDiscountPct:"10",defaultDepositPct:"30",requireOwnerApprovalAboveAmount:"0",paymentTermsDefault:""};
 const blankNeedsDraft={problemStatement:"",solutionType:"web_app",mustHaveFeatures:"",desiredTimeline:"",budgetMin:"0",budgetMax:"0",clientConfirmed:false};
 const blankQuoteDraft={title:"",tier:"standard",lineLabel:"",linePrice:"2500",lineCost:"1200",lineDays:"10",discountPct:"0"};
+const blankProjectDraft={contractId:"",title:"",workspacePath:"",targetStack:"typescript, web",technicalSpecs:"",estimatedDays:"14"};
+const blankLotDraft={title:"",description:"",acceptanceCriteria:"",ownerRole:"developer",estimatedHours:"8"};
+const blankScopeDraft={title:"",description:"",budgetDelta:"0",daysDelta:"0"};
+const blankQaDraft={category:"functional",status:"passed",title:"",evidence:"",findings:""};
+const blankDeliveryDraft={environmentUrl:"",releaseNotes:""};
+const blankFollowUpDraft={type:"satisfaction",dueDays:"7",notes:""};
+const blankMissionDraft={projectId:"",agentRole:"developer",title:"",objective:"",preferredTool:"claude"};
+const AGENT_ROLES=["prospecting","qualification","commercial","estimator","project_manager","architect","developer","ui_ux","qa_functional","qa_technical","qa_ui_ux","qa_security","retention"];
+const QA_CATEGORIES=["functional","technical","ui_ux","security"];
+const QA_STATUSES=["pending","passed","failed","blocked"];
+const FOLLOWUP_TYPES=["satisfaction","maintenance","upsell","support","case_study"];
 const SOLUTION_TYPES=["vitrine","ecommerce","web_app","mobile_app","business_platform","internal_tool","automation","maintenance"];
 const CHANNELS=["whatsapp","email","web_form","social","phone","other"];
 const splitValues=value=>value.split(",").map(item=>item.trim()).filter(Boolean);
@@ -121,6 +132,28 @@ export function AgencyScreen() {
   const [contracts,setContracts]=useState([]);
   const [depositRefByContract,setDepositRefByContract]=useState({});
   const [approvals,setApprovals]=useState([]);
+  const [projects,setProjects]=useState([]);
+  const [selectedProjectId,setSelectedProjectId]=useState("");
+  const [projectDraft,setProjectDraft]=useState(blankProjectDraft);
+  const [projectLots,setProjectLots]=useState([]);
+  const [lotDraft,setLotDraft]=useState(blankLotDraft);
+  const [lotEvidenceById,setLotEvidenceById]=useState({});
+  const [briefModal,setBriefModal]=useState("");
+  const [scopeChanges,setScopeChanges]=useState([]);
+  const [scopeDraft,setScopeDraft]=useState(blankScopeDraft);
+  const [qaChecks,setQaChecks]=useState([]);
+  const [qaDraft,setQaDraft]=useState(blankQaDraft);
+  const [qaGate,setQaGate]=useState(null);
+  const [deliveries,setDeliveries]=useState([]);
+  const [deliveryDraft,setDeliveryDraft]=useState(blankDeliveryDraft);
+  const [feedbackByDelivery,setFeedbackByDelivery]=useState({});
+  const [followUps,setFollowUps]=useState([]);
+  const [followUpDraft,setFollowUpDraft]=useState(blankFollowUpDraft);
+  const [agentProfiles,setAgentProfiles]=useState([]);
+  const [devTools,setDevTools]=useState([]);
+  const [missions,setMissions]=useState([]);
+  const [missionDraft,setMissionDraft]=useState(blankMissionDraft);
+  const [metrics,setMetrics]=useState(null);
 
   useEffect(()=>{
     let live=true;
@@ -214,6 +247,36 @@ export function AgencyScreen() {
       ]).then(([stats,data])=>{
         if(!live)return;
         setDashboard(stats);setRows(data);
+      }).catch(e=>live&&setError(e.message)).finally(()=>live&&setBusy(""));
+      return ()=>{live=false;};
+    }
+    if(tab==="projects"||tab==="operations"){
+      Promise.all([
+        api(`/agency/${enc(orgId)}/dashboard`),
+        api(`/agency/${enc(orgId)}/contracts`),
+        api(`/agency/${enc(orgId)}/projects`),
+        api(`/agency/${enc(orgId)}/approvals?limit=100`),
+        api(`/agency/${enc(orgId)}/followups`),
+        api(`/agency/${enc(orgId)}/missions`),
+        api(`/agency/${enc(orgId)}/agents`),
+        api(`/agency/${enc(orgId)}/dev-tools`),
+        api(`/agency/${enc(orgId)}/metrics`)
+      ]).then(([stats,contractData,projectData,appData,fuData,missionData,agentData,toolData,metricData])=>{
+        if(!live)return;
+        setDashboard(stats);
+        const contractList=contractData.items||[];
+        setContracts(contractList);
+        const signedPaid=contractList.find(c=>c.status==="signed"&&(c.depositAmount===0||c.depositStatus==="paid"));
+        setProjectDraft(cur=>cur.contractId?cur:({...cur,contractId:signedPaid?.id||""}));
+        const projList=projectData.items||[];
+        setProjects(projList);
+        setSelectedProjectId(cur=>projList.some(p=>p.id===cur)?cur:(projList[0]?.id||""));
+        setApprovals(appData.items||[]);
+        setFollowUps(fuData.items||[]);
+        setMissions(missionData.items||[]);
+        setAgentProfiles(agentData.items||[]);
+        setDevTools(toolData.items||[]);
+        setMetrics(metricData.metrics||null);
       }).catch(e=>live&&setError(e.message)).finally(()=>live&&setBusy(""));
       return ()=>{live=false;};
     }
@@ -661,6 +724,171 @@ export function AgencyScreen() {
       setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
+  useEffect(()=>{
+    if(!orgId||tab!=="projects"||!selectedProjectId){
+      setProjectLots([]);setScopeChanges([]);setQaChecks([]);setQaGate(null);setDeliveries([]);return;
+    }
+    let live=true;
+    Promise.all([
+      api(`/agency/${enc(orgId)}/projects/${enc(selectedProjectId)}/lots`),
+      api(`/agency/${enc(orgId)}/projects/${enc(selectedProjectId)}/scope-changes`),
+      api(`/agency/${enc(orgId)}/projects/${enc(selectedProjectId)}/qa-checks`),
+      api(`/agency/${enc(orgId)}/projects/${enc(selectedProjectId)}/qa-gate`),
+      api(`/agency/${enc(orgId)}/projects/${enc(selectedProjectId)}/deliveries`)
+    ]).then(([lotsData,scData,qaData,gateData,delData])=>{
+      if(!live)return;
+      setProjectLots(lotsData.items||[]);
+      setScopeChanges(scData.items||[]);
+      setQaChecks(qaData.items||[]);
+      setQaGate(gateData.gate||null);
+      setDeliveries(delData.items||[]);
+    }).catch(()=>{});
+    return ()=>{live=false;};
+  },[orgId,tab,selectedProjectId,revision]);
+  const createProjectHandoff=async(e)=>{
+    e.preventDefault();if(!projectDraft.contractId)return;
+    setBusy("proj-handoff");setError("");
+    try{
+      const d=await api(`/agency/${enc(orgId)}/projects`,{method:"POST",body:{
+        contractId:projectDraft.contractId,
+        title:projectDraft.title||undefined,
+        workspacePath:projectDraft.workspacePath||undefined,
+        targetStack:splitValues(projectDraft.targetStack),
+        technicalSpecs:projectDraft.technicalSpecs||undefined,
+        estimatedDays:Number(projectDraft.estimatedDays||14)
+      }});
+      setProjectDraft(blankProjectDraft);
+      setSelectedProjectId(d.project.id);
+      setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const createProjectLot=async(e)=>{
+    e.preventDefault();if(!selectedProjectId)return;
+    setBusy("lot-create");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/projects/${enc(selectedProjectId)}/lots`,{method:"POST",body:{
+        title:lotDraft.title,
+        description:lotDraft.description,
+        acceptanceCriteria:splitValues(lotDraft.acceptanceCriteria),
+        ownerRole:lotDraft.ownerRole,
+        estimatedHours:Number(lotDraft.estimatedHours||8)
+      }});
+      setLotDraft(blankLotDraft);setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const updateLotStatus=async(lotId,status)=>{
+    if(!selectedProjectId)return;
+    setBusy("lot-upd");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/projects/${enc(selectedProjectId)}/lots/${enc(lotId)}`,{method:"PATCH",body:{
+        status,
+        evidenceSummary:lotEvidenceById[lotId]||undefined
+      }});
+      setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const generateBrief=async(lotId)=>{
+    if(!selectedProjectId)return;
+    setBusy("brief");setError("");
+    try{
+      const d=await api(`/agency/${enc(orgId)}/projects/${enc(selectedProjectId)}/lots/${enc(lotId)}/execution-brief`,{method:"POST",body:{}});
+      setBriefModal(d.brief||"");
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const proposeScopeChange=async(e)=>{
+    e.preventDefault();if(!selectedProjectId)return;
+    setBusy("scope");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/projects/${enc(selectedProjectId)}/scope-changes`,{method:"POST",body:{
+        title:scopeDraft.title,
+        description:scopeDraft.description,
+        budgetDelta:Number(scopeDraft.budgetDelta||0),
+        daysDelta:Number(scopeDraft.daysDelta||0)
+      }});
+      setScopeDraft(blankScopeDraft);setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const scopeChangeAction=async(scId,action,body={})=>{
+    if(!selectedProjectId)return;
+    setBusy("scope-act");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/projects/${enc(selectedProjectId)}/scope-changes/${enc(scId)}/${action}`,{method:"POST",body});
+      setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const recordQaCheck=async(e)=>{
+    e.preventDefault();if(!selectedProjectId)return;
+    setBusy("qa");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/projects/${enc(selectedProjectId)}/qa-checks`,{method:"POST",body:{
+        category:qaDraft.category,
+        status:qaDraft.status,
+        title:qaDraft.title,
+        evidence:qaDraft.evidence,
+        findings:qaDraft.findings
+      }});
+      setQaDraft(blankQaDraft);setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const prepareDelivery=async(e)=>{
+    e.preventDefault();if(!selectedProjectId)return;
+    setBusy("delivery");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/projects/${enc(selectedProjectId)}/deliveries`,{method:"POST",body:{
+        environmentUrl:deliveryDraft.environmentUrl,
+        releaseNotes:deliveryDraft.releaseNotes
+      }});
+      setDeliveryDraft(blankDeliveryDraft);setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const deliveryAction=async(deliveryId,action,body={})=>{
+    if(!selectedProjectId)return;
+    setBusy("delivery-act");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/projects/${enc(selectedProjectId)}/deliveries/${enc(deliveryId)}/${action}`,{method:"POST",body});
+      setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const scheduleFollowUp=async(e)=>{
+    e.preventDefault();if(!selectedProjectId)return;
+    setBusy("followup");setError("");
+    try{
+      const dueAt=Date.now()+Math.max(1,Number(followUpDraft.dueDays||7))*86400000;
+      await api(`/agency/${enc(orgId)}/projects/${enc(selectedProjectId)}/followups`,{method:"POST",body:{
+        type:followUpDraft.type,
+        dueAt,
+        notes:followUpDraft.notes
+      }});
+      setFollowUpDraft(blankFollowUpDraft);setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const completeFollowUp=async(followUpId)=>{
+    setBusy("followup-upd");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/followups/${enc(followUpId)}`,{method:"PATCH",body:{status:"completed",outcome:"Completed in CRM"}});
+      setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const createMission=async(e)=>{
+    e.preventDefault();setBusy("mission");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/missions`,{method:"POST",body:{
+        projectId:missionDraft.projectId||undefined,
+        agentRole:missionDraft.agentRole,
+        title:missionDraft.title,
+        objective:missionDraft.objective,
+        preferredTool:missionDraft.preferredTool
+      }});
+      setMissionDraft(blankMissionDraft);setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const updateMission=async(missionId,status)=>{
+    setBusy("mission-upd");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/missions/${enc(missionId)}/status`,{method:"PATCH",body:{status}});
+      setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
   const activeResearchJobs=researchJobs.filter(isActiveResearch);
   const launchUpdated=researchLaunch?.updatedAt?Date.parse(researchLaunch.updatedAt):Number.NaN;
   const researchLaunchActive=researchLaunch?.status==="running"&&(!Number.isFinite(launchUpdated)||Date.now()-launchUpdated<30*60_000);
@@ -790,6 +1018,8 @@ export function AgencyScreen() {
           <button role="tab" aria-selected=${tab==="leads"} class=${tab==="leads"?"active":""} onClick=${()=>{setTab("leads");setPage(0);}}>${t("agency.leads")}</button>
           <button role="tab" aria-selected=${tab==="commercial"} class=${tab==="commercial"?"active":""} onClick=${()=>setTab("commercial")}>${t("agency.commercial")}</button>
           <button role="tab" aria-selected=${tab==="catalog"} class=${tab==="catalog"?"active":""} onClick=${()=>setTab("catalog")}>${t("agency.catalog")}</button>
+          <button role="tab" aria-selected=${tab==="projects"} class=${tab==="projects"?"active":""} onClick=${()=>setTab("projects")}>${t("agency.projects")}</button>
+          <button role="tab" aria-selected=${tab==="operations"} class=${tab==="operations"?"active":""} onClick=${()=>setTab("operations")}>${t("agency.operations")}</button>
         </div>
         ${tab==="companies"&&html`<button class="btn" onClick=${()=>setQualificationForm(v=>!v)}>${t("agency.qualificationProfile")}</button>`}
         ${(tab==="companies"||tab==="leads")&&html`<label class="agency-search"><${Icon} name="search"/><input type="search" value=${query} placeholder=${t("agency.search")} onInput=${e=>{setQuery(e.currentTarget.value);setPage(0);}}/></label>`}
@@ -1057,6 +1287,189 @@ export function AgencyScreen() {
             </div>
           </section>
         </div>`}
+      </div>`}
+      ${tab==="projects"&&html`<div class="agency-projects-grid">
+        <section class="agency-project-section">
+          <h2>${t("agency.projectsTitle")}</h2>
+          <form class="agency-form agency-form-grid" onSubmit=${createProjectHandoff}>
+            <div class="agency-form-head"><strong>${t("agency.handoffProjectTitle")}</strong></div>
+            <label class="agency-field"><span>${t("agency.selectContract")}</span><select class="field" value=${projectDraft.contractId} required onChange=${e=>update(setProjectDraft,"contractId",e.currentTarget.value)}>
+              <option value="">—</option>
+              ${contracts.filter(c=>c.status==="signed"&&(c.depositAmount===0||c.depositStatus==="paid")).map(c=>html`<option value=${c.id}>${c.title} (${c.totalAmount} ${c.currency})</option>`)}
+            </select></label>
+            <${Field} label=${t("agency.workspacePath")} value=${projectDraft.workspacePath} placeholder="workspaces/projects/..." onInput=${v=>update(setProjectDraft,"workspacePath",v)}/>
+            <${Field} label=${t("agency.targetStack")} value=${projectDraft.targetStack} onInput=${v=>update(setProjectDraft,"targetStack",v)}/>
+            <${Field} label=${t("agency.technicalSpecs")} value=${projectDraft.technicalSpecs} onInput=${v=>update(setProjectDraft,"technicalSpecs",v)}/>
+            <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!projectDraft.contractId}>${t("agency.createProjectBtn")}</button></div>
+          </form>
+          <div class="agency-commercial-list">
+            ${!projects.length&&html`<p class="agency-muted">${t("agency.noProjects")}</p>`}
+            ${projects.map(p=>html`<article class=${"agency-commercial-card"+(p.id===selectedProjectId?" selected":"")}>
+              <div class="agency-commercial-head">
+                <button class="agency-company-link" type="button" onClick=${()=>setSelectedProjectId(p.id)}><strong>${p.title}</strong><small>${p.workspacePath} · ${p.budgetAmount} ${p.currency} · ${p.estimatedDays}d</small></button>
+                <span class="agency-whatsapp-state">${t(`agency.projectStatus.${p.status}`)}</span>
+              </div>
+            </article>`)}
+          </div>
+        </section>
+        ${selectedProjectId&&html`<div class="agency-commercial-col">
+          <section class="agency-project-section">
+            <h3>${t("agency.projectLotsTitle")}</h3>
+            <form class="agency-form agency-form-grid" onSubmit=${createProjectLot}>
+              <${Field} label=${t("agency.lotTitle")} value=${lotDraft.title} required onInput=${v=>update(setLotDraft,"title",v)}/>
+              <${Field} label=${t("agency.lotDescription")} value=${lotDraft.description} onInput=${v=>update(setLotDraft,"description",v)}/>
+              <${Field} label=${t("agency.lotCriteria")} value=${lotDraft.acceptanceCriteria} onInput=${v=>update(setLotDraft,"acceptanceCriteria",v)}/>
+              <label class="agency-field"><span>${t("agency.lotOwnerRole")}</span><select class="field" value=${lotDraft.ownerRole} onChange=${e=>update(setLotDraft,"ownerRole",e.currentTarget.value)}>${AGENT_ROLES.map(r=>html`<option value=${r}>${r}</option>`)}</select></label>
+              <${Field} label=${t("agency.lotEstimatedHours")} value=${lotDraft.estimatedHours} type="number" onInput=${v=>update(setLotDraft,"estimatedHours",v)}/>
+              <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.createLotBtn")}</button></div>
+            </form>
+            <div class="agency-commercial-list">
+              ${projectLots.map(lot=>html`<article class="agency-commercial-card">
+                <div class="agency-commercial-head"><strong>#${lot.lotOrder} · ${lot.title} (${lot.ownerRole})</strong><span class="agency-whatsapp-state">${t(`agency.lotStatus.${lot.status}`)}</span></div>
+                ${lot.evidenceSummary&&html`<small>${lot.evidenceSummary}</small>`}
+                <div class="agency-commercial-actions">
+                  <input class="field" placeholder=${t("agency.lotVerifyEvidence")} value=${lotEvidenceById[lot.id]||""} onInput=${e=>setLotEvidenceById(p=>({...p,[lot.id]:e.currentTarget.value}))}/>
+                  ${lot.status==="pending"&&html`<button class="btn" type="button" onClick=${()=>updateLotStatus(lot.id,"in_progress")}>${t("agency.markLotInProgress")}</button>`}
+                  ${lot.status!=="verified"&&lot.status!=="done"&&html`<button class="btn primary" type="button" disabled=${!(lotEvidenceById[lot.id]||lot.evidenceSummary).trim()} onClick=${()=>updateLotStatus(lot.id,"verified")}>${t("agency.markLotVerified")}</button>`}
+                  <button class="text" type="button" onClick=${()=>generateBrief(lot.id)}>${t("agency.generateBriefBtn")}</button>
+                </div>
+              </article>`)}
+            </div>
+            ${briefModal&&html`<div><div class="agency-contact-heading"><strong>${t("agency.generateBriefBtn")}</strong><button class="text" type="button" onClick=${()=>setBriefModal("")}>${t("agency.close")}</button></div><pre class="agency-brief-pre">${briefModal}</pre></div>`}
+          </section>
+          <section class="agency-project-section">
+            <h3>${t("agency.scopeChangesTitle")}</h3>
+            <form class="agency-form agency-form-grid" onSubmit=${proposeScopeChange}>
+              <${Field} label=${t("agency.scopeChangeTitle")} value=${scopeDraft.title} required onInput=${v=>update(setScopeDraft,"title",v)}/>
+              <${Field} label=${t("agency.budgetDelta")} value=${scopeDraft.budgetDelta} type="number" onInput=${v=>update(setScopeDraft,"budgetDelta",v)}/>
+              <${Field} label=${t("agency.daysDelta")} value=${scopeDraft.daysDelta} type="number" onInput=${v=>update(setScopeDraft,"daysDelta",v)}/>
+              <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.proposeScopeChangeBtn")}</button></div>
+            </form>
+            <div class="agency-commercial-list">
+              ${scopeChanges.map(sc=>{
+                const ap=approvals.find(a=>a.id===sc.approvalId);
+                return html`<article class="agency-commercial-card">
+                  <div class="agency-commercial-head"><strong>${sc.title} (${sc.budgetDelta >= 0 ? "+" : ""}${sc.budgetDelta}, ${sc.daysDelta >= 0 ? "+" : ""}${sc.daysDelta}d)</strong><span class="agency-whatsapp-state">${t(`agency.scopeChangeStatus.${sc.status}`)}</span></div>
+                  <div class="agency-commercial-actions">
+                    ${sc.status==="proposed"&&html`<button class="btn" type="button" onClick=${()=>scopeChangeAction(sc.id,"request-approval",{reason:"Scope addendum review"})}>${t("agency.requestScopeApproval")}</button>`}
+                    ${sc.status==="approval_requested"&&ap?.status==="pending"&&html`<button class="btn primary" type="button" onClick=${()=>approveRecord(ap.id)}>${t("agency.approveAndSend")}</button>`}
+                    ${sc.status==="approval_requested"&&ap?.status==="approved"&&html`<button class="btn primary" type="button" onClick=${()=>scopeChangeAction(sc.id,"apply",{})}>${t("agency.applyScopeChangeBtn")}</button>`}
+                  </div>
+                </article>`;
+              })}
+            </div>
+          </section>
+          <section class="agency-project-section">
+            <h3>${t("agency.qaGateTitle")}</h3>
+            ${qaGate&&html`<div class=${"agency-qa-gate "+(qaGate.readyForDelivery?"ready":"blocked")}>
+              <strong>${qaGate.readyForDelivery?t("agency.qaGateReady"):t("agency.qaGateBlocked")}</strong>
+              <small>${qaGate.verifiedLots}/${qaGate.totalLots} · ${qaGate.passedCategories.length}/4</small>
+              ${!qaGate.readyForDelivery&&qaGate.blockers.length>0&&html`<small>${t("agency.qaBlockers")}: ${qaGate.blockers.join(", ")}</small>`}
+            </div>`}
+            <form class="agency-form agency-form-grid" onSubmit=${recordQaCheck}>
+              <label class="agency-field"><span>${t("agency.qaCategoryLabel")}</span><select class="field" value=${qaDraft.category} onChange=${e=>update(setQaDraft,"category",e.currentTarget.value)}>${QA_CATEGORIES.map(c=>html`<option value=${c}>${t(`agency.qaCategory.${c}`)}</option>`)}</select></label>
+              <label class="agency-field"><span>${t("agency.qaStatusLabel")}</span><select class="field" value=${qaDraft.status} onChange=${e=>update(setQaDraft,"status",e.currentTarget.value)}>${QA_STATUSES.map(s=>html`<option value=${s}>${t(`agency.qaCheckStatus.${s}`)}</option>`)}</select></label>
+              <${Field} label=${t("agency.qaCheckTitle")} value=${qaDraft.title} required onInput=${v=>update(setQaDraft,"title",v)}/>
+              <${Field} label=${t("agency.qaEvidence")} value=${qaDraft.evidence} onInput=${v=>update(setQaDraft,"evidence",v)}/>
+              <${Field} label=${t("agency.qaFindings")} value=${qaDraft.findings} onInput=${v=>update(setQaDraft,"findings",v)}/>
+              <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.recordQaCheckBtn")}</button></div>
+            </form>
+            <div class="agency-commercial-list">
+              ${qaChecks.map(c=>html`<article class="agency-commercial-card">
+                <div class="agency-commercial-head"><strong>${t(`agency.qaCategory.${c.category}`)} · ${c.title}</strong><span class="agency-whatsapp-state">${t(`agency.qaCheckStatus.${c.status}`)}</span></div>
+                ${c.evidence&&html`<small>${c.evidence}</small>`}
+              </article>`)}
+            </div>
+          </section>
+          <section class="agency-project-section">
+            <h3>${t("agency.deliveriesTitle")}</h3>
+            <form class="agency-form agency-form-grid" onSubmit=${prepareDelivery}>
+              <${Field} label=${t("agency.deliveryEnvUrl")} value=${deliveryDraft.environmentUrl} placeholder="https://" onInput=${v=>update(setDeliveryDraft,"environmentUrl",v)}/>
+              <${Field} label=${t("agency.deliveryNotes")} value=${deliveryDraft.releaseNotes} onInput=${v=>update(setDeliveryDraft,"releaseNotes",v)}/>
+              <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!qaGate?.readyForDelivery}>${t("agency.prepareDeliveryBtn")}</button></div>
+            </form>
+            <div class="agency-commercial-list">
+              ${deliveries.map(d=>{
+                const ap=approvals.find(a=>a.id===d.approvalId);
+                return html`<article class="agency-commercial-card">
+                  <div class="agency-commercial-head"><strong>v${d.version} · ${d.environmentUrl||"—"}</strong><span class="agency-whatsapp-state">${t(`agency.deliveryStatus.${d.status}`)}</span></div>
+                  <small>${d.qaSummary}</small>
+                  <div class="agency-commercial-actions">
+                    ${d.status==="prepared"&&html`<button class="btn" type="button" onClick=${()=>deliveryAction(d.id,"request-approval",{reason:"Production deployment approval"})}>${t("agency.requestDeployApproval")}</button>`}
+                    ${d.status==="approval_requested"&&ap?.status==="pending"&&html`<button class="btn primary" type="button" onClick=${()=>approveRecord(ap.id)}>${t("agency.approveAndSend")}</button>`}
+                    ${d.status==="approval_requested"&&ap?.status==="approved"&&html`<button class="btn primary" type="button" onClick=${()=>deliveryAction(d.id,"deploy",{})}>${t("agency.deployProductionBtn")}</button>`}
+                    ${d.status==="deployed"&&html`<input class="field" placeholder=${t("agency.clientFeedback")} value=${feedbackByDelivery[d.id]||""} onInput=${e=>setFeedbackByDelivery(p=>({...p,[d.id]:e.currentTarget.value}))}/><button class="btn primary" type="button" onClick=${()=>deliveryAction(d.id,"accept",{accepted:true,feedback:feedbackByDelivery[d.id]||""})}>${t("agency.acceptDeliveryBtn")}</button><button class="text" type="button" onClick=${()=>deliveryAction(d.id,"accept",{accepted:false,feedback:feedbackByDelivery[d.id]||""})}>${t("agency.rejectDeliveryBtn")}</button>`}
+                  </div>
+                </article>`;
+              })}
+            </div>
+          </section>
+          <section class="agency-project-section">
+            <h3>${t("agency.followUpsTitle")}</h3>
+            <form class="agency-form agency-form-grid" onSubmit=${scheduleFollowUp}>
+              <label class="agency-field"><span>${t("agency.followUpTypeLabel")}</span><select class="field" value=${followUpDraft.type} onChange=${e=>update(setFollowUpDraft,"type",e.currentTarget.value)}>${FOLLOWUP_TYPES.map(ft=>html`<option value=${ft}>${t(`agency.followUpType.${ft}`)}</option>`)}</select></label>
+              <${Field} label=${t("agency.followUpNotes")} value=${followUpDraft.notes} onInput=${v=>update(setFollowUpDraft,"notes",v)}/>
+              <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.scheduleFollowUpBtn")}</button></div>
+            </form>
+            <div class="agency-commercial-list">
+              ${followUps.filter(f=>f.projectId===selectedProjectId).map(fu=>html`<article class="agency-commercial-card">
+                <div class="agency-commercial-head"><strong>${t(`agency.followUpType.${fu.type}`)}</strong><span class="agency-whatsapp-state">${t(`agency.followUpStatus.${fu.status}`)}</span></div>
+                <small>${fu.notes||"—"}</small>
+                ${fu.status==="scheduled"&&html`<div class="agency-commercial-actions"><button class="btn" type="button" onClick=${()=>completeFollowUp(fu.id)}>${t("agency.completeFollowUpBtn")}</button></div>`}
+              </article>`)}
+            </div>
+          </section>
+        </div>`}
+      </div>`}
+      ${tab==="operations"&&html`<div class="agency-ops-grid">
+        <div class="agency-commercial-col">
+          <section class="agency-project-section">
+            <h2>${t("agency.kpisTitle")}</h2>
+            ${metrics&&html`<div class="agency-metrics">
+              <${Metric} label=${t("agency.kpiSignedRevenue")} value=${metrics.signedRevenue} icon="check"/>
+              <${Metric} label=${t("agency.kpiQuoteAcceptance")} value=${metrics.quoteAcceptanceRate} icon="clipboardCheck"/>
+              <${Metric} label=${t("agency.kpiQaFirstPass")} value=${metrics.qaFirstPassRate} icon="check"/>
+              <${Metric} label=${t("agency.kpiProjectsDelivered")} value=${metrics.projectsDelivered} icon="folder"/>
+              <${Metric} label=${t("agency.kpiPendingFollowUps")} value=${metrics.pendingFollowUps} icon="user"/>
+              <${Metric} label=${t("agency.kpiOpenMissions")} value=${metrics.openMissions} icon="clipboardCheck"/>
+            </div>`}
+          </section>
+          <section class="agency-project-section">
+            <h3>${t("agency.devToolsTitle")}</h3>
+            <div class="agency-tool-list">
+              ${devTools.map(tool=>html`<div class="agency-tool-chip"><strong>${tool.name}</strong><span>${tool.available?(tool.version||t("agency.toolAvailable")):t("agency.toolMissing")}</span></div>`)}
+            </div>
+          </section>
+          <section class="agency-project-section">
+            <h3>${t("agency.agentsTitle")}</h3>
+            <div class="agency-agent-list">
+              ${agentProfiles.map(ag=>html`<article class="agency-commercial-card">
+                <div class="agency-commercial-head"><strong>${ag.name}</strong><span class="agency-whatsapp-state">${ag.independentFromBuild?t("agency.agentIndependentQa"):t("agency.agentBuildRole")}</span></div>
+                <small>${ag.mission}</small>
+              </article>`)}
+            </div>
+          </section>
+        </div>
+        <section class="agency-project-section">
+          <h3>${t("agency.missionsTitle")}</h3>
+          <form class="agency-form agency-form-grid" onSubmit=${createMission}>
+            <label class="agency-field"><span>${t("agency.missionRoleLabel")}</span><select class="field" value=${missionDraft.agentRole} onChange=${e=>update(setMissionDraft,"agentRole",e.currentTarget.value)}>${AGENT_ROLES.map(r=>html`<option value=${r}>${r}</option>`)}</select></label>
+            <${Field} label=${t("agency.missionTitle")} value=${missionDraft.title} required onInput=${v=>update(setMissionDraft,"title",v)}/>
+            <${Field} label=${t("agency.missionObjective")} value=${missionDraft.objective} onInput=${v=>update(setMissionDraft,"objective",v)}/>
+            <${Field} label=${t("agency.missionToolLabel")} value=${missionDraft.preferredTool} onInput=${v=>update(setMissionDraft,"preferredTool",v)}/>
+            <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.createMissionBtn")}</button></div>
+          </form>
+          <div class="agency-commercial-list">
+            ${missions.map(m=>html`<article class="agency-commercial-card">
+              <div class="agency-commercial-head"><strong>${m.title} · ${m.agentRole}</strong><span class="agency-whatsapp-state">${t(`agency.missionStatus.${m.status}`)}</span></div>
+              <small>${m.preferredTool||"—"}</small>
+              <div class="agency-commercial-actions">
+                ${m.status==="planned"&&html`<button class="btn" type="button" onClick=${()=>updateMission(m.id,"running")}>${t("agency.startMissionBtn")}</button>`}
+                ${(m.status==="planned"||m.status==="running")&&html`<button class="btn primary" type="button" onClick=${()=>updateMission(m.id,"completed")}>${t("agency.completeMissionBtn")}</button>`}
+              </div>
+            </article>`)}
+          </div>
+        </section>
       </div>`}
     `}
   </section>`;

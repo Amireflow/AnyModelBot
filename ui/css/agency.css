@@ -151,7 +151,15 @@
 .agency-commercial-actions{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
 .agency-msg-list{display:grid;gap:var(--space-1);max-height:220px;overflow:auto}
 .agency-msg-row{display:grid;gap:var(--space-0-5);padding:var(--space-2);border-radius:var(--r-item-sm);background:var(--well);font-size:var(--fs-xs)}
-@media(max-width:760px){.agency-commercial-grid{grid-template-columns:minmax(0,1fr)}}
+.agency-projects-grid,.agency-ops-grid{display:grid;gap:var(--space-3);grid-template-columns:minmax(0,1fr) minmax(0,1.25fr)}
+.agency-project-section{display:grid;gap:var(--space-3);padding:var(--card-pad);border-radius:var(--r-card);background:var(--well)}
+.agency-qa-gate{display:grid;gap:var(--space-2);padding:var(--space-3);border-radius:var(--r-item);background:var(--card)}
+.agency-qa-gate.ready{background:var(--green-soft);color:var(--green)}
+.agency-qa-gate.blocked{background:var(--red-wash);color:var(--red)}
+.agency-tool-list,.agency-agent-list{display:grid;gap:var(--space-2)}
+.agency-tool-chip{display:inline-flex;align-items:center;gap:var(--space-2);padding:var(--space-1) var(--space-2);border-radius:var(--r-ctl);background:var(--card);font-size:var(--fs-xs)}
+.agency-brief-pre{margin:0;padding:var(--space-3);border-radius:var(--r-item-sm);background:var(--well);font-size:var(--fs-xs);white-space:pre-wrap;overflow:auto}
+@media(max-width:760px){.agency-commercial-grid,.agency-projects-grid,.agency-ops-grid{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:760px){.agency-whatsapp-workflow-grid{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:620px){.agency-consent-form{grid-template-columns:minmax(0,1fr)}.agency-contact-manage .agency-contact-row{align-items:flex-start;flex-wrap:wrap}.agency-whatsapp-item-head{align-items:flex-start;flex-direction:column}}
 }

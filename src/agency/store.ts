@@ -3,12 +3,16 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import type {
-  Approval, ApprovalAction, ApprovalStatus, AuditEvent, CommercialChannel, CommercialConversation,
-  CommercialRules, Company, ConsentRecord, Contact, Contract, ContractStatus, ConversationMessage,
-  ConversationStatus, DepositStatus, Evidence, Lead, LeadStage, Membership, MessageDirection,
-  NeedsQualification, Organization, OrganizationStatus, AgencyRole, QualificationProfile,
-  Quote, QuoteLineItem, QuoteStatus, QuoteTier, ResearchDomain, ServiceCatalogItem, SolutionType,
-  CommercialSignal,
+  AgencyAgentRole, AgencyMission, AgencyMissionStatus, AgencyRole,
+  Approval, ApprovalAction, ApprovalStatus, AuditEvent, ClientFollowUp,
+  CommercialChannel, CommercialConversation, CommercialRules, CommercialSignal,
+  Company, ConsentRecord, Contact, Contract, ContractStatus, ConversationMessage,
+  ConversationStatus, DeliveryStatus, DepositStatus, Evidence, FollowUpStatus,
+  FollowUpType, Lead, LeadStage, Membership, MessageDirection, NeedsQualification,
+  Organization, OrganizationStatus, Project, ProjectDelivery, ProjectLot,
+  ProjectLotStatus, ProjectStatus, QaCategory, QaCheck, QaCheckStatus,
+  QualificationProfile, Quote, QuoteLineItem, QuoteStatus, QuoteTier,
+  ResearchDomain, ScopeChange, ScopeChangeStatus, ServiceCatalogItem, SolutionType,
 } from "./types.js";
 
 type Row = Record<string, unknown>;
@@ -464,6 +468,176 @@ WHEN NOT EXISTS (
   SELECT 1 FROM agency_quotes WHERE id=NEW.quote_id AND organization_id=NEW.organization_id AND lead_id=NEW.lead_id
 )
 BEGIN SELECT RAISE(ABORT, 'agency contract organization mismatch'); END;
+
+CREATE TABLE IF NOT EXISTS agency_projects (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES agency_organizations(id),
+  lead_id TEXT NOT NULL REFERENCES agency_leads(id),
+  contract_id TEXT NOT NULL REFERENCES agency_contracts(id),
+  title TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('handoff_pending','scoping','in_progress','qa_review','ready_for_delivery','delivered','accepted','maintenance','archived')),
+  workspace_path TEXT NOT NULL,
+  technical_specs TEXT NOT NULL DEFAULT '',
+  target_stack_json TEXT NOT NULL DEFAULT '[]',
+  budget_amount REAL NOT NULL DEFAULT 0,
+  currency TEXT NOT NULL DEFAULT 'XOF',
+  estimated_days INTEGER NOT NULL DEFAULT 1,
+  handoff_summary TEXT NOT NULL DEFAULT '',
+  handoff_at INTEGER NOT NULL,
+  delivered_at INTEGER,
+  accepted_at INTEGER,
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agency_projects_org_status ON agency_projects(organization_id, status, updated_at);
+CREATE TRIGGER IF NOT EXISTS agency_projects_tenant_guard
+BEFORE INSERT ON agency_projects
+WHEN NOT EXISTS (
+  SELECT 1 FROM agency_contracts WHERE id=NEW.contract_id AND organization_id=NEW.organization_id AND lead_id=NEW.lead_id
+)
+BEGIN SELECT RAISE(ABORT, 'agency project contract mismatch'); END;
+
+CREATE TABLE IF NOT EXISTS agency_project_lots (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES agency_organizations(id),
+  project_id TEXT NOT NULL REFERENCES agency_projects(id),
+  lot_order INTEGER NOT NULL DEFAULT 1,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  acceptance_criteria_json TEXT NOT NULL DEFAULT '[]',
+  dependencies_json TEXT NOT NULL DEFAULT '[]',
+  owner_role TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending','in_progress','in_qa','verified','done','blocked')),
+  estimated_hours REAL NOT NULL DEFAULT 0,
+  actual_hours REAL NOT NULL DEFAULT 0,
+  evidence_summary TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agency_project_lots_proj ON agency_project_lots(organization_id, project_id, lot_order);
+CREATE TRIGGER IF NOT EXISTS agency_project_lots_tenant_guard
+BEFORE INSERT ON agency_project_lots
+WHEN NOT EXISTS (
+  SELECT 1 FROM agency_projects WHERE id=NEW.project_id AND organization_id=NEW.organization_id
+)
+BEGIN SELECT RAISE(ABORT, 'agency lot project mismatch'); END;
+
+CREATE TABLE IF NOT EXISTS agency_scope_changes (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES agency_organizations(id),
+  project_id TEXT NOT NULL REFERENCES agency_projects(id),
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  budget_delta REAL NOT NULL DEFAULT 0,
+  days_delta INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL CHECK(status IN ('proposed','approval_requested','approved','rejected','applied')),
+  approval_id TEXT,
+  requested_by TEXT NOT NULL,
+  decided_by TEXT,
+  decided_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agency_scope_changes_proj ON agency_scope_changes(organization_id, project_id, created_at);
+CREATE TRIGGER IF NOT EXISTS agency_scope_changes_tenant_guard
+BEFORE INSERT ON agency_scope_changes
+WHEN NOT EXISTS (
+  SELECT 1 FROM agency_projects WHERE id=NEW.project_id AND organization_id=NEW.organization_id
+)
+BEGIN SELECT RAISE(ABORT, 'agency scope change project mismatch'); END;
+
+CREATE TABLE IF NOT EXISTS agency_qa_checks (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES agency_organizations(id),
+  project_id TEXT NOT NULL REFERENCES agency_projects(id),
+  lot_id TEXT,
+  category TEXT NOT NULL CHECK(category IN ('functional','technical','ui_ux','security')),
+  title TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending','passed','failed','blocked')),
+  evidence TEXT NOT NULL DEFAULT '',
+  findings TEXT NOT NULL DEFAULT '',
+  checked_by TEXT NOT NULL,
+  checked_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agency_qa_checks_proj ON agency_qa_checks(organization_id, project_id, category, created_at);
+CREATE TRIGGER IF NOT EXISTS agency_qa_checks_tenant_guard
+BEFORE INSERT ON agency_qa_checks
+WHEN NOT EXISTS (
+  SELECT 1 FROM agency_projects WHERE id=NEW.project_id AND organization_id=NEW.organization_id
+)
+BEGIN SELECT RAISE(ABORT, 'agency qa check project mismatch'); END;
+
+CREATE TABLE IF NOT EXISTS agency_deliveries (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES agency_organizations(id),
+  project_id TEXT NOT NULL REFERENCES agency_projects(id),
+  version INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('prepared','approval_requested','deployed','accepted','rejected')),
+  environment_url TEXT NOT NULL DEFAULT '',
+  release_notes TEXT NOT NULL DEFAULT '',
+  qa_summary TEXT NOT NULL DEFAULT '',
+  approval_id TEXT,
+  client_feedback TEXT NOT NULL DEFAULT '',
+  deployed_at INTEGER,
+  accepted_at INTEGER,
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agency_deliveries_proj ON agency_deliveries(organization_id, project_id, version);
+CREATE TRIGGER IF NOT EXISTS agency_deliveries_tenant_guard
+BEFORE INSERT ON agency_deliveries
+WHEN NOT EXISTS (
+  SELECT 1 FROM agency_projects WHERE id=NEW.project_id AND organization_id=NEW.organization_id
+)
+BEGIN SELECT RAISE(ABORT, 'agency delivery project mismatch'); END;
+
+CREATE TABLE IF NOT EXISTS agency_followups (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES agency_organizations(id),
+  project_id TEXT NOT NULL REFERENCES agency_projects(id),
+  lead_id TEXT NOT NULL REFERENCES agency_leads(id),
+  type TEXT NOT NULL CHECK(type IN ('satisfaction','maintenance','upsell','support','case_study')),
+  status TEXT NOT NULL CHECK(status IN ('scheduled','contacted','completed','dismissed')),
+  due_at INTEGER NOT NULL,
+  notes TEXT NOT NULL DEFAULT '',
+  outcome TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL,
+  completed_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agency_followups_org_due ON agency_followups(organization_id, status, due_at);
+CREATE TRIGGER IF NOT EXISTS agency_followups_tenant_guard
+BEFORE INSERT ON agency_followups
+WHEN NOT EXISTS (
+  SELECT 1 FROM agency_projects WHERE id=NEW.project_id AND organization_id=NEW.organization_id AND lead_id=NEW.lead_id
+)
+BEGIN SELECT RAISE(ABORT, 'agency followup project mismatch'); END;
+
+CREATE TABLE IF NOT EXISTS agency_missions (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES agency_organizations(id),
+  project_id TEXT,
+  lead_id TEXT,
+  agent_role TEXT NOT NULL,
+  title TEXT NOT NULL,
+  objective TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL CHECK(status IN ('planned','running','blocked','completed','failed')),
+  preferred_tool TEXT NOT NULL DEFAULT '',
+  brief TEXT NOT NULL DEFAULT '',
+  output_summary TEXT NOT NULL DEFAULT '',
+  evidence_paths_json TEXT NOT NULL DEFAULT '[]',
+  started_at INTEGER,
+  completed_at INTEGER,
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agency_missions_org_status ON agency_missions(organization_id, status, updated_at);
 `;
 
 function text(row: Row, key: string): string { return String(row[key] ?? ""); }
@@ -659,6 +833,143 @@ function contractOf(r: Row): Contract {
     createdAt:number(r,"created_at"), updatedAt:number(r,"updated_at"),
   };
 }
+function nullableNumber(row: Row, key: string): number | null {
+  return row[key] == null ? null : Number(row[key]);
+}
+function projectOf(r: Row): Project {
+  return {
+    id: text(r, "id"),
+    organizationId: text(r, "organization_id"),
+    leadId: text(r, "lead_id"),
+    contractId: text(r, "contract_id"),
+    title: text(r, "title"),
+    status: text(r, "status") as ProjectStatus,
+    workspacePath: text(r, "workspace_path"),
+    technicalSpecs: text(r, "technical_specs"),
+    targetStack: jsonStringArray(text(r, "target_stack_json")),
+    budgetAmount: number(r, "budget_amount"),
+    currency: text(r, "currency"),
+    estimatedDays: number(r, "estimated_days"),
+    handoffSummary: text(r, "handoff_summary"),
+    handoffAt: number(r, "handoff_at"),
+    deliveredAt: nullableNumber(r, "delivered_at"),
+    acceptedAt: nullableNumber(r, "accepted_at"),
+    createdBy: text(r, "created_by"),
+    createdAt: number(r, "created_at"),
+    updatedAt: number(r, "updated_at"),
+  };
+}
+function projectLotOf(r: Row): ProjectLot {
+  return {
+    id: text(r, "id"),
+    organizationId: text(r, "organization_id"),
+    projectId: text(r, "project_id"),
+    lotOrder: number(r, "lot_order"),
+    title: text(r, "title"),
+    description: text(r, "description"),
+    acceptanceCriteria: jsonStringArray(text(r, "acceptance_criteria_json")),
+    dependencies: jsonStringArray(text(r, "dependencies_json")),
+    ownerRole: text(r, "owner_role") as AgencyAgentRole,
+    status: text(r, "status") as ProjectLotStatus,
+    estimatedHours: number(r, "estimated_hours"),
+    actualHours: number(r, "actual_hours"),
+    evidenceSummary: text(r, "evidence_summary"),
+    createdAt: number(r, "created_at"),
+    updatedAt: number(r, "updated_at"),
+  };
+}
+function scopeChangeOf(r: Row): ScopeChange {
+  return {
+    id: text(r, "id"),
+    organizationId: text(r, "organization_id"),
+    projectId: text(r, "project_id"),
+    title: text(r, "title"),
+    description: text(r, "description"),
+    budgetDelta: number(r, "budget_delta"),
+    daysDelta: number(r, "days_delta"),
+    status: text(r, "status") as ScopeChangeStatus,
+    approvalId: r.approval_id == null ? null : String(r.approval_id),
+    requestedBy: text(r, "requested_by"),
+    decidedBy: r.decided_by == null ? null : String(r.decided_by),
+    decidedAt: nullableNumber(r, "decided_at"),
+    createdAt: number(r, "created_at"),
+    updatedAt: number(r, "updated_at"),
+  };
+}
+function qaCheckOf(r: Row): QaCheck {
+  return {
+    id: text(r, "id"),
+    organizationId: text(r, "organization_id"),
+    projectId: text(r, "project_id"),
+    lotId: r.lot_id == null ? null : String(r.lot_id),
+    category: text(r, "category") as QaCategory,
+    title: text(r, "title"),
+    status: text(r, "status") as QaCheckStatus,
+    evidence: text(r, "evidence"),
+    findings: text(r, "findings"),
+    checkedBy: text(r, "checked_by"),
+    checkedAt: nullableNumber(r, "checked_at"),
+    createdAt: number(r, "created_at"),
+    updatedAt: number(r, "updated_at"),
+  };
+}
+function projectDeliveryOf(r: Row): ProjectDelivery {
+  return {
+    id: text(r, "id"),
+    organizationId: text(r, "organization_id"),
+    projectId: text(r, "project_id"),
+    version: number(r, "version"),
+    status: text(r, "status") as DeliveryStatus,
+    environmentUrl: text(r, "environment_url"),
+    releaseNotes: text(r, "release_notes"),
+    qaSummary: text(r, "qa_summary"),
+    approvalId: r.approval_id == null ? null : String(r.approval_id),
+    clientFeedback: text(r, "client_feedback"),
+    deployedAt: nullableNumber(r, "deployed_at"),
+    acceptedAt: nullableNumber(r, "accepted_at"),
+    createdBy: text(r, "created_by"),
+    createdAt: number(r, "created_at"),
+    updatedAt: number(r, "updated_at"),
+  };
+}
+function clientFollowUpOf(r: Row): ClientFollowUp {
+  return {
+    id: text(r, "id"),
+    organizationId: text(r, "organization_id"),
+    projectId: text(r, "project_id"),
+    leadId: text(r, "lead_id"),
+    type: text(r, "type") as FollowUpType,
+    status: text(r, "status") as FollowUpStatus,
+    dueAt: number(r, "due_at"),
+    notes: text(r, "notes"),
+    outcome: text(r, "outcome"),
+    createdBy: text(r, "created_by"),
+    completedAt: nullableNumber(r, "completed_at"),
+    createdAt: number(r, "created_at"),
+    updatedAt: number(r, "updated_at"),
+  };
+}
+function agencyMissionOf(r: Row): AgencyMission {
+  return {
+    id: text(r, "id"),
+    organizationId: text(r, "organization_id"),
+    projectId: r.project_id == null ? null : String(r.project_id),
+    leadId: r.lead_id == null ? null : String(r.lead_id),
+    agentRole: text(r, "agent_role") as AgencyAgentRole,
+    title: text(r, "title"),
+    objective: text(r, "objective"),
+    status: text(r, "status") as AgencyMissionStatus,
+    preferredTool: text(r, "preferred_tool"),
+    brief: text(r, "brief"),
+    outputSummary: text(r, "output_summary"),
+    evidencePaths: jsonStringArray(text(r, "evidence_paths_json")),
+    startedAt: nullableNumber(r, "started_at"),
+    completedAt: nullableNumber(r, "completed_at"),
+    createdBy: text(r, "created_by"),
+    createdAt: number(r, "created_at"),
+    updatedAt: number(r, "updated_at"),
+  };
+}
 
 export class AgencyStore {
   readonly db: DatabaseSync;
@@ -689,6 +1000,8 @@ export class AgencyStore {
     this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(5, ?)").run(Date.now());
     // v6 adds commercial loop tables (conversations, needs qualification, catalog, rules, quotes, contracts).
     this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(6, ?)").run(Date.now());
+    // v7 adds contract-to-production handoff, project lots, scope changes, QA checks, deliveries, follow-ups, and multi-agent missions.
+    this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(7, ?)").run(Date.now());
   }
 
   close(): void { this.db.close(); }
@@ -1245,6 +1558,280 @@ export class AgencyStore {
   updateContractDeposit(orgId: string, id: string, depositStatus: DepositStatus, depositReference: string, now: number): Contract | undefined {
     this.db.prepare("UPDATE agency_contracts SET deposit_status=?,deposit_reference=?,updated_at=? WHERE organization_id=? AND id=?").run(depositStatus,depositReference,now,orgId,id);
     return this.getContract(orgId,id);
+  }
+
+  insertProject(p: Project): void {
+    this.db.prepare(
+      `INSERT INTO agency_projects(
+        id,organization_id,lead_id,contract_id,title,status,workspace_path,technical_specs,
+        target_stack_json,budget_amount,currency,estimated_days,handoff_summary,handoff_at,
+        delivered_at,accepted_at,created_by,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      p.id, p.organizationId, p.leadId, p.contractId, p.title, p.status, p.workspacePath, p.technicalSpecs,
+      JSON.stringify(p.targetStack), p.budgetAmount, p.currency, p.estimatedDays, p.handoffSummary,
+      p.handoffAt, p.deliveredAt, p.acceptedAt, p.createdBy, p.createdAt, p.updatedAt,
+    );
+  }
+
+  getProject(orgId: string, id: string): Project | undefined {
+    const r = this.db.prepare("SELECT * FROM agency_projects WHERE organization_id=? AND id=?").get(orgId, id) as Row | undefined;
+    return r ? projectOf(r) : undefined;
+  }
+
+  getProjectByContract(orgId: string, contractId: string): Project | undefined {
+    const r = this.db.prepare("SELECT * FROM agency_projects WHERE organization_id=? AND contract_id=?").get(orgId, contractId) as Row | undefined;
+    return r ? projectOf(r) : undefined;
+  }
+
+  listProjects(orgId: string, status?: ProjectStatus): Project[] {
+    if (status) {
+      return (this.db.prepare("SELECT * FROM agency_projects WHERE organization_id=? AND status=? ORDER BY updated_at DESC, rowid DESC").all(orgId, status) as Row[]).map(projectOf);
+    }
+    return (this.db.prepare("SELECT * FROM agency_projects WHERE organization_id=? ORDER BY updated_at DESC, rowid DESC").all(orgId) as Row[]).map(projectOf);
+  }
+
+  updateProjectState(orgId: string, id: string, patch: {
+    status?: ProjectStatus;
+    budgetAmount?: number;
+    estimatedDays?: number;
+    technicalSpecs?: string;
+    deliveredAt?: number | null;
+    acceptedAt?: number | null;
+    updatedAt: number;
+  }): Project | undefined {
+    const cur = this.getProject(orgId, id);
+    if (!cur) return undefined;
+    this.db.prepare(
+      "UPDATE agency_projects SET status=?,budget_amount=?,estimated_days=?,technical_specs=?,delivered_at=?,accepted_at=?,updated_at=? WHERE organization_id=? AND id=?",
+    ).run(
+      patch.status ?? cur.status,
+      patch.budgetAmount ?? cur.budgetAmount,
+      patch.estimatedDays ?? cur.estimatedDays,
+      patch.technicalSpecs ?? cur.technicalSpecs,
+      patch.deliveredAt === undefined ? cur.deliveredAt : patch.deliveredAt,
+      patch.acceptedAt === undefined ? cur.acceptedAt : patch.acceptedAt,
+      patch.updatedAt,
+      orgId,
+      id,
+    );
+    return this.getProject(orgId, id);
+  }
+
+  insertProjectLot(l: ProjectLot): void {
+    this.db.prepare(
+      `INSERT INTO agency_project_lots(
+        id,organization_id,project_id,lot_order,title,description,acceptance_criteria_json,
+        dependencies_json,owner_role,status,estimated_hours,actual_hours,evidence_summary,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      l.id, l.organizationId, l.projectId, l.lotOrder, l.title, l.description,
+      JSON.stringify(l.acceptanceCriteria), JSON.stringify(l.dependencies), l.ownerRole,
+      l.status, l.estimatedHours, l.actualHours, l.evidenceSummary, l.createdAt, l.updatedAt,
+    );
+  }
+
+  getProjectLot(orgId: string, id: string): ProjectLot | undefined {
+    const r = this.db.prepare("SELECT * FROM agency_project_lots WHERE organization_id=? AND id=?").get(orgId, id) as Row | undefined;
+    return r ? projectLotOf(r) : undefined;
+  }
+
+  listProjectLots(orgId: string, projectId: string): ProjectLot[] {
+    return (this.db.prepare("SELECT * FROM agency_project_lots WHERE organization_id=? AND project_id=? ORDER BY lot_order ASC, created_at ASC").all(orgId, projectId) as Row[]).map(projectLotOf);
+  }
+
+  updateProjectLot(orgId: string, id: string, patch: {
+    status?: ProjectLotStatus;
+    actualHours?: number;
+    evidenceSummary?: string;
+    ownerRole?: AgencyAgentRole;
+    updatedAt: number;
+  }): ProjectLot | undefined {
+    const cur = this.getProjectLot(orgId, id);
+    if (!cur) return undefined;
+    this.db.prepare(
+      "UPDATE agency_project_lots SET status=?,actual_hours=?,evidence_summary=?,owner_role=?,updated_at=? WHERE organization_id=? AND id=?",
+    ).run(
+      patch.status ?? cur.status,
+      patch.actualHours ?? cur.actualHours,
+      patch.evidenceSummary ?? cur.evidenceSummary,
+      patch.ownerRole ?? cur.ownerRole,
+      patch.updatedAt,
+      orgId,
+      id,
+    );
+    return this.getProjectLot(orgId, id);
+  }
+
+  insertScopeChange(s: ScopeChange): void {
+    this.db.prepare(
+      `INSERT INTO agency_scope_changes(
+        id,organization_id,project_id,title,description,budget_delta,days_delta,status,
+        approval_id,requested_by,decided_by,decided_at,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      s.id, s.organizationId, s.projectId, s.title, s.description, s.budgetDelta, s.daysDelta,
+      s.status, s.approvalId, s.requestedBy, s.decidedBy, s.decidedAt, s.createdAt, s.updatedAt,
+    );
+  }
+
+  getScopeChange(orgId: string, id: string): ScopeChange | undefined {
+    const r = this.db.prepare("SELECT * FROM agency_scope_changes WHERE organization_id=? AND id=?").get(orgId, id) as Row | undefined;
+    return r ? scopeChangeOf(r) : undefined;
+  }
+
+  listScopeChanges(orgId: string, projectId: string): ScopeChange[] {
+    return (this.db.prepare("SELECT * FROM agency_scope_changes WHERE organization_id=? AND project_id=? ORDER BY created_at DESC, rowid DESC").all(orgId, projectId) as Row[]).map(scopeChangeOf);
+  }
+
+  updateScopeChangeStatus(orgId: string, id: string, status: ScopeChangeStatus, approvalId: string | null, decidedBy: string | null, decidedAt: number | null, now: number): ScopeChange | undefined {
+    this.db.prepare(
+      "UPDATE agency_scope_changes SET status=?,approval_id=?,decided_by=?,decided_at=?,updated_at=? WHERE organization_id=? AND id=?",
+    ).run(status, approvalId, decidedBy, decidedAt, now, orgId, id);
+    return this.getScopeChange(orgId, id);
+  }
+
+  insertQaCheck(c: QaCheck): void {
+    this.db.prepare(
+      `INSERT INTO agency_qa_checks(
+        id,organization_id,project_id,lot_id,category,title,status,evidence,findings,
+        checked_by,checked_at,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      c.id, c.organizationId, c.projectId, c.lotId, c.category, c.title, c.status,
+      c.evidence, c.findings, c.checkedBy, c.checkedAt, c.createdAt, c.updatedAt,
+    );
+  }
+
+  listQaChecks(orgId: string, projectId?: string): QaCheck[] {
+    if (projectId) {
+      return (this.db.prepare("SELECT * FROM agency_qa_checks WHERE organization_id=? AND project_id=? ORDER BY created_at DESC, rowid DESC").all(orgId, projectId) as Row[]).map(qaCheckOf);
+    }
+    return (this.db.prepare("SELECT * FROM agency_qa_checks WHERE organization_id=? ORDER BY created_at DESC, rowid DESC").all(orgId) as Row[]).map(qaCheckOf);
+  }
+
+  insertDelivery(d: ProjectDelivery): void {
+    this.db.prepare(
+      `INSERT INTO agency_deliveries(
+        id,organization_id,project_id,version,status,environment_url,release_notes,
+        qa_summary,approval_id,client_feedback,deployed_at,accepted_at,created_by,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      d.id, d.organizationId, d.projectId, d.version, d.status, d.environmentUrl, d.releaseNotes,
+      d.qaSummary, d.approvalId, d.clientFeedback, d.deployedAt, d.acceptedAt, d.createdBy, d.createdAt, d.updatedAt,
+    );
+  }
+
+  getDelivery(orgId: string, id: string): ProjectDelivery | undefined {
+    const r = this.db.prepare("SELECT * FROM agency_deliveries WHERE organization_id=? AND id=?").get(orgId, id) as Row | undefined;
+    return r ? projectDeliveryOf(r) : undefined;
+  }
+
+  listDeliveries(orgId: string, projectId: string): ProjectDelivery[] {
+    return (this.db.prepare("SELECT * FROM agency_deliveries WHERE organization_id=? AND project_id=? ORDER BY version DESC, rowid DESC").all(orgId, projectId) as Row[]).map(projectDeliveryOf);
+  }
+
+  updateDeliveryState(orgId: string, id: string, patch: {
+    status?: DeliveryStatus;
+    approvalId?: string | null;
+    clientFeedback?: string;
+    deployedAt?: number | null;
+    acceptedAt?: number | null;
+    updatedAt: number;
+  }): ProjectDelivery | undefined {
+    const cur = this.getDelivery(orgId, id);
+    if (!cur) return undefined;
+    this.db.prepare(
+      "UPDATE agency_deliveries SET status=?,approval_id=?,client_feedback=?,deployed_at=?,accepted_at=?,updated_at=? WHERE organization_id=? AND id=?",
+    ).run(
+      patch.status ?? cur.status,
+      patch.approvalId === undefined ? cur.approvalId : patch.approvalId,
+      patch.clientFeedback ?? cur.clientFeedback,
+      patch.deployedAt === undefined ? cur.deployedAt : patch.deployedAt,
+      patch.acceptedAt === undefined ? cur.acceptedAt : patch.acceptedAt,
+      patch.updatedAt,
+      orgId,
+      id,
+    );
+    return this.getDelivery(orgId, id);
+  }
+
+  insertFollowUp(f: ClientFollowUp): void {
+    this.db.prepare(
+      `INSERT INTO agency_followups(
+        id,organization_id,project_id,lead_id,type,status,due_at,notes,outcome,created_by,completed_at,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      f.id, f.organizationId, f.projectId, f.leadId, f.type, f.status, f.dueAt,
+      f.notes, f.outcome, f.createdBy, f.completedAt, f.createdAt, f.updatedAt,
+    );
+  }
+
+  getFollowUp(orgId: string, id: string): ClientFollowUp | undefined {
+    const r = this.db.prepare("SELECT * FROM agency_followups WHERE organization_id=? AND id=?").get(orgId, id) as Row | undefined;
+    return r ? clientFollowUpOf(r) : undefined;
+  }
+
+  listFollowUps(orgId: string, projectId?: string): ClientFollowUp[] {
+    if (projectId) {
+      return (this.db.prepare("SELECT * FROM agency_followups WHERE organization_id=? AND project_id=? ORDER BY due_at ASC, rowid DESC").all(orgId, projectId) as Row[]).map(clientFollowUpOf);
+    }
+    return (this.db.prepare("SELECT * FROM agency_followups WHERE organization_id=? ORDER BY due_at ASC, rowid DESC").all(orgId) as Row[]).map(clientFollowUpOf);
+  }
+
+  updateFollowUp(orgId: string, id: string, status: FollowUpStatus, outcome: string, completedAt: number | null, now: number): ClientFollowUp | undefined {
+    this.db.prepare(
+      "UPDATE agency_followups SET status=?,outcome=?,completed_at=?,updated_at=? WHERE organization_id=? AND id=?",
+    ).run(status, outcome, completedAt, now, orgId, id);
+    return this.getFollowUp(orgId, id);
+  }
+
+  insertMission(m: AgencyMission): void {
+    this.db.prepare(
+      `INSERT INTO agency_missions(
+        id,organization_id,project_id,lead_id,agent_role,title,objective,status,preferred_tool,
+        brief,output_summary,evidence_paths_json,started_at,completed_at,created_by,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      m.id, m.organizationId, m.projectId, m.leadId, m.agentRole, m.title, m.objective,
+      m.status, m.preferredTool, m.brief, m.outputSummary, JSON.stringify(m.evidencePaths),
+      m.startedAt, m.completedAt, m.createdBy, m.createdAt, m.updatedAt,
+    );
+  }
+
+  getMission(orgId: string, id: string): AgencyMission | undefined {
+    const r = this.db.prepare("SELECT * FROM agency_missions WHERE organization_id=? AND id=?").get(orgId, id) as Row | undefined;
+    return r ? agencyMissionOf(r) : undefined;
+  }
+
+  listMissions(orgId: string, projectId?: string): AgencyMission[] {
+    if (projectId) {
+      return (this.db.prepare("SELECT * FROM agency_missions WHERE organization_id=? AND project_id=? ORDER BY updated_at DESC, rowid DESC").all(orgId, projectId) as Row[]).map(agencyMissionOf);
+    }
+    return (this.db.prepare("SELECT * FROM agency_missions WHERE organization_id=? ORDER BY updated_at DESC, rowid DESC").all(orgId) as Row[]).map(agencyMissionOf);
+  }
+
+  updateMission(orgId: string, id: string, patch: {
+    status: AgencyMissionStatus;
+    outputSummary: string;
+    evidencePaths: string[];
+    startedAt: number | null;
+    completedAt: number | null;
+    updatedAt: number;
+  }): AgencyMission | undefined {
+    this.db.prepare(
+      "UPDATE agency_missions SET status=?,output_summary=?,evidence_paths_json=?,started_at=?,completed_at=?,updated_at=? WHERE organization_id=? AND id=?",
+    ).run(
+      patch.status,
+      patch.outputSummary,
+      JSON.stringify(patch.evidencePaths),
+      patch.startedAt,
+      patch.completedAt,
+      patch.updatedAt,
+      orgId,
+      id,
+    );
+    return this.getMission(orgId, id);
   }
 }
 

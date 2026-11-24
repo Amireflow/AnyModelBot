@@ -5,9 +5,11 @@
 import { AgencyError } from "../../agency/errors.js";
 import type { AgencyService } from "../../agency/service.js";
 import type {
-  AddEvidenceInput, CommercialChannel, CompanySearchFilters, ContactSearchFilters, ContractStatus,
-  DepositStatus, LeadSearchFilters, LeadStage, MessageDirection, QuoteLineItem, QuoteTier,
-  ServiceCatalogItem, SolutionType, UpdateQualificationProfileInput, UpsertNeedsQualificationInput,
+  AddEvidenceInput, AgencyAgentRole, AgencyMissionStatus, CommercialChannel,
+  CompanySearchFilters, ContactSearchFilters, ContractStatus, DepositStatus, FollowUpStatus,
+  FollowUpType, LeadSearchFilters, LeadStage, MessageDirection, ProjectLotStatus, ProjectStatus,
+  QaCategory, QaCheckStatus, QuoteLineItem, QuoteTier, ServiceCatalogItem, SolutionType,
+  UpdateQualificationProfileInput, UpsertNeedsQualificationInput,
 } from "../../agency/types.js";
 import { HttpError, readJson, send, webEvent, type Route, type WebContext } from "../http.js";
 import { CompanyResearchImportError, findActiveCompanyResearchJob, listCompanyResearchJobs, loadCompanyResearchSources } from "../../agency/company-research-import.js";
@@ -525,6 +527,194 @@ export function agencyRoutes(ctx: WebContext): Route {
           if (seg[4]==="deposit" && method==="POST") {
             return send(res,200,{contract:service.recordContractDeposit(organizationId,actor,contractId,body.status as DepositStatus,body.reference as string ?? "")});
           }
+        }
+      }
+
+      if (seg[2]==="metrics" && seg.length===3 && method==="GET") {
+        return send(res,200,{metrics:service.getMetrics(organizationId,actor)});
+      }
+
+      if (seg[2]==="agents" && seg.length===3 && method==="GET") {
+        return send(res,200,{items:service.listAgentProfiles(organizationId,actor)});
+      }
+
+      if (seg[2]==="dev-tools" && seg.length===3 && method==="GET") {
+        return send(res,200,{items:service.detectDevTools(organizationId,actor)});
+      }
+
+      if (seg[2]==="projects") {
+        if (seg.length===3 && method==="GET") {
+          const st=url.searchParams.get("status");
+          return send(res,200,{items:service.listProjects(organizationId,actor,st ? (st as ProjectStatus) : undefined)});
+        }
+        if (seg.length===3 && method==="POST") {
+          const body=await readObject(req);
+          return send(res,201,{project:service.createProjectFromContract(organizationId,actor,{
+            contractId:body.contractId as string,
+            title:body.title as string|undefined,
+            workspacePath:body.workspacePath as string|undefined,
+            technicalSpecs:body.technicalSpecs as string|undefined,
+            targetStack:body.targetStack as string[]|undefined,
+            estimatedDays:body.estimatedDays == null ? undefined : Number(body.estimatedDays),
+            handoffSummary:body.handoffSummary as string|undefined,
+          })});
+        }
+        if (seg.length>=4) {
+          const projectId=decodeSegment(seg[3],"project id");
+          if (seg.length===4 && method==="GET") {
+            return send(res,200,{project:service.getProject(organizationId,actor,projectId)});
+          }
+          if (seg.length===5 && seg[4]==="status" && method==="PATCH") {
+            const body=await readObject(req);
+            return send(res,200,{project:service.transitionProject(organizationId,actor,projectId,body.status as ProjectStatus)});
+          }
+          if (seg.length===5 && seg[4]==="qa-gate" && method==="GET") {
+            return send(res,200,{gate:service.evaluateProjectQaGate(organizationId,actor,projectId)});
+          }
+          if (seg.length>=5 && seg[4]==="lots") {
+            if (seg.length===5 && method==="GET") {
+              return send(res,200,{items:service.listProjectLots(organizationId,actor,projectId)});
+            }
+            if (seg.length===5 && method==="POST") {
+              const body=await readObject(req);
+              return send(res,201,{lot:service.createProjectLot(organizationId,actor,projectId,{
+                lotOrder:body.lotOrder == null ? undefined : Number(body.lotOrder),
+                title:body.title as string,
+                description:body.description as string|undefined,
+                acceptanceCriteria:body.acceptanceCriteria as string[]|undefined,
+                dependencies:body.dependencies as string[]|undefined,
+                ownerRole:body.ownerRole as AgencyAgentRole|undefined,
+                estimatedHours:body.estimatedHours == null ? undefined : Number(body.estimatedHours),
+              })});
+            }
+            if (seg.length===6 && method==="PATCH") {
+              const lotId=decodeSegment(seg[5],"lot id");
+              const body=await readObject(req);
+              return send(res,200,{lot:service.updateProjectLot(organizationId,actor,projectId,lotId,{
+                status:body.status as ProjectLotStatus|undefined,
+                actualHours:body.actualHours == null ? undefined : Number(body.actualHours),
+                evidenceSummary:body.evidenceSummary as string|undefined,
+                ownerRole:body.ownerRole as AgencyAgentRole|undefined,
+              })});
+            }
+            if (seg.length===7 && seg[6]==="execution-brief" && method==="POST") {
+              const lotId=decodeSegment(seg[5],"lot id");
+              const body=await readObject(req);
+              return send(res,200,service.generateLotExecutionBrief(organizationId,actor,projectId,lotId,body.preferredTool as string|undefined));
+            }
+          }
+          if (seg.length>=5 && seg[4]==="scope-changes") {
+            if (seg.length===5 && method==="GET") {
+              return send(res,200,{items:service.listScopeChanges(organizationId,actor,projectId)});
+            }
+            if (seg.length===5 && method==="POST") {
+              const body=await readObject(req);
+              return send(res,201,{scopeChange:service.proposeScopeChange(organizationId,actor,projectId,{
+                title:body.title as string,
+                description:body.description as string|undefined,
+                budgetDelta:body.budgetDelta == null ? 0 : Number(body.budgetDelta),
+                daysDelta:body.daysDelta == null ? 0 : Number(body.daysDelta),
+              })});
+            }
+            if (seg.length===7 && method==="POST") {
+              const scId=decodeSegment(seg[5],"scope change id");
+              const body=await readObject(req);
+              if (seg[6]==="request-approval") {
+                return send(res,201,service.requestScopeChangeApproval(organizationId,actor,projectId,scId,body.reason as string));
+              }
+              if (seg[6]==="apply") {
+                return send(res,200,service.applyApprovedScopeChange(organizationId,actor,projectId,scId));
+              }
+            }
+          }
+          if (seg.length===5 && seg[4]==="qa-checks") {
+            if (method==="GET") {
+              return send(res,200,{items:service.listQaChecks(organizationId,actor,projectId)});
+            }
+            if (method==="POST") {
+              const body=await readObject(req);
+              return send(res,201,{check:service.recordQaCheck(organizationId,actor,projectId,{
+                lotId:body.lotId as string|undefined,
+                category:body.category as QaCategory,
+                title:body.title as string,
+                status:body.status as QaCheckStatus,
+                evidence:body.evidence as string|undefined,
+                findings:body.findings as string|undefined,
+              })});
+            }
+          }
+          if (seg.length>=5 && seg[4]==="deliveries") {
+            if (seg.length===5 && method==="GET") {
+              return send(res,200,{items:service.listDeliveries(organizationId,actor,projectId)});
+            }
+            if (seg.length===5 && method==="POST") {
+              const body=await readObject(req);
+              return send(res,201,service.prepareDelivery(organizationId,actor,projectId,{
+                environmentUrl:body.environmentUrl as string|undefined,
+                releaseNotes:body.releaseNotes as string|undefined,
+              }));
+            }
+            if (seg.length===7 && method==="POST") {
+              const deliveryId=decodeSegment(seg[5],"delivery id");
+              const body=await readObject(req);
+              if (seg[6]==="request-approval") {
+                return send(res,201,service.requestDeliveryApproval(organizationId,actor,projectId,deliveryId,body.reason as string));
+              }
+              if (seg[6]==="deploy") {
+                return send(res,200,service.markDeliveryDeployed(organizationId,actor,projectId,deliveryId));
+              }
+              if (seg[6]==="accept") {
+                return send(res,200,service.recordClientAcceptance(organizationId,actor,projectId,deliveryId,Boolean(body.accepted),body.feedback as string ?? ""));
+              }
+            }
+          }
+          if (seg.length===5 && seg[4]==="followups") {
+            if (method==="GET") {
+              return send(res,200,{items:service.listFollowUps(organizationId,actor,projectId)});
+            }
+            if (method==="POST") {
+              const body=await readObject(req);
+              return send(res,201,{followUp:service.scheduleFollowUp(organizationId,actor,projectId,{
+                leadId:body.leadId as string|undefined,
+                type:body.type as FollowUpType,
+                dueAt:Number(body.dueAt),
+                notes:body.notes as string|undefined,
+              })});
+            }
+          }
+        }
+      }
+
+      if (seg[2]==="followups") {
+        if (seg.length===3 && method==="GET") {
+          return send(res,200,{items:service.listFollowUps(organizationId,actor,url.searchParams.get("projectId") ?? undefined)});
+        }
+        if (seg.length===4 && method==="PATCH") {
+          const followUpId=decodeSegment(seg[3],"follow-up id");
+          const body=await readObject(req);
+          return send(res,200,{followUp:service.updateFollowUpStatus(organizationId,actor,followUpId,body.status as FollowUpStatus,body.outcome as string ?? "")});
+        }
+      }
+
+      if (seg[2]==="missions") {
+        if (seg.length===3 && method==="GET") {
+          return send(res,200,{items:service.listMissions(organizationId,actor,url.searchParams.get("projectId") ?? undefined)});
+        }
+        if (seg.length===3 && method==="POST") {
+          const body=await readObject(req);
+          return send(res,201,{mission:service.createMission(organizationId,actor,{
+            projectId:body.projectId as string|undefined,
+            leadId:body.leadId as string|undefined,
+            agentRole:body.agentRole as AgencyAgentRole,
+            title:body.title as string,
+            objective:body.objective as string|undefined,
+            preferredTool:body.preferredTool as string|undefined,
+          })});
+        }
+        if (seg.length===5 && seg[4]==="status" && method==="PATCH") {
+          const missionId=decodeSegment(seg[3],"mission id");
+          const body=await readObject(req);
+          return send(res,200,{mission:service.updateMissionStatus(organizationId,actor,missionId,body.status as AgencyMissionStatus,body.outputSummary as string ?? "",body.evidencePaths as string[]|undefined)});
         }
       }
 

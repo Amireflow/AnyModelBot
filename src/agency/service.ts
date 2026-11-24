@@ -8,17 +8,28 @@ import type { CompanyResearchSource } from "./company-research-import.js";
 import {
   buildTieredProposals, calculateQuoteTotals, classifyCommercialSignal, evaluateNegotiation,
 } from "./commercial.js";
+import { assertProjectTransition, computeAgencyMetrics, evaluateQaGate } from "./delivery.js";
+import {
+  AGENCY_AGENT_PROFILES, buildProjectExecutionBrief, detectLocalDevTools, getAgentProfile,
+} from "./orchestrator.js";
 import type {
-  AddConversationMessageInput, AddEvidenceInput, AgencyDashboard, Approval, ApprovalAction, AuditEvent,
-  CommercialChannel, CommercialConversation, CommercialRules, Company, CompanySearchFilters,
-  Contact, ContactSearchFilters, Contract, ConversationMessage, CreateCatalogItemInput, CreateCompanyInput,
-  CreateContactInput, CreateContractInput, CreateConversationInput, CreateLeadInput, CreateOrganizationInput,
-  CreateQuoteInput, DepositStatus, Evidence, Lead, LeadSearchFilters, LeadStage, MessageDirection,
-  NeedsQualification, NegotiationEvaluation, Organization, Page, Quote, QuoteTier, RecordConsentInput,
-  RequestApprovalInput, AgencyRole, ResearchAssessment, CompanyQualificationAssessment, QualificationProfile,
-  ResearchDomain, ServiceCatalogItem, SolutionType, TieredProposalOption, UpdateCatalogItemInput,
-  UpdateCommercialRulesInput, UpdateQualificationProfileInput, UpsertNeedsQualificationInput,
-  QueueWhatsAppTemplateInput, WhatsAppOutboxMessage, WhatsAppWebhookProcessResult,
+  AddConversationMessageInput, AddEvidenceInput, AgencyAgentRole, AgencyDashboard,
+  AgencyMetrics, AgencyMission, AgencyMissionStatus, AgentProfile, Approval, ApprovalAction,
+  AuditEvent, ClientFollowUp, CommercialChannel, CommercialConversation, CommercialRules,
+  Company, CompanySearchFilters, Contact, ContactSearchFilters, Contract, ConversationMessage,
+  CreateCatalogItemInput, CreateCompanyInput, CreateContactInput, CreateContractInput,
+  CreateConversationInput, CreateLeadInput, CreateMissionInput, CreateOrganizationInput,
+  CreateProjectInput, CreateProjectLotInput, CreateQuoteInput, DepositStatus, DetectedDevTool,
+  Evidence, FollowUpStatus, FollowUpType, Lead, LeadSearchFilters, LeadStage, MessageDirection,
+  NeedsQualification, NegotiationEvaluation, Organization, Page, PrepareDeliveryInput,
+  Project, ProjectDelivery, ProjectLot, ProjectLotStatus, ProjectStatus,
+  ProposeScopeChangeInput, QaCategory, QaCheck, QaCheckStatus, QaGateEvaluation, Quote,
+  QuoteTier, RecordConsentInput, RecordQaCheckInput, RequestApprovalInput, AgencyRole,
+  ResearchAssessment, CompanyQualificationAssessment, QualificationProfile, ResearchDomain,
+  ScheduleFollowUpInput, ScopeChange, ServiceCatalogItem, SolutionType, TieredProposalOption,
+  UpdateCatalogItemInput, UpdateCommercialRulesInput, UpdateProjectLotInput,
+  UpdateQualificationProfileInput, UpsertNeedsQualificationInput, QueueWhatsAppTemplateInput,
+  WhatsAppOutboxMessage, WhatsAppWebhookProcessResult,
 } from "./types.js";
 import { WhatsAppProviderError, type WhatsAppTemplateSender } from "./whatsapp-cloud.js";
 import {
@@ -1457,6 +1468,843 @@ export class AgencyService {
         depositStatus:updated.depositStatus,depositReference:updated.depositReference,depositAmount:updated.depositAmount,
       });
       return updated;
+    });
+  }
+
+  private sanitizeWorkspacePath(raw: string | undefined, contractId: string): string {
+    const trimmed = optionalText(raw, "workspacePath", 300);
+    if (!trimmed) return `workspaces/projects/${contractId}`;
+    const normalized = trimmed.replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
+    const parts = normalized.split("/").filter(Boolean);
+    if (parts.length === 0 || parts.some((p) => p === ".." || p === ".")) {
+      throw new AgencyError("VALIDATION_ERROR", "workspacePath cannot contain path traversal segments");
+    }
+    return normalized;
+  }
+
+  private scopeChangeApprovalPayload(sc: ScopeChange): Record<string, unknown> {
+    return {
+      scopeChangeId: sc.id,
+      projectId: sc.projectId,
+      title: sc.title,
+      budgetDelta: sc.budgetDelta,
+      daysDelta: sc.daysDelta,
+    };
+  }
+
+  private deliveryApprovalPayload(delivery: ProjectDelivery, project: Project, gate: QaGateEvaluation): Record<string, unknown> {
+    return {
+      deliveryId: delivery.id,
+      projectId: project.id,
+      version: delivery.version,
+      environmentUrl: delivery.environmentUrl,
+      verifiedLots: gate.verifiedLots,
+      totalLots: gate.totalLots,
+      passedCategories: gate.passedCategories,
+    };
+  }
+
+  createProjectFromContract(organizationId: string, actorId: string, input: CreateProjectInput): Project {
+    this.requireMember(organizationId, actorId);
+    const contractId = requiredText(input.contractId, "contractId", 100);
+    const contract = this.store.getContract(organizationId, contractId);
+    if (!contract) throw new AgencyError("NOT_FOUND", "Contract not found");
+    if (contract.status !== "signed") {
+      throw new AgencyError("CONFLICT", "Contract must be signed before production handoff");
+    }
+    if (contract.depositAmount > 0 && contract.depositStatus !== "paid") {
+      throw new AgencyError("CONFLICT", "Contract deposit must be paid before production handoff");
+    }
+    if (this.store.getProjectByContract(organizationId, contract.id)) {
+      throw new AgencyError("CONFLICT", "A project already exists for this contract");
+    }
+
+    const quote = this.store.getQuote(organizationId, contract.quoteId);
+    const needs = this.store.getNeedsQualification(organizationId, contract.leadId);
+    const estimatedDays = input.estimatedDays == null
+      ? Math.max(1, quote?.deliveryDays ?? 14)
+      : Math.max(1, Math.round(nonNegativeNumber(input.estimatedDays, "estimatedDays", 1)));
+    const targetStack = input.targetStack != null
+      ? stringList(input.targetStack, "targetStack", 20, 80)
+      : (needs?.solutionType ? [needs.solutionType, "typescript", "sqlite"] : ["typescript", "web"]);
+    const technicalSpecs = optionalText(input.technicalSpecs, "technicalSpecs", 8000)
+      || [
+        `Scope: ${contract.scopeSummary}`,
+        contract.deliverables.length > 0 ? `Deliverables: ${contract.deliverables.join(", ")}` : "",
+        needs?.problemStatement ? `Needs: ${needs.problemStatement}` : "",
+      ].filter(Boolean).join("\n");
+    const handoffSummary = optionalText(input.handoffSummary, "handoffSummary", 2000)
+      || `Signed contract ${contract.id} handed off to production.`;
+    const now = this.now();
+    const project: Project = {
+      id: this.id(),
+      organizationId,
+      leadId: contract.leadId,
+      contractId: contract.id,
+      title: optionalText(input.title, "title", 240) || contract.title.replace(/^Contrat\s*—\s*/i, ""),
+      status: "handoff_pending",
+      workspacePath: this.sanitizeWorkspacePath(input.workspacePath, contract.id),
+      technicalSpecs,
+      targetStack,
+      budgetAmount: contract.totalAmount,
+      currency: contract.currency,
+      estimatedDays,
+      handoffSummary,
+      handoffAt: now,
+      deliveredAt: null,
+      acceptedAt: null,
+      createdBy: actorId,
+      createdAt: now,
+      updatedAt: now,
+    };
+    return this.store.transaction(() => {
+      this.store.insertProject(project);
+      this.audit(organizationId, actorId, "project.handoff_created", "project", project.id, {
+        contractId: project.contractId,
+        leadId: project.leadId,
+        workspacePath: project.workspacePath,
+        budgetAmount: project.budgetAmount,
+      });
+      return project;
+    });
+  }
+
+  listProjects(organizationId: string, actorId: string, status?: ProjectStatus): Project[] {
+    this.requireMember(organizationId, actorId, ["owner", "admin", "member", "auditor"]);
+    if (status !== undefined) {
+      const allowed: ProjectStatus[] = [
+        "handoff_pending", "scoping", "in_progress", "qa_review",
+        "ready_for_delivery", "delivered", "accepted", "maintenance", "archived",
+      ];
+      if (!allowed.includes(status)) throw new AgencyError("VALIDATION_ERROR", "Invalid project status");
+    }
+    return this.store.listProjects(organizationId, status);
+  }
+
+  getProject(organizationId: string, actorId: string, projectId: string): Project {
+    this.requireMember(organizationId, actorId, ["owner", "admin", "member", "auditor"]);
+    const project = this.store.getProject(organizationId, requiredText(projectId, "projectId", 100));
+    if (!project) throw new AgencyError("NOT_FOUND", "Project not found");
+    return project;
+  }
+
+  transitionProject(organizationId: string, actorId: string, projectId: string, toStatus: ProjectStatus): Project {
+    this.requireMember(organizationId, actorId);
+    const project = this.getProject(organizationId, actorId, projectId);
+    assertProjectTransition(project.status, toStatus);
+    if (toStatus === "ready_for_delivery" || toStatus === "delivered") {
+      const gate = evaluateQaGate(
+        this.store.listProjectLots(organizationId, project.id),
+        this.store.listQaChecks(organizationId, project.id),
+      );
+      if (!gate.readyForDelivery) {
+        throw new AgencyError("CONFLICT", `QA gate failed: ${gate.blockers.join(", ")}`, { gate });
+      }
+    }
+    const now = this.now();
+    return this.store.transaction(() => {
+      const updated = this.store.updateProjectState(organizationId, project.id, {
+        status: toStatus,
+        deliveredAt: toStatus === "delivered" && project.deliveredAt === null ? now : undefined,
+        acceptedAt: toStatus === "accepted" && project.acceptedAt === null ? now : undefined,
+        updatedAt: now,
+      })!;
+      this.audit(organizationId, actorId, "project.transitioned", "project", project.id, {
+        from: project.status,
+        to: toStatus,
+      });
+      return updated;
+    });
+  }
+
+  createProjectLot(organizationId: string, actorId: string, projectId: string, input: CreateProjectLotInput): ProjectLot {
+    this.requireMember(organizationId, actorId);
+    const project = this.getProject(organizationId, actorId, projectId);
+    const ownerRole = input.ownerRole ?? "developer";
+    getAgentProfile(ownerRole);
+    const existingLots = this.store.listProjectLots(organizationId, project.id);
+    const lotOrder = input.lotOrder == null
+      ? existingLots.length + 1
+      : Math.max(1, Math.round(nonNegativeNumber(input.lotOrder, "lotOrder", 1)));
+    const estimatedHours = nonNegativeNumber(input.estimatedHours, "estimatedHours", 8);
+    const now = this.now();
+    const lot: ProjectLot = {
+      id: this.id(),
+      organizationId,
+      projectId: project.id,
+      lotOrder,
+      title: requiredText(input.title, "title", 240),
+      description: optionalText(input.description, "description", 4000),
+      acceptanceCriteria: stringList(input.acceptanceCriteria, "acceptanceCriteria", 30, 300),
+      dependencies: stringList(input.dependencies, "dependencies", 30, 120),
+      ownerRole,
+      status: "pending",
+      estimatedHours,
+      actualHours: 0,
+      evidenceSummary: "",
+      createdAt: now,
+      updatedAt: now,
+    };
+    return this.store.transaction(() => {
+      this.store.insertProjectLot(lot);
+      this.audit(organizationId, actorId, "project_lot.created", "project_lot", lot.id, {
+        projectId: project.id,
+        lotOrder: lot.lotOrder,
+        ownerRole: lot.ownerRole,
+      });
+      return lot;
+    });
+  }
+
+  listProjectLots(organizationId: string, actorId: string, projectId: string): ProjectLot[] {
+    const project = this.getProject(organizationId, actorId, projectId);
+    return this.store.listProjectLots(organizationId, project.id);
+  }
+
+  updateProjectLot(
+    organizationId: string,
+    actorId: string,
+    projectId: string,
+    lotId: string,
+    input: UpdateProjectLotInput,
+  ): ProjectLot {
+    this.requireMember(organizationId, actorId);
+    const project = this.getProject(organizationId, actorId, projectId);
+    const lot = this.store.getProjectLot(organizationId, requiredText(lotId, "lotId", 100));
+    if (!lot || lot.projectId !== project.id) throw new AgencyError("NOT_FOUND", "Project lot not found");
+
+    const allowedStatuses: ProjectLotStatus[] = ["pending", "in_progress", "in_qa", "verified", "done", "blocked"];
+    const nextStatus = input.status ?? lot.status;
+    if (!allowedStatuses.includes(nextStatus)) {
+      throw new AgencyError("VALIDATION_ERROR", "Invalid project lot status");
+    }
+    if (input.ownerRole !== undefined) getAgentProfile(input.ownerRole);
+    const nextEvidence = input.evidenceSummary !== undefined
+      ? optionalText(input.evidenceSummary, "evidenceSummary", 4000)
+      : lot.evidenceSummary;
+    if ((nextStatus === "verified" || nextStatus === "done") && !nextEvidence.trim()) {
+      throw new AgencyError("VALIDATION_ERROR", "Verified or done project lots require evidenceSummary");
+    }
+    const nextHours = input.actualHours !== undefined
+      ? nonNegativeNumber(input.actualHours, "actualHours", 0)
+      : lot.actualHours;
+    return this.store.transaction(() => {
+      const updated = this.store.updateProjectLot(organizationId, lot.id, {
+        status: nextStatus,
+        actualHours: nextHours,
+        evidenceSummary: nextEvidence,
+        ownerRole: input.ownerRole,
+        updatedAt: this.now(),
+      })!;
+      this.audit(organizationId, actorId, "project_lot.updated", "project_lot", lot.id, {
+        projectId: project.id,
+        status: updated.status,
+        actualHours: updated.actualHours,
+      });
+      return updated;
+    });
+  }
+
+  generateLotExecutionBrief(
+    organizationId: string,
+    actorId: string,
+    projectId: string,
+    lotId: string,
+    preferredTool?: string,
+  ): { brief: string; detectedTools: DetectedDevTool[] } {
+    const project = this.getProject(organizationId, actorId, projectId);
+    const lot = this.store.getProjectLot(organizationId, requiredText(lotId, "lotId", 100));
+    if (!lot || lot.projectId !== project.id) throw new AgencyError("NOT_FOUND", "Project lot not found");
+    const detectedTools = detectLocalDevTools();
+    const brief = buildProjectExecutionBrief({
+      project,
+      lot,
+      agentRole: lot.ownerRole,
+      preferredTool: optionalText(preferredTool, "preferredTool", 80),
+      availableTools: detectedTools,
+    });
+    return { brief, detectedTools };
+  }
+
+  proposeScopeChange(
+    organizationId: string,
+    actorId: string,
+    projectId: string,
+    input: ProposeScopeChangeInput,
+  ): ScopeChange {
+    this.requireMember(organizationId, actorId);
+    const project = this.getProject(organizationId, actorId, projectId);
+    const budgetDelta = input.budgetDelta == null ? 0 : Number(input.budgetDelta);
+    const daysDelta = input.daysDelta == null ? 0 : Math.round(Number(input.daysDelta));
+    if (!Number.isFinite(budgetDelta) || !Number.isFinite(daysDelta)) {
+      throw new AgencyError("VALIDATION_ERROR", "budgetDelta and daysDelta must be finite numbers");
+    }
+    const now = this.now();
+    const sc: ScopeChange = {
+      id: this.id(),
+      organizationId,
+      projectId: project.id,
+      title: requiredText(input.title, "title", 240),
+      description: optionalText(input.description, "description", 4000),
+      budgetDelta,
+      daysDelta,
+      status: "proposed",
+      approvalId: null,
+      requestedBy: actorId,
+      decidedBy: null,
+      decidedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    return this.store.transaction(() => {
+      this.store.insertScopeChange(sc);
+      this.audit(organizationId, actorId, "scope_change.proposed", "scope_change", sc.id, {
+        projectId: project.id,
+        budgetDelta: sc.budgetDelta,
+        daysDelta: sc.daysDelta,
+      });
+      return sc;
+    });
+  }
+
+  listScopeChanges(organizationId: string, actorId: string, projectId: string): ScopeChange[] {
+    const project = this.getProject(organizationId, actorId, projectId);
+    return this.store.listScopeChanges(organizationId, project.id);
+  }
+
+  requestScopeChangeApproval(
+    organizationId: string,
+    actorId: string,
+    projectId: string,
+    scopeChangeId: string,
+    reason: string,
+  ): { scopeChange: ScopeChange; approval: Approval } {
+    this.requireMember(organizationId, actorId);
+    const project = this.getProject(organizationId, actorId, projectId);
+    const sc = this.store.getScopeChange(organizationId, requiredText(scopeChangeId, "scopeChangeId", 100));
+    if (!sc || sc.projectId !== project.id) throw new AgencyError("NOT_FOUND", "Scope change not found");
+    if (sc.status !== "proposed" && sc.status !== "approval_requested") {
+      throw new AgencyError("CONFLICT", `Scope change cannot request approval from status ${sc.status}`);
+    }
+    const approval = this.requestApproval(organizationId, actorId, {
+      projectId: project.id,
+      action: "change_scope",
+      resourceType: "scope_change",
+      resourceId: sc.id,
+      reason: requiredText(reason, "reason", 1000),
+      payload: this.scopeChangeApprovalPayload(sc),
+    });
+    const updated = this.store.transaction(() => {
+      const saved = this.store.updateScopeChangeStatus(
+        organizationId, sc.id, "approval_requested", approval.id, null, null, this.now(),
+      )!;
+      this.audit(organizationId, actorId, "scope_change.approval_requested", "scope_change", sc.id, {
+        projectId: project.id,
+        approvalId: approval.id,
+      });
+      return saved;
+    });
+    return { scopeChange: updated, approval };
+  }
+
+  applyApprovedScopeChange(
+    organizationId: string,
+    actorId: string,
+    projectId: string,
+    scopeChangeId: string,
+  ): { scopeChange: ScopeChange; project: Project } {
+    this.requireMember(organizationId, actorId, ["owner", "admin"]);
+    const project = this.getProject(organizationId, actorId, projectId);
+    const sc = this.store.getScopeChange(organizationId, requiredText(scopeChangeId, "scopeChangeId", 100));
+    if (!sc || sc.projectId !== project.id) throw new AgencyError("NOT_FOUND", "Scope change not found");
+    if (sc.status === "applied") throw new AgencyError("CONFLICT", "Scope change is already applied");
+    if (!sc.approvalId) throw new AgencyError("FORBIDDEN", "Owner change_scope approval is required before applying");
+    const approval = this.store.getApproval(organizationId, sc.approvalId);
+    const expectedHash = stablePayloadHash(this.scopeChangeApprovalPayload(sc)).hash;
+    if (
+      !approval ||
+      approval.action !== "change_scope" ||
+      approval.resourceType !== "scope_change" ||
+      approval.resourceId !== sc.id ||
+      approval.status !== "approved" ||
+      approval.payloadHash !== expectedHash ||
+      (approval.expiresAt && approval.expiresAt <= this.now())
+    ) {
+      throw new AgencyError("APPROVAL_EXPIRED", "A current approved change_scope approval matching this scope change is required");
+    }
+    const now = this.now();
+    return this.store.transaction(() => {
+      const nextBudget = Math.max(0, Math.round((project.budgetAmount + sc.budgetDelta) * 100) / 100);
+      const nextDays = Math.max(1, project.estimatedDays + sc.daysDelta);
+      const updatedProject = this.store.updateProjectState(organizationId, project.id, {
+        budgetAmount: nextBudget,
+        estimatedDays: nextDays,
+        updatedAt: now,
+      })!;
+      const updatedSc = this.store.updateScopeChangeStatus(
+        organizationId,
+        sc.id,
+        "applied",
+        sc.approvalId,
+        approval.decidedBy || actorId,
+        approval.decidedAt || now,
+        now,
+      )!;
+      this.audit(organizationId, actorId, "scope_change.applied", "scope_change", sc.id, {
+        projectId: project.id,
+        budgetAmount: nextBudget,
+        estimatedDays: nextDays,
+      });
+      return { scopeChange: updatedSc, project: updatedProject };
+    });
+  }
+
+  recordQaCheck(organizationId: string, actorId: string, projectId: string, input: RecordQaCheckInput): QaCheck {
+    this.requireMember(organizationId, actorId);
+    const project = this.getProject(organizationId, actorId, projectId);
+    const categories: QaCategory[] = ["functional", "technical", "ui_ux", "security"];
+    if (!categories.includes(input.category)) {
+      throw new AgencyError("VALIDATION_ERROR", "Unsupported QA category");
+    }
+    const statuses: QaCheckStatus[] = ["pending", "passed", "failed", "blocked"];
+    if (!statuses.includes(input.status)) {
+      throw new AgencyError("VALIDATION_ERROR", "Unsupported QA check status");
+    }
+    let lotId: string | null = null;
+    if (input.lotId) {
+      const lot = this.store.getProjectLot(organizationId, requiredText(input.lotId, "lotId", 100));
+      if (!lot || lot.projectId !== project.id) throw new AgencyError("NOT_FOUND", "Referenced lot not found");
+      lotId = lot.id;
+    }
+    const evidence = optionalText(input.evidence, "evidence", 4000);
+    if (input.status === "passed" && !evidence.trim()) {
+      throw new AgencyError("VALIDATION_ERROR", "A passed QA check requires verifiable evidence");
+    }
+    const now = this.now();
+    const check: QaCheck = {
+      id: this.id(),
+      organizationId,
+      projectId: project.id,
+      lotId,
+      category: input.category,
+      title: requiredText(input.title, "title", 240),
+      status: input.status,
+      evidence,
+      findings: optionalText(input.findings, "findings", 4000),
+      checkedBy: actorId,
+      checkedAt: input.status === "pending" ? null : now,
+      createdAt: now,
+      updatedAt: now,
+    };
+    return this.store.transaction(() => {
+      this.store.insertQaCheck(check);
+      this.audit(organizationId, actorId, "qa_check.recorded", "qa_check", check.id, {
+        projectId: project.id,
+        category: check.category,
+        status: check.status,
+      });
+      return check;
+    });
+  }
+
+  listQaChecks(organizationId: string, actorId: string, projectId: string): QaCheck[] {
+    const project = this.getProject(organizationId, actorId, projectId);
+    return this.store.listQaChecks(organizationId, project.id);
+  }
+
+  evaluateProjectQaGate(organizationId: string, actorId: string, projectId: string): QaGateEvaluation {
+    const project = this.getProject(organizationId, actorId, projectId);
+    return evaluateQaGate(
+      this.store.listProjectLots(organizationId, project.id),
+      this.store.listQaChecks(organizationId, project.id),
+    );
+  }
+
+  prepareDelivery(
+    organizationId: string,
+    actorId: string,
+    projectId: string,
+    input: PrepareDeliveryInput,
+  ): { delivery: ProjectDelivery; gate: QaGateEvaluation } {
+    this.requireMember(organizationId, actorId);
+    const project = this.getProject(organizationId, actorId, projectId);
+    const gate = evaluateQaGate(
+      this.store.listProjectLots(organizationId, project.id),
+      this.store.listQaChecks(organizationId, project.id),
+    );
+    if (!gate.readyForDelivery) {
+      throw new AgencyError("CONFLICT", `QA gate failed: ${gate.blockers.join(", ")}`, { gate });
+    }
+    const existing = this.store.listDeliveries(organizationId, project.id);
+    const now = this.now();
+    const delivery: ProjectDelivery = {
+      id: this.id(),
+      organizationId,
+      projectId: project.id,
+      version: existing.length + 1,
+      status: "prepared",
+      environmentUrl: optionalText(input.environmentUrl, "environmentUrl", 500),
+      releaseNotes: optionalText(input.releaseNotes, "releaseNotes", 4000),
+      qaSummary: `${gate.verifiedLots}/${gate.totalLots} lots verified; ${gate.passedCategories.length}/4 QA categories passed`,
+      approvalId: null,
+      clientFeedback: "",
+      deployedAt: null,
+      acceptedAt: null,
+      createdBy: actorId,
+      createdAt: now,
+      updatedAt: now,
+    };
+    return this.store.transaction(() => {
+      this.store.insertDelivery(delivery);
+      if (project.status === "qa_review" || project.status === "in_progress") {
+        this.store.updateProjectState(organizationId, project.id, { status: "ready_for_delivery", updatedAt: now });
+      }
+      this.audit(organizationId, actorId, "delivery.prepared", "delivery", delivery.id, {
+        projectId: project.id,
+        version: delivery.version,
+      });
+      return { delivery, gate };
+    });
+  }
+
+  listDeliveries(organizationId: string, actorId: string, projectId: string): ProjectDelivery[] {
+    const project = this.getProject(organizationId, actorId, projectId);
+    return this.store.listDeliveries(organizationId, project.id);
+  }
+
+  requestDeliveryApproval(
+    organizationId: string,
+    actorId: string,
+    projectId: string,
+    deliveryId: string,
+    reason: string,
+  ): { delivery: ProjectDelivery; approval: Approval } {
+    this.requireMember(organizationId, actorId);
+    const project = this.getProject(organizationId, actorId, projectId);
+    const delivery = this.store.getDelivery(organizationId, requiredText(deliveryId, "deliveryId", 100));
+    if (!delivery || delivery.projectId !== project.id) throw new AgencyError("NOT_FOUND", "Delivery not found");
+    if (delivery.status !== "prepared" && delivery.status !== "approval_requested") {
+      throw new AgencyError("CONFLICT", `Delivery cannot request approval from status ${delivery.status}`);
+    }
+    const gate = evaluateQaGate(
+      this.store.listProjectLots(organizationId, project.id),
+      this.store.listQaChecks(organizationId, project.id),
+    );
+    if (!gate.readyForDelivery) {
+      throw new AgencyError("CONFLICT", `QA gate failed: ${gate.blockers.join(", ")}`, { gate });
+    }
+    const approval = this.requestApproval(organizationId, actorId, {
+      projectId: project.id,
+      action: "deploy_production",
+      resourceType: "delivery",
+      resourceId: delivery.id,
+      reason: requiredText(reason, "reason", 1000),
+      payload: this.deliveryApprovalPayload(delivery, project, gate),
+    });
+    const updated = this.store.transaction(() => {
+      const saved = this.store.updateDeliveryState(organizationId, delivery.id, {
+        status: "approval_requested",
+        approvalId: approval.id,
+        updatedAt: this.now(),
+      })!;
+      this.audit(organizationId, actorId, "delivery.approval_requested", "delivery", delivery.id, {
+        projectId: project.id,
+        approvalId: approval.id,
+      });
+      return saved;
+    });
+    return { delivery: updated, approval };
+  }
+
+  markDeliveryDeployed(
+    organizationId: string,
+    actorId: string,
+    projectId: string,
+    deliveryId: string,
+  ): { delivery: ProjectDelivery; project: Project } {
+    this.requireMember(organizationId, actorId, ["owner"]);
+    const project = this.getProject(organizationId, actorId, projectId);
+    const delivery = this.store.getDelivery(organizationId, requiredText(deliveryId, "deliveryId", 100));
+    if (!delivery || delivery.projectId !== project.id) throw new AgencyError("NOT_FOUND", "Delivery not found");
+    if (delivery.status === "deployed" || delivery.status === "accepted") {
+      throw new AgencyError("CONFLICT", "Delivery is already deployed");
+    }
+    const gate = evaluateQaGate(
+      this.store.listProjectLots(organizationId, project.id),
+      this.store.listQaChecks(organizationId, project.id),
+    );
+    if (!gate.readyForDelivery) {
+      throw new AgencyError("CONFLICT", `QA gate failed: ${gate.blockers.join(", ")}`, { gate });
+    }
+    if (!delivery.approvalId) {
+      throw new AgencyError("FORBIDDEN", "Owner deploy_production approval is required before deployment");
+    }
+    const approval = this.store.getApproval(organizationId, delivery.approvalId);
+    const expectedHash = stablePayloadHash(this.deliveryApprovalPayload(delivery, project, gate)).hash;
+    if (
+      !approval ||
+      approval.action !== "deploy_production" ||
+      approval.resourceType !== "delivery" ||
+      approval.resourceId !== delivery.id ||
+      approval.status !== "approved" ||
+      approval.payloadHash !== expectedHash ||
+      (approval.expiresAt && approval.expiresAt <= this.now())
+    ) {
+      throw new AgencyError("APPROVAL_EXPIRED", "A current approved deploy_production approval matching this delivery is required");
+    }
+    const now = this.now();
+    return this.store.transaction(() => {
+      const updatedDelivery = this.store.updateDeliveryState(organizationId, delivery.id, {
+        status: "deployed",
+        deployedAt: now,
+        updatedAt: now,
+      })!;
+      const updatedProject = this.store.updateProjectState(organizationId, project.id, {
+        status: "delivered",
+        deliveredAt: project.deliveredAt ?? now,
+        updatedAt: now,
+      })!;
+      this.audit(organizationId, actorId, "delivery.deployed", "delivery", delivery.id, {
+        projectId: project.id,
+        version: delivery.version,
+        environmentUrl: delivery.environmentUrl,
+      });
+      return { delivery: updatedDelivery, project: updatedProject };
+    });
+  }
+
+  recordClientAcceptance(
+    organizationId: string,
+    actorId: string,
+    projectId: string,
+    deliveryId: string,
+    accepted: boolean,
+    feedback: string,
+  ): { delivery: ProjectDelivery; project: Project } {
+    this.requireMember(organizationId, actorId);
+    const project = this.getProject(organizationId, actorId, projectId);
+    const delivery = this.store.getDelivery(organizationId, requiredText(deliveryId, "deliveryId", 100));
+    if (!delivery || delivery.projectId !== project.id) throw new AgencyError("NOT_FOUND", "Delivery not found");
+    if (delivery.status !== "deployed") {
+      throw new AgencyError("CONFLICT", "Delivery must be deployed before recording client acceptance");
+    }
+    const cleanFeedback = optionalText(feedback, "feedback", 2000);
+    const now = this.now();
+    return this.store.transaction(() => {
+      const updatedDelivery = this.store.updateDeliveryState(organizationId, delivery.id, {
+        status: accepted ? "accepted" : "rejected",
+        clientFeedback: cleanFeedback,
+        acceptedAt: accepted ? now : null,
+        updatedAt: now,
+      })!;
+      const updatedProject = this.store.updateProjectState(organizationId, project.id, {
+        status: accepted ? "accepted" : "qa_review",
+        acceptedAt: accepted ? now : project.acceptedAt,
+        updatedAt: now,
+      })!;
+      this.audit(organizationId, actorId, accepted ? "delivery.accepted" : "delivery.rejected", "delivery", delivery.id, {
+        projectId: project.id,
+        feedback: cleanFeedback,
+      });
+      return { delivery: updatedDelivery, project: updatedProject };
+    });
+  }
+
+  scheduleFollowUp(
+    organizationId: string,
+    actorId: string,
+    projectId: string,
+    input: ScheduleFollowUpInput,
+  ): ClientFollowUp {
+    this.requireMember(organizationId, actorId);
+    const project = this.getProject(organizationId, actorId, projectId);
+    const allowed: FollowUpType[] = ["satisfaction", "maintenance", "upsell", "support", "case_study"];
+    if (!allowed.includes(input.type)) {
+      throw new AgencyError("VALIDATION_ERROR", "Unsupported follow-up type");
+    }
+    const leadId = input.leadId ? requiredText(input.leadId, "leadId", 100) : project.leadId;
+    if (leadId !== project.leadId) {
+      throw new AgencyError("VALIDATION_ERROR", "Follow-up leadId must match project leadId");
+    }
+    const now = this.now();
+    const followUp: ClientFollowUp = {
+      id: this.id(),
+      organizationId,
+      projectId: project.id,
+      leadId,
+      type: input.type,
+      status: "scheduled",
+      dueAt: positiveTimestamp(input.dueAt, "dueAt"),
+      notes: optionalText(input.notes, "notes", 2000),
+      outcome: "",
+      createdBy: actorId,
+      completedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    return this.store.transaction(() => {
+      this.store.insertFollowUp(followUp);
+      this.audit(organizationId, actorId, "followup.scheduled", "followup", followUp.id, {
+        projectId: project.id,
+        type: followUp.type,
+        dueAt: followUp.dueAt,
+      });
+      return followUp;
+    });
+  }
+
+  listFollowUps(organizationId: string, actorId: string, projectId?: string): ClientFollowUp[] {
+    this.requireMember(organizationId, actorId, ["owner", "admin", "member", "auditor"]);
+    return this.store.listFollowUps(organizationId, projectId ? requiredText(projectId, "projectId", 100) : undefined);
+  }
+
+  updateFollowUpStatus(
+    organizationId: string,
+    actorId: string,
+    followUpId: string,
+    status: FollowUpStatus,
+    outcome = "",
+  ): ClientFollowUp {
+    this.requireMember(organizationId, actorId);
+    const existing = this.store.getFollowUp(organizationId, requiredText(followUpId, "followUpId", 100));
+    if (!existing) throw new AgencyError("NOT_FOUND", "Follow-up not found");
+    const allowed: FollowUpStatus[] = ["scheduled", "contacted", "completed", "dismissed"];
+    if (!allowed.includes(status)) {
+      throw new AgencyError("VALIDATION_ERROR", "Invalid follow-up status");
+    }
+    const cleanOutcome = optionalText(outcome, "outcome", 2000);
+    const now = this.now();
+    const completedAt = status === "completed" || status === "dismissed" ? now : null;
+    return this.store.transaction(() => {
+      const updated = this.store.updateFollowUp(organizationId, existing.id, status, cleanOutcome, completedAt, now)!;
+      this.audit(organizationId, actorId, "followup.updated", "followup", existing.id, {
+        status,
+        outcome: cleanOutcome,
+      });
+      return updated;
+    });
+  }
+
+  listAgentProfiles(organizationId: string, actorId: string): AgentProfile[] {
+    this.requireMember(organizationId, actorId, ["owner", "admin", "member", "auditor"]);
+    return [...AGENCY_AGENT_PROFILES];
+  }
+
+  detectDevTools(organizationId: string, actorId: string): DetectedDevTool[] {
+    this.requireMember(organizationId, actorId, ["owner", "admin", "member", "auditor"]);
+    return detectLocalDevTools();
+  }
+
+  createMission(organizationId: string, actorId: string, input: CreateMissionInput): AgencyMission {
+    this.requireMember(organizationId, actorId);
+    const profile = getAgentProfile(input.agentRole);
+    let project: Project | undefined;
+    if (input.projectId) {
+      project = this.getProject(organizationId, actorId, input.projectId);
+    }
+    const leadId = input.leadId ? requiredText(input.leadId, "leadId", 100) : (project?.leadId ?? null);
+    if (leadId && !this.store.getLead(organizationId, leadId)) {
+      throw new AgencyError("NOT_FOUND", "Lead not found");
+    }
+    const title = requiredText(input.title, "title", 240);
+    const objective = optionalText(input.objective, "objective", 4000) || profile.mission;
+    const preferredTool = optionalText(input.preferredTool, "preferredTool", 80) || profile.defaultTools[0] || "";
+    const detected = detectLocalDevTools();
+    const brief = project
+      ? buildProjectExecutionBrief({
+        project,
+        agentRole: input.agentRole,
+        preferredTool,
+        objective,
+        availableTools: detected,
+      })
+      : `# Mission Brief — ${title}\n- Agent Role: ${profile.name} (${profile.role})\n- Preferred Tool: ${preferredTool}\n- Objective: ${objective}`;
+    const now = this.now();
+    const mission: AgencyMission = {
+      id: this.id(),
+      organizationId,
+      projectId: project?.id ?? null,
+      leadId,
+      agentRole: input.agentRole,
+      title,
+      objective,
+      status: "planned",
+      preferredTool,
+      brief,
+      outputSummary: "",
+      evidencePaths: [],
+      startedAt: null,
+      completedAt: null,
+      createdBy: actorId,
+      createdAt: now,
+      updatedAt: now,
+    };
+    return this.store.transaction(() => {
+      this.store.insertMission(mission);
+      this.audit(organizationId, actorId, "mission.created", "mission", mission.id, {
+        agentRole: mission.agentRole,
+        projectId: mission.projectId,
+        preferredTool: mission.preferredTool,
+      });
+      return mission;
+    });
+  }
+
+  listMissions(organizationId: string, actorId: string, projectId?: string): AgencyMission[] {
+    this.requireMember(organizationId, actorId, ["owner", "admin", "member", "auditor"]);
+    return this.store.listMissions(organizationId, projectId ? requiredText(projectId, "projectId", 100) : undefined);
+  }
+
+  updateMissionStatus(
+    organizationId: string,
+    actorId: string,
+    missionId: string,
+    status: AgencyMissionStatus,
+    outputSummary = "",
+    evidencePaths?: string[],
+  ): AgencyMission {
+    this.requireMember(organizationId, actorId);
+    const mission = this.store.getMission(organizationId, requiredText(missionId, "missionId", 100));
+    if (!mission) throw new AgencyError("NOT_FOUND", "Mission not found");
+    const allowed: AgencyMissionStatus[] = ["planned", "running", "blocked", "completed", "failed"];
+    if (!allowed.includes(status)) {
+      throw new AgencyError("VALIDATION_ERROR", "Invalid mission status");
+    }
+    const now = this.now();
+    const nextSummary = outputSummary ? optionalText(outputSummary, "outputSummary", 4000) : mission.outputSummary;
+    const nextEvidence = evidencePaths !== undefined
+      ? stringList(evidencePaths, "evidencePaths", 50, 500)
+      : mission.evidencePaths;
+    const startedAt = status === "running" && mission.startedAt === null ? now : mission.startedAt;
+    const completedAt = status === "completed" || status === "failed" ? now : null;
+    return this.store.transaction(() => {
+      const updated = this.store.updateMission(organizationId, mission.id, {
+        status,
+        outputSummary: nextSummary,
+        evidencePaths: nextEvidence,
+        startedAt,
+        completedAt,
+        updatedAt: now,
+      })!;
+      this.audit(organizationId, actorId, "mission.updated", "mission", mission.id, {
+        status: updated.status,
+        evidenceCount: updated.evidencePaths.length,
+      });
+      return updated;
+    });
+  }
+
+  getMetrics(organizationId: string, actorId: string): AgencyMetrics {
+    this.requireMember(organizationId, actorId, ["owner", "admin", "member", "auditor"]);
+    return computeAgencyMetrics({
+      organizationId,
+      leads: this.store.searchLeads(organizationId, { limit: 500, offset: 0 }).items,
+      quotes: this.store.listQuotes(organizationId),
+      contracts: this.store.listContracts(organizationId),
+      projects: this.store.listProjects(organizationId),
+      qaChecks: this.store.listQaChecks(organizationId),
+      followUps: this.store.listFollowUps(organizationId),
+      missions: this.store.listMissions(organizationId),
     });
   }
 }
