@@ -573,6 +573,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
     catch (fallbackError) { agencyStore.close(); throw fallbackError; }
   }
   boundPort = (server.address() as import("node:net").AddressInfo).port;
+  app.agent.attachAgencyService(agency);
   const shownHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
   const url = `http://${shownHost}:${boundPort}/`;
   log.info(`UI: ${url}`);
@@ -583,6 +584,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
     busy: () => live.bots().length > 0 || groups.hasActive(),
     close: async () => {
       groups.stopAll();
+      app.agent.attachAgencyService(undefined);
       server.closeAllConnections?.();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       agencyStore.close();

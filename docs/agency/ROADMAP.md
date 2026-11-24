@@ -125,6 +125,13 @@ Sortie :
 
 ## Lot 5 — Agent commercial
 
+**État au 24 novembre 2026 — tranche 5.1 en cours :** le service CRM expose une recherche de prospects
+et un dossier en lecture seule à l'agent DSH local. L'accès est limité à la conversation privée active
+du propriétaire ; les sessions de tâches/règles, les groupes et conversations non détenues sont refusés.
+Les coordonnées directes et les preuves brutes de consentement ne sont pas injectées dans le contexte
+du modèle. Aucun outil d'écriture CRM, d'envoi ou de création d'engagement n'est exposé.
+Voir [LOT-5-COMMERCIAL-AGENT.md](./LOT-5-COMMERCIAL-AGENT.md). Cette tranche ne valide pas le lot complet.
+
 Travaux :
 - contexte CRM et dossier prospect ;
 - qualification conversationnelle ;

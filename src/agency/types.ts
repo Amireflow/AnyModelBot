@@ -111,6 +111,22 @@ export interface ConsentRecord {
   createdAt: number;
 }
 
+/** Minimal commercial-agent view; direct contact coordinates stay out of model context. */
+export type ProspectContactSummary = Pick<Contact, "id" | "displayName" | "role" | "preferredChannel">;
+
+export interface ProspectSearchItem { lead: Lead; company: Company; contact?: ProspectContactSummary; }
+
+export interface ProspectConsentSummary {
+  id: string; channel: string; purpose: string; status: ConsentStatus; source: string;
+  textVersion: string; expiresAt: number; createdAt: number; proofRecorded: boolean;
+}
+
+export interface ProspectDossier {
+  lead: Lead; company: Company; contact?: ProspectContactSummary;
+  evidence: Evidence[]; research: ResearchAssessment;
+  qualification: CompanyQualificationAssessment; consents: ProspectConsentSummary[];
+}
+
 export type WhatsAppOutboxStatus = "queued" | "sending" | "accepted" | "failed" | "submission_unknown" | "cancelled";
 export type WhatsAppProviderStatus = "" | "sent" | "delivered" | "read" | "failed";
 

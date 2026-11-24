@@ -11,6 +11,7 @@ import type {
   CreateOrganizationInput, Evidence, Lead, LeadSearchFilters, LeadStage, Organization,
   Page, RecordConsentInput, RequestApprovalInput, AgencyRole, ResearchAssessment,
   CompanyQualificationAssessment, QualificationProfile, ResearchDomain, UpdateQualificationProfileInput,
+  ProspectDossier, ProspectSearchItem, ProspectContactSummary,
   QueueWhatsAppTemplateInput, WhatsAppOutboxMessage, WhatsAppWebhookProcessResult,
 } from "./types.js";
 import { WhatsAppProviderError, type WhatsAppTemplateSender } from "./whatsapp-cloud.js";
@@ -226,6 +227,47 @@ export class AgencyService {
     const lead=this.store.getLead(organizationId,leadId);
     if (!lead) throw new AgencyError("NOT_FOUND","Lead not found");
     return lead;
+  }
+
+  /** Read-only prospect search with tenant checks inherited from the CRM query layer. */
+  searchProspects(organizationId: string, actorId: string, filters: LeadSearchFilters = {}) {
+    const page=this.searchLeads(organizationId,actorId,filters);
+    const items:ProspectSearchItem[]=page.items.flatMap(lead=>{
+      const company=this.store.getCompany(organizationId,lead.companyId);
+      if(!company)return [];
+      const contact=lead.contactId?this.store.getContact(organizationId,lead.contactId):undefined;
+      const contactSummary:ProspectContactSummary|undefined=contact
+        ? {id:contact.id,displayName:contact.displayName,role:contact.role,preferredChannel:contact.preferredChannel}
+        : undefined;
+      return [{lead,company,...(contactSummary?{contact:contactSummary}:{})}];
+    });
+    return {...page,items};
+  }
+
+  /** Build a source-linked dossier without exposing raw consent proof or direct contact coordinates. */
+  getProspectDossier(organizationId: string, actorId: string, leadId: string): ProspectDossier {
+    const lead=this.getLead(organizationId,actorId,requiredText(leadId,"leadId",100));
+    const company=this.getCompany(organizationId,actorId,lead.companyId);
+    const contact=lead.contactId?this.store.getContact(organizationId,lead.contactId):undefined;
+    const contactSummary:ProspectContactSummary|undefined=contact
+      ? {id:contact.id,displayName:contact.displayName,role:contact.role,preferredChannel:contact.preferredChannel}
+      : undefined;
+    const allEvidence=this.listEvidence(organizationId,actorId,company.id);
+    const consents=contact
+      ? this.listConsents(organizationId,actorId,contact.id).map(record=>({
+          id:record.id,channel:record.channel,purpose:record.purpose,status:record.status,
+          source:record.source,textVersion:record.textVersion,expiresAt:record.expiresAt,
+          createdAt:record.createdAt,proofRecorded:!!record.proof.trim(),
+        }))
+      : [];
+    return {
+      lead,company,
+      ...(contactSummary?{contact:contactSummary}:{}),
+      evidence:allEvidence.slice(0,30).map(item=>({...item,summary:item.summary.slice(0,1600)})),
+      research:this.assessCompanyResearch(organizationId,actorId,company.id),
+      qualification:this.assessCompanyQualification(organizationId,actorId,company.id),
+      consents,
+    };
   }
 
   transitionLead(organizationId: string, actorId: string, leadId: string, nextStage: LeadStage): Lead {
