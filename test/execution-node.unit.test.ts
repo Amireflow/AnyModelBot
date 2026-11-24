@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Store } from "../src/store/db.js";
 import { LocalExecutionNode, localTaskId, shouldEmitTaskUpdate, validateControlPlaneUrl } from "../src/execution-node/service.js";
 
@@ -67,4 +67,80 @@ describe("LocalExecutionNode", () => {
     expect(localTaskId("node-1", "job-123")).not.toBe(localTaskId("node-2", "job-123"));
     expect(localTaskId("node-1", "../Downloads")).toMatch(/^t_[a-f0-9]{12}$/);
   });
+
+  it("accepts a remote answer only for the matching pending FlowAuto question", () => {
+    store = new Store(":memory:");
+    const answerText = vi.fn(() => true);
+    const approvals = { listen: () => () => {}, decide: () => true, answerText, sweep: () => {} };
+    const node = new LocalExecutionNode({
+      store, tasks: {} as never, approvals: approvals as never,
+      workspace: () => "/tmp/workspace", env: { AMB_EXECUTION_BOT_ID: "flow-bot" },
+    });
+    const internal = node as unknown as {
+      db: Store["db"];
+      send(value: Record<string, unknown>): void;
+      applyRemoteQuestionAnswer(value: Record<string, unknown>): void;
+    };
+    internal.db.prepare(
+      "INSERT INTO execution_node_tasks(remote_task_id,local_task_id,status,created_at,updated_at) VALUES(?,?,?,?,?)",
+    ).run("remote-task-1", "local-task-1", "needs_you", Date.now(), Date.now());
+    const question = {
+      id: "question-1", kind: "question", status: "pending", tool: "task_report",
+      blocking: false, botId: "flow-bot", taskId: "local-task-1",
+    };
+    vi.spyOn(store, "getApproval").mockReturnValue(question as never);
+    const sent: Record<string, unknown>[] = [];
+    internal.send = (message) => sent.push(message);
+
+    internal.applyRemoteQuestionAnswer({
+      task_id: "remote-task-1", question_id: "question-1", answer: "Keep the video local",
+    });
+
+    expect(answerText).toHaveBeenCalledWith("question-1", "Keep the video local", "control-plane");
+    expect(sent.at(-1)).toMatchObject({
+      type: "task.question.answer_ack", task_id: "remote-task-1", question_id: "question-1", applied: true,
+    });
+  });
+
+  it("rejects remote answers for stale, foreign or mismatched questions", () => {
+    store = new Store(":memory:");
+    const answerText = vi.fn(() => true);
+    const approvals = { listen: () => () => {}, decide: () => true, answerText, sweep: () => {} };
+    const node = new LocalExecutionNode({
+      store, tasks: {} as never, approvals: approvals as never,
+      workspace: () => "/tmp/workspace", env: { AMB_EXECUTION_BOT_ID: "flow-bot" },
+    });
+    const internal = node as unknown as {
+      db: Store["db"];
+      send(value: Record<string, unknown>): void;
+      applyRemoteQuestionAnswer(value: Record<string, unknown>): void;
+    };
+    internal.db.prepare(
+      "INSERT INTO execution_node_tasks(remote_task_id,local_task_id,status,created_at,updated_at) VALUES(?,?,?,?,?)",
+    ).run("remote-task-1", "local-task-1", "needs_you", Date.now(), Date.now());
+    const base = {
+      id: "question-1", kind: "question", status: "pending", tool: "task_report",
+      blocking: false, botId: "flow-bot", taskId: "local-task-1",
+    };
+    const getApproval = vi.spyOn(store, "getApproval");
+    const sent: Record<string, unknown>[] = [];
+    internal.send = (message) => sent.push(message);
+    const frame = { task_id: "remote-task-1", question_id: "question-1", answer: "Publish" };
+
+    getApproval.mockReturnValue({ ...base, botId: "another-bot" } as never);
+    internal.applyRemoteQuestionAnswer(frame);
+    expect(answerText).not.toHaveBeenCalled();
+    expect(sent.at(-1)).toMatchObject({ type: "task.question.answer_ack", applied: false });
+
+    getApproval.mockReturnValue({ ...base, status: "answered" } as never);
+    internal.applyRemoteQuestionAnswer(frame);
+    expect(answerText).not.toHaveBeenCalled();
+    expect(sent.at(-1)).toMatchObject({ type: "task.question.answer_ack", applied: false });
+
+    getApproval.mockReturnValue(base as never);
+    internal.applyRemoteQuestionAnswer({ ...frame, task_id: "unknown-remote-task" });
+    expect(answerText).not.toHaveBeenCalled();
+    expect(sent.at(-1)).toMatchObject({ type: "task.question.answer_ack", applied: false });
+  });
+
 });
