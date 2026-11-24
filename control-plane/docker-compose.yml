@@ -1,0 +1,23 @@
+services:
+  control-plane:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "8787"
+      HOST: "0.0.0.0"
+      AMB_CP_DB: /data/control-plane.sqlite
+      AMB_CP_TRUST_PROXY: "1"
+      AMB_CP_ADMIN_TOKEN: ${AMB_CP_ADMIN_TOKEN:?Set a strong admin token in the deployment environment}
+      AMB_CP_NODE_TOKEN: ${AMB_CP_NODE_TOKEN:?Set a separate strong node token in the deployment environment}
+    volumes:
+      - ./data:/data
+    expose:
+      - "8787"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

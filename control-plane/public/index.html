@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>FlowAuto Control Plane</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">AMIREFLOW · LOCAL EXECUTION</p>
+      <h1>FlowAuto Control Plane</h1>
+      <p class="muted">Orchestration sécurisée du poste de travail.</p>
+    </div>
+    <div class="connection">
+      <span id="connection-dot" class="dot"></span>
+      <span id="connection-label">Non authentifié</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel auth-panel">
+      <div class="section-heading">
+        <div><p class="eyebrow">ACCÈS ADMINISTRATEUR</p><h2>Connexion</h2></div>
+        <span class="pill">Token mémoire uniquement</span>
+      </div>
+      <form id="auth-form" class="auth-form">
+        <label for="admin-token">Admin token</label>
+        <input id="admin-token" type="password" autocomplete="off" placeholder="Coller le token administrateur" required>
+        <button class="primary" type="submit">Connecter</button>
+        <button class="secondary" id="logout" type="button">Déconnecter</button>
+      </form>
+      <p id="auth-message" class="hint">Le token n'est pas sauvegardé dans le navigateur. Il sera perdu à l'actualisation.</p>
+    </section>
+
+    <section class="grid">
+      <section class="panel">
+        <div class="section-heading">
+          <div><p class="eyebrow">POSTES APPARIÉS</p><h2>Machines</h2></div>
+          <button class="secondary small" id="refresh" type="button">Actualiser</button>
+        </div>
+        <div id="nodes" class="stack empty">Connecte un poste local pour le voir ici.</div>
+      </section>
+
+      <section class="panel">
+        <div class="section-heading">
+          <div><p class="eyebrow">NOUVELLE EXÉCUTION</p><h2>Créer une tâche FlowAuto</h2></div>
+        </div>
+        <form id="task-form" class="task-form">
+          <label for="node-id">Poste cible</label>
+          <select id="node-id" required><option value="">Aucun poste connecté</option></select>
+          <label for="task-title">Titre</label>
+          <input id="task-title" maxlength="60" placeholder="Ex. Générer les visuels" required>
+          <label for="task-instruction">Instruction (500 caractères maximum)</label>
+          <textarea id="task-instruction" maxlength="500" rows="5" placeholder="Décris le résultat attendu dans FlowAuto / Google Flow." required></textarea>
+          <button class="primary" type="submit">Envoyer la tâche</button>
+          <p class="hint">Le poste reste maître de l'exécution. Les actions de saisie et de clic demandent une approbation locale.</p>
+          <p id="task-message" class="hint"></p>
+        </form>
+      </section>
+    </section>
+
+    <section class="panel">
+      <div class="section-heading">
+        <div><p class="eyebrow">FILE PERSISTANTE</p><h2>Tâches récentes</h2></div>
+        <span id="task-count" class="pill">0 tâche</span>
+      </div>
+      <div id="tasks" class="task-list empty">Aucune tâche pour le moment.</div>
+    </section>
+  </main>
+
+  <footer><span>Control Plane v1</span><span>Les secrets du poste ne transitent jamais dans les demandes de tâche.</span></footer>
+</body>
+</html>
