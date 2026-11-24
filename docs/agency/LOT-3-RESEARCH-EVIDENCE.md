@@ -30,26 +30,28 @@ Ce score mesure la complétude et la qualité documentaire. Ce n'est ni une prob
 
 Le CRM réutilise maintenant l'instance catalogue `cat-company-research` si elle est déjà installée :
 
-- GET /amb/api/agency/:orgId/companies/:companyId/research/jobs liste les tâches terminées non issues des exemples dont le nom ou le domaine correspond à l'entreprise CRM ;
-- POST /amb/api/agency/:orgId/companies/:companyId/research/import importe les sources d'une tâche sélectionnée ;
+- POST /amb/api/agency/:orgId/companies/:companyId/research/start lance une recherche complète dans la conversation web de l'instance installée ;
+- GET /amb/api/agency/:orgId/companies/:companyId/research/jobs liste les tâches actives et terminées non issues des exemples dont le nom ou le domaine correspond à l'entreprise CRM, avec statut/progression ;
+- POST /amb/api/agency/:orgId/companies/:companyId/research/import importe les sources d'une tâche terminée sélectionnée ;
+- l'interface actualise automatiquement les statuts ; les tâches actives sont vérifiées dans tout le workspace partagé, les lancements concurrents sont refusés et une tâche sans mise à jour depuis 30 minutes ne bloque plus un nouveau lancement ;
 - les données sont lues depuis `workspaces/<botId>/app/state.json` et `app/jobs/<jobId>/sources.json`, sans API réseau ni copie des rapports complets ;
 - seules les sources marquées comme utilisées dans le rapport sont importées ; les références inutilisées sont comptabilisées séparément ;
 - les chemins sont confinés au workspace du bot, les liens symboliques et fichiers anormaux sont refusés, et les tailles/listes sont plafonnées ;
 - l'import conserve le titre et le lien de la source, l'identifiant du job et le domaine. Le score de pertinence produit par Company Research reste une pertinence et n'est pas transformé en confiance documentaire ;
 - une empreinte par entreprise et URL déduplique les réimports ; un événement d'audit enregistre le job et les compteurs.
 
-Le CRM ne lance pas encore une recherche directement dans Company Research. L'utilisateur doit d'abord terminer une recherche dans ce bot, puis sélectionner son rapport dans le détail de l'entreprise. Les rapports et sources ne sont pas déplacés ou copiés vers le workspace Agency.
+Le CRM peut lancer la recherche, mais le traitement est exécuté par l'instance Company Research et son runtime AnyModelBot ; les rapports doivent atteindre le statut completed avant l'import. Les rapports et sources ne sont pas déplacés ou copiés vers le workspace Agency.
 
-La recherche web automatisée dans le parcours commercial, la configuration de fournisseurs, le cache, les limites de débit, les budgets, le lancement de recherche depuis le CRM et le scoring d'adéquation commerciale ne sont pas déclarés livrés par ce lot.
+La recherche web automatisée de prospection, la configuration de fournisseurs, le cache, les limites de débit, les budgets et le scoring d'adéquation commerciale ne sont pas déclarés livrés par ce lot.
 
 ## Limites de l'import
 
-Le fichier `sources.json` n'expose pas nécessairement un résumé factuel de chaque article. L'import crée donc une référence de source traçable, pas une affirmation issue du contenu de l'article. La confiance reste à 0,5 (valeur neutre) et le score de pertinence est conservé dans le résumé comme indicateur distinct. Les résumés factuels devront être importés depuis les fichiers de recherche de domaine dans une étape dédiée.
+Le fichier `sources.json` n'expose pas nécessairement un résumé factuel de chaque article. L'import crée donc une référence de source traçable, pas une affirmation issue du contenu de l'article. La confiance reste à 0,5 (valeur neutre) et le score de pertinence est conservé dans le résumé comme indicateur distinct. Comme l'export sources.json ne fournit pas de date de publication, la date observée importée reste inconnue (0) : ces références ne sont pas artificiellement comptées comme fraîches. Les résumés factuels devront être importés depuis les fichiers de recherche de domaine dans une étape dédiée.
 
 ## Validation à effectuer
 
 - tests du calcul versionné, des catégories, des sources, de la fraîcheur et de la confiance ;
 - tests des chemins de workspace, tâches terminées, rapports d'exemple, correspondance d'entreprise et URLs non HTTP ;
 - tests d'idempotence de l'import, de la séparation score de pertinence / confiance et de l'audit ;
-- tests des routes de liste/import et du contrôle d'accès ;
+- tests des routes de lancement/liste/import, du verrou de concurrence et du contrôle d'accès ;
 - typecheck, tests unitaires, build et workflow CI.

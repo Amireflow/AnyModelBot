@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   CompanyResearchImportError,
+  findActiveCompanyResearchJob,
   listCompanyResearchJobs,
   loadCompanyResearchSources,
 } from "../src/agency/company-research-import.js";
@@ -29,6 +30,8 @@ describe("Company Research workspace importer", () => {
     const state = {
       jobs: [
         { id: jobId, company: "Acme Inc.", companyUrl: "https://acme.example", status: "completed", updatedAt: "2026-11-24T10:00:00Z", sourcesPath: "app/jobs/" + jobId + "/sources.json" },
+        { id: "job-running-acme", company: "Acme Inc.", status: "researching", progress: 45, currentStep: "news_scanner", updatedAt: "2026-11-24T11:00:00Z" },
+        { id: "job-running-other", company: "Other Company", status: "researching", progress: 20, updatedAt: "2026-11-24T11:15:00Z" },
         { id: "job-sample-acme", company: "Acme Inc.", status: "completed", sample: true },
         { id: "job-failed-acme", company: "Acme Inc.", status: "failed" },
         { id: "job-completed-other", company: "Other Company", status: "completed" },
@@ -45,14 +48,50 @@ describe("Company Research workspace importer", () => {
 
   afterEach(() => fs.rmSync(dataDir, { recursive: true, force: true }));
 
-  it("lists only completed, non-sample jobs matching the CRM company", () => {
-    expect(listCompanyResearchJobs(dataDir, botId, company)).toEqual([{
-      id: jobId, company: "Acme Inc.", companyUrl: "https://acme.example",
-      updatedAt: "2026-11-24T10:00:00Z", sourceCount: 1,
-    }]);
+  it("lists active, completed and failed non-sample jobs matching the CRM company", () => {
+    expect(listCompanyResearchJobs(dataDir, botId, company)).toEqual([
+      {
+        id: "job-running-acme", company: "Acme Inc.",
+        updatedAt: "2026-11-24T11:00:00Z", sourceCount: 0,
+        status: "researching", progress: 45, currentStep: "news_scanner",
+      },
+      {
+        id: jobId, company: "Acme Inc.", companyUrl: "https://acme.example",
+        updatedAt: "2026-11-24T10:00:00Z", sourceCount: 1,
+        status: "completed", progress: 100,
+      },
+      {
+        id: "job-failed-acme", company: "Acme Inc.",
+        sourceCount: 0, status: "failed", progress: 0,
+      },
+    ]);
   });
 
-  it("loads only valid HTTP sources and preserves report relevance separately from confidence", () => {
+
+
+  it("can enumerate the shared workspace jobs across companies for concurrency checks", () => {
+    const jobs = listCompanyResearchJobs(dataDir, botId);
+    expect(jobs.map(job => job.id)).toContain("job-running-other");
+    expect(jobs.find(job => job.id === "job-running-other")).toMatchObject({
+      company: "Other Company", status: "researching", progress: 20,
+    });
+  });
+
+  it("finds a recent active job for any company in the shared workspace", () => {
+    expect(findActiveCompanyResearchJob(dataDir, botId, Date.parse("2026-11-24T11:32:00Z"))).toMatchObject({
+      id: "job-running-other", company: "Other Company", status: "researching", progress: 20,
+    });
+  });
+
+  it("does not treat an active job with a stale progress timestamp as a workspace lock", () => {
+    expect(findActiveCompanyResearchJob(dataDir, botId, Date.parse("2026-11-24T12:00:00Z"))).toBeUndefined();
+  });
+
+  it("returns an empty job list when the Company Research bot has just been installed", () => {
+    fs.rmSync(path.join(appRoot, "jobs"), { recursive: true, force: true });
+    expect(listCompanyResearchJobs(dataDir, botId, company)).toEqual([]);
+  });
+\n  it("loads only valid HTTP sources and preserves report relevance separately from confidence", () => {
     const loaded = loadCompanyResearchSources(dataDir, botId, company, jobId);
     expect(loaded.job.id).toBe(jobId);
     expect(loaded.sources).toHaveLength(2);

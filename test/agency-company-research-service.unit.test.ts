@@ -33,9 +33,11 @@ describe("Company Research source import into Agency CRM", () => {
     expect(evidence[0]).toMatchObject({
       evidenceType: "company_research_financial",
       confidence: 0.5,
+      observedAt: 0,
       sourceUrl: "https://example.com/report?utm_source=research#section",
     });
     expect(evidence[0].summary).toContain("not a source-confidence score");
+    expect(evidence[0].summary).toContain("Publication date was not included");
 
     const second = service.importCompanyResearchSources(organizationId, "owner", companyId, "job-two", [
       { url: "https://example.com/report", title: "Annual report", domain: "financial", score: 0.94, used: true },

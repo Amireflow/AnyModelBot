@@ -9,6 +9,12 @@ const blankCompany={name:"",website:"",industry:"",countryCode:"SN",city:""};
 const blankLead={companyId:"",source:"",notes:""};
 const blankContact={displayName:"",role:"",email:"",phone:""};
 const blankEvidence={evidenceType:"company",sourceUrl:"",summary:"",confidence:"0.7"};
+const ACTIVE_RESEARCH=new Set(["pending","grounding","researching","collecting","curating","enriching","briefing","editing"]);
+const isActiveResearch=job=>{
+  if(!ACTIVE_RESEARCH.has(job.status))return false;
+  const updated=job.updatedAt?Date.parse(job.updatedAt):Number.NaN;
+  return !Number.isFinite(updated)||Date.now()-updated<30*60_000;
+};
 const enc=encodeURIComponent;
 const qs=(o)=>new URLSearchParams(Object.entries(o).filter(([,v])=>v!==""&&v!==undefined&&v!==null).map(([k,v])=>[k,String(v)])).toString();
 const storedOrg=()=>{try{return localStorage.getItem("amb-agency-org")||"";}catch{return "";}};
@@ -41,6 +47,7 @@ export function AgencyScreen() {
   const [contacts,setContacts]=useState([]);
   const [research,setResearch]=useState({items:[],assessment:null});
   const [researchJobs,setResearchJobs]=useState([]);
+  const [researchLaunch,setResearchLaunch]=useState(null);
   const [researchJobId,setResearchJobId]=useState("");
   const [researchImportMessage,setResearchImportMessage]=useState("");
   const [evidenceForm,setEvidenceForm]=useState(false);
@@ -100,19 +107,25 @@ export function AgencyScreen() {
   },[orgId,selected,revision,lang]);
 
   useEffect(()=>{
-    if(!orgId||!selected){setResearch({items:[],assessment:null});setResearchJobs([]);setResearchJobId("");return;}
+    if(!orgId||!selected){setResearch({items:[],assessment:null});setResearchJobs([]);setResearchLaunch(null);setResearchJobId("");return;}
     let live=true;
-    api("/agency/"+enc(orgId)+"/companies/"+enc(selected)+"/evidence")
-      .then(d=>live&&setResearch(d)).catch(e=>live&&setError(e.message));
-    api("/agency/"+enc(orgId)+"/companies/"+enc(selected)+"/research/jobs")
-      .then(d=>{
-        if(!live)return;
-        const jobs=d.items||[];
-        setResearchJobs(jobs);
-        setResearchJobId(current=>jobs.some(j=>j.id===current)?current:(jobs[0]?.id||""));
-      })
-      .catch(()=>live&&setResearchJobs([]));
-    return ()=>{live=false;};
+    const refresh=()=>{
+      api("/agency/"+enc(orgId)+"/companies/"+enc(selected)+"/evidence")
+        .then(d=>live&&setResearch(d)).catch(e=>live&&setError(e.message));
+      api("/agency/"+enc(orgId)+"/companies/"+enc(selected)+"/research/jobs")
+        .then(d=>{
+          if(!live)return;
+          const jobs=d.items||[];
+          const completed=jobs.filter(j=>j.status==="completed");
+          setResearchJobs(jobs);
+          setResearchLaunch(d.launch||null);
+          setResearchJobId(current=>completed.some(j=>j.id===current)?current:(completed[0]?.id||""));
+        })
+        .catch(()=>live&&setResearchJobs([]));
+    };
+    refresh();
+    const timer=setInterval(refresh,8000);
+    return ()=>{live=false;clearInterval(timer);};
   },[orgId,selected,revision,lang]);
 
   useEffect(()=>{setResearchImportMessage("");},[orgId,selected]);
@@ -155,6 +168,17 @@ export function AgencyScreen() {
       setEvidenceDraft(blankEvidence);setEvidenceForm(false);setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
+  const startResearch=async()=>{
+    if(!selected||researchJobs.some(isActiveResearch)||researchLaunchActive)return;
+    setBusy("research-start");setError("");setResearchImportMessage("");
+    try{
+      const started=await api("/agency/"+enc(orgId)+"/companies/"+enc(selected)+"/research/start",{
+        method:"POST",body:{}
+      });
+      setResearchLaunch({turnId:started.turnId,status:"running"});
+      setResearchImportMessage(t("agency.researchStarted"));
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
   const importResearch=async()=>{
     if(!researchJobId||!selected)return;
     setBusy("research-import");setError("");setResearchImportMessage("");
@@ -168,6 +192,12 @@ export function AgencyScreen() {
       setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
+  const activeResearchJobs=researchJobs.filter(isActiveResearch);
+  const launchUpdated=researchLaunch?.updatedAt?Date.parse(researchLaunch.updatedAt):Number.NaN;
+  const researchLaunchActive=researchLaunch?.status==="running"&&(!Number.isFinite(launchUpdated)||Date.now()-launchUpdated<30*60_000);
+  const stalledResearchJobs=researchJobs.filter(job=>ACTIVE_RESEARCH.has(job.status)&&!isActiveResearch(job));
+  const failedResearchJobs=researchJobs.filter(job=>job.status==="failed"||job.status==="cancelled");
+  const completedResearchJobs=researchJobs.filter(job=>job.status==="completed");
   const selectedCompany=(tab==="companies"?(rows.items||[]).find(x=>x.id===selected):null);
   const totalPages=Math.max(1,Math.ceil((rows.total||0)/SIZE));
 
@@ -231,8 +261,13 @@ export function AgencyScreen() {
 
           ${!contacts.length&&html`<p class="agency-muted">${t("agency.noContacts")}</p>`}
           <section class="agency-research">
-            <div class="agency-contact-heading"><h3>${t("agency.researchImportTitle")}</h3></div>
-            ${researchJobs.length?html`<div class="agency-research-import"><label class="agency-field"><span>${t("agency.chooseResearchJob")}</span><select class="field" value=${researchJobId} onChange=${e=>setResearchJobId(e.currentTarget.value)}><option value="">—</option>${researchJobs.map(job=>html`<option value=${job.id}>${job.company} · ${job.sourceCount} ${t("agency.sources")} · ${job.id}</option>`)}</select></label><button class="btn" disabled=${!researchJobId||!!busy} onClick=${importResearch}>${busy==="research-import"?t("agency.importingResearch"):t("agency.importResearch")}</button></div>`:html`<p class="agency-muted">${t("agency.noResearchJobs")}</p>`}
+            <div class="agency-contact-heading"><h3>${t("agency.researchImportTitle")}</h3><button class="btn" disabled=${!!busy||activeResearchJobs.length>0||researchLaunchActive} onClick=${startResearch}>${busy==="research-start"?t("agency.startingResearch"):t("agency.startResearch")}</button></div>
+            ${activeResearchJobs.map(job=>html`<div class="agency-active-job"><div><strong>${t("agency.jobStatus."+job.status)}</strong><span class="num">${job.progress}%</span></div><div class="agency-job-progress"><i style=${{width:Math.max(0,Math.min(100,job.progress))+"%"}}></i></div><small>${job.currentStep||job.id}</small></div>`)}
+            ${stalledResearchJobs.map(job=>html`<div class="agency-research-stalled"><strong>${t("agency.researchStalled")}</strong><span>${job.company} · ${job.id}</span></div>`)}
+            ${failedResearchJobs.map(job=>html`<div class="agency-research-failed"><strong>${t("agency.jobStatus."+job.status)}</strong><span>${job.company} · ${job.id}</span></div>`)}
+            ${researchLaunch?.status==="failed"&&!failedResearchJobs.length&&html`<div class="agency-research-failed"><strong>${t("agency.researchLaunchFailed")}</strong></div>`}
+            ${researchLaunch?.status==="done"&&!activeResearchJobs.length&&!completedResearchJobs.length&&!failedResearchJobs.length&&html`<div class="agency-research-stalled"><strong>${t("agency.researchFinishedNoReport")}</strong></div>`}
+            ${completedResearchJobs.length?html`<div class="agency-research-import"><label class="agency-field"><span>${t("agency.chooseResearchJob")}</span><select class="field" value=${researchJobId} onChange=${e=>setResearchJobId(e.currentTarget.value)}><option value="">—</option>${completedResearchJobs.map(job=>html`<option value=${job.id}>${job.company} · ${job.sourceCount} ${t("agency.sources")} · ${job.id}</option>`)}</select></label><button class="btn" disabled=${!researchJobId||!!busy} onClick=${importResearch}>${busy==="research-import"?t("agency.importingResearch"):t("agency.importResearch")}</button></div>`:activeResearchJobs.length?null:html`<p class="agency-muted">${t("agency.noResearchJobs")}</p>`}
             ${researchImportMessage&&html`<p class="agency-research-feedback" role="status">${researchImportMessage}</p>`}
             <div class="agency-contact-heading"><h3>${t("agency.researchTitle")}</h3><button class="text" onClick=${()=>setEvidenceForm(v=>!v)}>${t("agency.addEvidence")}</button></div>
             ${research.assessment&&html`<div class="agency-research-score"><strong>${research.assessment.score}/100</strong><span>${t("agency.researchStatus."+research.assessment.status)}</span><small>${research.assessment.evidenceCount} ${t("agency.evidenceCount")} · ${research.assessment.distinctSourceHosts} ${t("agency.sources")}</small></div>`}
@@ -243,7 +278,7 @@ export function AgencyScreen() {
               <label class="agency-field"><span>${t("agency.evidenceSummary")}</span><textarea class="field" rows="3" required value=${evidenceDraft.summary} onInput=${e=>update(setEvidenceDraft,"summary",e.currentTarget.value)}></textarea></label>
               <button class="btn primary block" type="submit" disabled=${!!busy}>${busy==="evidence"?t("agency.creating"):t("agency.saveEvidence")}</button>
             </form>`}
-            ${(research.items||[]).map(item=>html`<article class="agency-evidence-row"><div><strong>${item.evidenceType}</strong><small>${Math.round(item.confidence*100)}% · ${new Date(item.observedAt).toLocaleDateString()}</small></div><a href=${item.sourceUrl} target="_blank" rel="noopener noreferrer">${item.sourceUrl}</a><p>${item.summary}</p></article>`)}
+            ${(research.items||[]).map(item=>html`<article class="agency-evidence-row"><div><strong>${item.evidenceType}</strong><small>${Math.round(item.confidence*100)}% · ${item.observedAt?new Date(item.observedAt).toLocaleDateString():t("agency.dateUnknown")}</small></div><a href=${item.sourceUrl} target="_blank" rel="noopener noreferrer">${item.sourceUrl}</a><p>${item.summary}</p></article>`)}
             ${!research.items?.length&&html`<p class="agency-muted">${t("agency.noEvidence")}</p>`}
           </section>
         </aside>`}

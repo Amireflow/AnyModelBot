@@ -8,6 +8,10 @@ export interface CompanyResearchJob {
   companyUrl?: string;
   updatedAt?: string;
   sourceCount: number;
+  status: "pending" | "grounding" | "researching" | "collecting" | "curating" | "enriching" | "briefing" | "editing" | "completed" | "failed" | "cancelled";
+  progress: number;
+  currentStep?: string;
+  error?: string;
 }
 
 export interface CompanyResearchSource {
@@ -111,11 +115,16 @@ function completedJobs(appRoot: string): { state: Record<string, unknown>; root:
     if (st.isSymbolicLink() || !st.isDirectory()) throw new Error("unsafe jobs directory");
     realJobsRoot = fs.realpathSync(jobsRoot);
     if (!inside(realJobsRoot, appRoot)) throw new Error("outside jobs directory");
-  } catch {
-    throw new CompanyResearchImportError("file_invalid", "Company Research jobs directory is missing or unsafe");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { state: state as Record<string, unknown>, root: jobsRoot, jobs: [] };
+    }
+    throw new CompanyResearchImportError("file_invalid", "Company Research jobs directory is unsafe");
   }
+  const validStatuses = new Set(["pending", "grounding", "researching", "collecting", "curating", "enriching", "briefing", "editing", "completed", "failed", "cancelled"]);
   const jobs = (state as any).jobs.filter((job: unknown): job is Record<string, unknown> =>
-    !!job && typeof job === "object" && !Array.isArray(job) && job.sample !== true && job.status === "completed" &&
+    !!job && typeof job === "object" && !Array.isArray(job) && job.sample !== true &&
+    typeof job.status === "string" && validStatuses.has(job.status) &&
     typeof job.id === "string" && JOB_ID.test(job.id),
   );
   return { state: state as Record<string, unknown>, root: realJobsRoot, jobs };
@@ -156,24 +165,56 @@ function loadSources(appRoot: string, jobsRoot: string, job: Record<string, unkn
   return sources;
 }
 
-export function listCompanyResearchJobs(dataDir: string, botId: string, company: Company): CompanyResearchJob[] {
+export function listCompanyResearchJobs(dataDir: string, botId: string, company?: Company): CompanyResearchJob[] {
   const appRoot = appRootOf(dataDir, botId);
   const found = completedJobs(appRoot);
-  return found.jobs.filter(job => matchesCompany(job, company)).flatMap(job => {
-    try {
-      const sources = loadSources(appRoot, found.root, job);
-      return [{
-        id: String(job.id),
-        company: String(job.company ?? ""),
-        ...(typeof job.companyUrl === "string" ? { companyUrl: job.companyUrl } : {}),
-        ...(typeof job.updatedAt === "string" ? { updatedAt: job.updatedAt } : {}),
-        sourceCount: sources.filter(source => source.used).length,
-      }];
-    } catch {
-      // A single damaged or incomplete report must not hide other usable reports.
-      return [];
+  return found.jobs.filter(job => !company || matchesCompany(job, company)).flatMap(job => {
+    let sourceCount = 0;
+    if (job.status === "completed") {
+      try {
+        const sources = loadSources(appRoot, found.root, job);
+        sourceCount = sources.filter(source => source.used).length;
+      } catch {
+        // Hide completed reports that have no verifiable report/source pair.
+        return [];
+      }
     }
+    return [{
+      id: String(job.id),
+      company: String(job.company ?? ""),
+      ...(typeof job.companyUrl === "string" ? { companyUrl: job.companyUrl } : {}),
+      ...(typeof job.updatedAt === "string" ? { updatedAt: job.updatedAt } : {}),
+      sourceCount,
+      status: job.status as CompanyResearchJob["status"],
+      progress: typeof job.progress === "number" && Number.isFinite(job.progress) ? Math.max(0, Math.min(100, job.progress)) : job.status === "completed" ? 100 : 0,
+      ...(typeof job.currentStep === "string" ? { currentStep: job.currentStep } : {}),
+      ...(typeof job.error === "string" ? { error: job.error.slice(0, 500) } : {}),
+    }];
   }).sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")));
+}
+
+export function findActiveCompanyResearchJob(dataDir: string, botId: string, now = Date.now()): CompanyResearchJob | undefined {
+  const appRoot = appRootOf(dataDir, botId);
+  const found = completedJobs(appRoot);
+  const activeStatuses = new Set(["pending", "grounding", "researching", "collecting", "curating", "enriching", "briefing", "editing"]);
+  const job = found.jobs.find(item => {
+    if (!activeStatuses.has(String(item.status))) return false;
+    const updatedAt = typeof item.updatedAt === "string" ? Date.parse(item.updatedAt) : Number.NaN;
+    // Unknown timestamps fail closed: don't start another job in a shared workspace.
+    return !Number.isFinite(updatedAt) || now - updatedAt < 30 * 60_000;
+  });
+  if (!job) return undefined;
+  return {
+    id: String(job.id),
+    company: String(job.company ?? ""),
+    ...(typeof job.companyUrl === "string" ? { companyUrl: job.companyUrl } : {}),
+    ...(typeof job.updatedAt === "string" ? { updatedAt: job.updatedAt } : {}),
+    sourceCount: 0,
+    status: job.status as CompanyResearchJob["status"],
+    progress: typeof job.progress === "number" && Number.isFinite(job.progress) ? Math.max(0, Math.min(100, job.progress)) : 0,
+    ...(typeof job.currentStep === "string" ? { currentStep: job.currentStep } : {}),
+    ...(typeof job.error === "string" ? { error: job.error.slice(0, 500) } : {}),
+  };
 }
 
 export function loadCompanyResearchSources(dataDir: string, botId: string, company: Company, jobId: string): { job: CompanyResearchJob; sources: CompanyResearchSource[] } {
@@ -191,6 +232,8 @@ export function loadCompanyResearchSources(dataDir: string, botId: string, compa
       ...(typeof rawJob.companyUrl === "string" ? { companyUrl: rawJob.companyUrl } : {}),
       ...(typeof rawJob.updatedAt === "string" ? { updatedAt: rawJob.updatedAt } : {}),
       sourceCount: sources.filter(source => source.used).length,
+      status: "completed",
+      progress: 100,
     },
     sources,
   };

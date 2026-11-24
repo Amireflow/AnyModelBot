@@ -301,8 +301,8 @@ export class AgencyService {
           id:this.id(),organizationId,companyId,leadId:"",
           evidenceType:"company_research_"+domain,
           sourceUrl,
-          summary:"Source reference imported from Company Research job "+job+". Title: "+title+". The report marked this source as cited."+relevance,
-          contentHash,confidence:0.5,observedAt:now,collectedAt:now,
+          summary:"Source reference imported from Company Research job "+job+". Title: "+title+". The report marked this source as cited. Publication date was not included in the source export."+relevance,
+          contentHash,confidence:0.5,observedAt:0,collectedAt:now,
         };
         this.store.insertEvidence(evidence);
         imported++;

@@ -6,7 +6,7 @@ import { Readable } from "node:stream";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { AgencyService, AgencyStore } from "../src/agency/index.js";
 import { agencyRoutes } from "../src/web/routes/agency.js";
-import type { WebContext } from "../src/web/http.js";
+import { HttpError, type WebContext } from "../src/web/http.js";
 
 describe("Agency Company Research import HTTP routes", () => {
   let dataDir: string;
@@ -15,8 +15,12 @@ describe("Agency Company Research import HTTP routes", () => {
   let route: ReturnType<typeof agencyRoutes>;
   let orgId: string;
   let companyId: string;
+  let researchPrompt = "";
+  let researchRunCalls = 0;
 
   beforeEach(() => {
+    researchPrompt = "";
+    researchRunCalls = 0;
     dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "agency-research-http-"));
     const appRoot = path.join(dataDir, "workspaces", "cat-company-research", "app");
     const jobId = "job-20261124-acme";
@@ -48,6 +52,9 @@ describe("Agency Company Research import HTTP routes", () => {
     const context = {
       app: {
         config: { dataDir },
+        agent: { available: true },
+        runtime: { busyBots: () => [] },
+        tasks: { busy: () => false },
         store: {
           getBot: (id: string) => id === "cat-company-research"
             ? { id, origin: "catalog", app: { catalogId: "company-research" } }
@@ -55,6 +62,12 @@ describe("Agency Company Research import HTTP routes", () => {
         },
       },
       agency: service,
+      startLive: (_botId: string, text: string) => ({ id: "research-turn", done: false, text, subscribe: () => () => undefined }),
+      runLive: async (_turn: unknown, event: { parts: Array<{ text?: string }> }) => {
+        researchRunCalls++;
+        researchPrompt = event.parts.map(part => part.text || "").join("\n");
+      },
+      live: { bots: () => [], end: () => undefined },
     } as unknown as WebContext;
     route = agencyRoutes(context);
   });
@@ -77,9 +90,49 @@ describe("Agency Company Research import HTTP routes", () => {
       end(payload?: string) { this.payload = String(payload ?? ""); return this; },
     } as unknown as ServerResponse & { status: number; payload: string };
     const segments = pathname.split("/").filter(Boolean);
-    await route(request, response, new URL("http://localhost/amb/api" + pathname), segments, pathname, method);
+    try {
+      await route(request, response, new URL("http://localhost/amb/api" + pathname), segments, pathname, method);
+    } catch (error) {
+      if (!(error instanceof HttpError)) throw error;
+      response.writeHead(error.status);
+      response.end(JSON.stringify({ error: error.message }));
+    }
     return { status: response.status, body: response.payload ? JSON.parse(response.payload) : null };
   }
+
+
+
+  it("blocks starting a second company research job in the shared workspace", async () => {
+    const statePath = path.join(dataDir, "workspaces", "cat-company-research", "app", "state.json");
+    const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    state.jobs.push({
+      id: "job-active-other-company",
+      company: "Another Company",
+      status: "researching",
+      progress: 35,
+      updatedAt: new Date().toISOString(),
+    });
+    fs.writeFileSync(statePath, JSON.stringify(state));
+
+    const pathname = "/agency/" + orgId + "/companies/" + companyId + "/research/start";
+    const started = await invoke("POST", pathname, {});
+    expect(started.status).toBe(409);
+    expect(started.body.error).toContain("active job");
+    expect(researchRunCalls).toBe(0);
+  });
+
+  it("starts a full research run in the installed Company Research bot conversation", async () => {
+    const pathname = "/agency/" + orgId + "/companies/" + companyId + "/research/start";
+    const started = await invoke("POST", pathname, {});
+    expect(started.status).toBe(202);
+    expect(started.body).toMatchObject({
+      accepted: true, turnId: "research-turn", companyId, botId: "cat-company-research",
+    });
+    expect(researchRunCalls).toBe(1);
+    expect(researchPrompt).toContain("Acme Inc.");
+    expect(researchPrompt).toContain("https://acme.example/");
+    expect(researchPrompt).toContain("full Company Research workflow");
+  });
 
   it("lists completed jobs and imports a report into the selected company", async () => {
     const base = "/agency/" + orgId + "/companies/" + companyId + "/research";
