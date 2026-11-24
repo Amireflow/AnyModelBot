@@ -1,6 +1,9 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Store } from "../src/store/db.js";
-import { LocalExecutionNode, buildFlowAutoBrief, localTaskId, shouldEmitTaskUpdate, validateControlPlaneUrl } from "../src/execution-node/service.js";
+import { LocalExecutionNode, buildFlowAutoBrief, collectRemoteArtifacts, localTaskId, shouldEmitTaskUpdate, validateControlPlaneUrl } from "../src/execution-node/service.js";
 
 describe("LocalExecutionNode", () => {
   let store: Store | undefined;
@@ -133,6 +136,40 @@ describe("LocalExecutionNode", () => {
     expect(brief).toContain("task_report(needs_you)");
     expect(brief).toContain("save only in this bot's workspace");
     expect(brief.length).toBeLessThanOrEqual(1_500);
+  });
+
+  it("exports only real workspace files with relative paths and bounded metadata", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "amb-remote-artifacts-"));
+    const taskFolder = path.join(root, "tasks", "render");
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "amb-outside-"));
+    try {
+      fs.mkdirSync(taskFolder, { recursive: true });
+      fs.writeFileSync(path.join(taskFolder, "final.mp4"), Buffer.alloc(1_024));
+      fs.writeFileSync(path.join(root, "preview.png"), Buffer.from("png"));
+      fs.writeFileSync(path.join(outside, "private.txt"), "must not leave workspace");
+      fs.symlinkSync(path.join(outside, "private.txt"), path.join(taskFolder, "private.txt"));
+
+      const artifacts = collectRemoteArtifacts(root, taskFolder, [
+        "final.mp4", path.join(root, "preview.png"), path.join(outside, "private.txt"),
+        "missing.mp4", "private.txt",
+      ]);
+
+      expect(artifacts).toEqual([
+        { path: "tasks/render/final.mp4", size: 1_024, kind: "video" },
+        { path: "preview.png", size: 3, kind: "image" },
+      ]);
+      expect(artifacts.every((item) => !path.isAbsolute(item.path))).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("replays task updates when only the verified artifact manifest changes", () => {
+    const before = { status: "running" as const, summary: "Rendering", artifacts: "[]" };
+    const after = { status: "running" as const, summary: "Rendering", artifacts: '[{"path":"tasks/render/final.mp4"}]' };
+    expect(shouldEmitTaskUpdate(before, after)).toBe(true);
+    expect(shouldEmitTaskUpdate(before, before)).toBe(false);
   });
 
   it("allows only TLS Control Plane URLs except loopback development", () => {

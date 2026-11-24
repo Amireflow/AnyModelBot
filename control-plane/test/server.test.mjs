@@ -117,6 +117,54 @@ test("authenticated node receives persisted FlowAuto tasks and reports status", 
   assert.equal(tasks.tasks.find((item) => item.id === taskId).status, "running");
 });
 
+test("task updates persist only safe relative artifact metadata", async (t) => {
+  const s = await setup();
+  let node;
+  t.after(async () => { try { node?.ws.close(); } catch {} await s.close(); });
+  node = await connectNode(s.wsUrl, "artifact-node");
+  await waitFor(async () => {
+    const data = await (await request(s.base, "/api/v1/nodes")).json();
+    return data.nodes.length === 1 ? data : undefined;
+  });
+  const created = await request(s.base, "/api/v1/tasks", ADMIN, {
+    method: "POST",
+    body: JSON.stringify({ node_id: "artifact-node", kind: "flowauto", title: "Artifact test", instruction: "Create one video." }),
+  });
+  assert.equal(created.status, 201);
+  const taskId = (await created.json()).task.id;
+  await waitFor(() => node.messages.find((m) => m.type === "task.submit" && m.task?.id === taskId));
+  node.ws.send(JSON.stringify({ type: "task.accepted", task_id: taskId, local_task_id: "t_artifact" }));
+  await waitFor(async () => {
+    const data = await (await request(s.base, "/api/v1/tasks")).json();
+    return data.tasks.find((item) => item.id === taskId)?.status === "accepted";
+  });
+
+  node.ws.send(JSON.stringify({
+    type: "task.update",
+    task_id: taskId,
+    local_task_id: "t_artifact",
+    status: "running",
+    summary: "Video vérifiée.",
+    artifacts: [
+      { path: "tasks/render/final.mp4", size: 2048, kind: "video" },
+      { path: "../private.txt", size: 20, kind: "document" },
+      { path: "/Users/example/.ssh/id_ed25519", size: 500, kind: "file" },
+      { path: "tasks/render/invalid.mp4", size: "2048", kind: "video" },
+      { path: "tasks/render/duplicate.mp4", size: 100, kind: "video" },
+      { path: "tasks/render/duplicate.mp4", size: 100, kind: "video" },
+    ],
+  }));
+  const task = await waitFor(async () => {
+    const data = await (await request(s.base, "/api/v1/tasks")).json();
+    const row = data.tasks.find((item) => item.id === taskId);
+    return row?.artifacts?.length ? row : undefined;
+  });
+  assert.deepEqual(task.artifacts, [
+    { path: "tasks/render/final.mp4", size: 2048, kind: "video" },
+    { path: "tasks/render/duplicate.mp4", size: 100, kind: "video" },
+  ]);
+});
+
 test("remote Computer Use approvals can be reviewed and relayed to the workstation", async (t) => {
   const s=await setup();let node;t.after(async()=>{try{node?.ws.close();}catch{}await s.close();});
   node=await connectNode(s.wsUrl,"approval-node");

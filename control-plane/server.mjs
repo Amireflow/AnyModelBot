@@ -98,6 +98,7 @@ function initDatabase(db) {
       instruction TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'queued',
       summary TEXT NOT NULL DEFAULT '',
+      artifacts TEXT NOT NULL DEFAULT '[]',
       local_task_id TEXT NOT NULL DEFAULT '',
       cancel_requested INTEGER NOT NULL DEFAULT 0,
       last_dispatch_at INTEGER NOT NULL DEFAULT 0,
@@ -125,6 +126,8 @@ function initDatabase(db) {
     );
     CREATE INDEX IF NOT EXISTS events_created ON events(created_at);
   `);
+  const taskColumns = new Set(db.prepare("PRAGMA table_info(tasks)").all().map((column) => column.name));
+  if (!taskColumns.has("artifacts")) db.exec("ALTER TABLE tasks ADD COLUMN artifacts TEXT NOT NULL DEFAULT '[]'");
   const approvalColumns = new Set(db.prepare("PRAGMA table_info(approvals)").all().map((column) => column.name));
   if (!approvalColumns.has("kind")) db.exec("ALTER TABLE approvals ADD COLUMN kind TEXT NOT NULL DEFAULT 'approval'");
   if (!approvalColumns.has("payload")) db.exec("ALTER TABLE approvals ADD COLUMN payload TEXT NOT NULL DEFAULT ''");
@@ -165,6 +168,33 @@ function approvalView(r) {
     payload:r.payload||"",status:r.status,created_at:Number(r.created_at),expires_at:Number(r.expires_at)||null,
     decision_requested:!!r.decision_requested,decided_at:Number(r.decided_at)||null,decided_by:r.decided_by||null,result:r.result||""};
 }
+function safeTaskArtifacts(value) {
+  if (!Array.isArray(value)) return [];
+  const allowedKinds = new Set(["image", "video", "audio", "document", "file"]);
+  const seen = new Set();
+  const result = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const filePath = typeof item.path === "string" ? item.path.trim() : "";
+    if (!filePath || filePath.length > 240 || Buffer.byteLength(filePath, "utf8") > 480 ||
+        filePath.startsWith("/") || filePath.includes("\\") || /^[A-Za-z]:/.test(filePath) ||
+        /[\x00-\x1f\x7f]/.test(filePath)) continue;
+    const segments = filePath.split("/");
+    if (segments.some((segment) => !segment || segment === "." || segment === "..")) continue;
+    if (!Number.isSafeInteger(item.size) || item.size <= 0 || item.size > 50 * 1024 * 1024) continue;
+    if (!allowedKinds.has(item.kind) || seen.has(filePath)) continue;
+    seen.add(filePath);
+    result.push({ path: filePath, size: item.size, kind: item.kind });
+    if (result.length === 8) break;
+  }
+  return result;
+}
+
+function storedTaskArtifacts(value) {
+  try { return safeTaskArtifacts(JSON.parse(String(value || "[]"))); }
+  catch { return []; }
+}
+
 function taskView(row) {
   return {
     id: row.id,
@@ -174,6 +204,7 @@ function taskView(row) {
     instruction: row.instruction,
     status: row.status,
     summary: row.summary,
+    artifacts: storedTaskArtifacts(row.artifacts),
     local_task_id: row.local_task_id || null,
     cancel_requested: !!row.cancel_requested,
     created_at: Number(row.created_at),
@@ -370,8 +401,10 @@ export function createControlPlaneServer(options = {}) {
         if (!taskId || !TASK_STATUSES.has(status) || !db.prepare("SELECT id FROM tasks WHERE id = ? AND node_id = ?").get(taskId, nodeId)) return;
         const summary = clip(message.summary, 500);
         const localId = clip(message.local_task_id, 100);
+        const artifactList = Array.isArray(message.artifacts) ? safeTaskArtifacts(message.artifacts) : null;
+        const artifactJson = artifactList === null ? null : JSON.stringify(artifactList);
         const updated = db.prepare(`
-          UPDATE tasks SET status = ?, summary = ?, local_task_id = CASE WHEN ? = '' THEN local_task_id ELSE ? END,
+          UPDATE tasks SET status = ?, summary = ?, artifacts = COALESCE(?, artifacts), local_task_id = CASE WHEN ? = '' THEN local_task_id ELSE ? END,
             completed_at = CASE WHEN ? = 1 THEN ? ELSE completed_at END,
             cancel_requested = CASE WHEN ? = 'cancelled' THEN 0 ELSE cancel_requested END,
             updated_at = ? WHERE id = ?
@@ -381,10 +414,10 @@ export function createControlPlaneServer(options = {}) {
               END <= CASE ?
                 WHEN 'queued' THEN 0 WHEN 'accepted' THEN 1 WHEN 'running' THEN 2 WHEN 'needs_you' THEN 2 ELSE 3
               END
-        `).run(status, summary, localId, localId, TERMINAL.has(status) ? 1 : 0, now, status, now, taskId, status);
+        `).run(status, summary, artifactJson, localId, localId, TERMINAL.has(status) ? 1 : 0, now, status, now, taskId, status);
         if (Number(updated.changes) === 0) return;
         if (TERMINAL.has(status)) cancelPendingApprovals(taskId, nodeId, "task_terminal", now);
-        logEvent(nodeId, taskId, "task.update", { status });
+        logEvent(nodeId, taskId, "task.update", { status, artifact_count: artifactList?.length });
         return;
       }
       case "task.approval": {

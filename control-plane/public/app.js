@@ -19,6 +19,13 @@
     revoked: "Révoqué",
   }[status] || status);
   const date = (value) => value ? new Date(value).toLocaleString("fr-FR") : "—";
+  const formatBytes = (value) => {
+    const size = Number(value) || 0;
+    if (size < 1024) return size + " o";
+    if (size < 1024 * 1024) return (size / 1024).toFixed(1) + " Ko";
+    return (size / (1024 * 1024)).toFixed(1) + " Mo";
+  };
+  const artifactKind = (kind) => ({ image: "Image", video: "Vidéo", audio: "Audio", document: "Document", file: "Fichier" }[kind] || "Fichier");
   const setConnection = (connected, text) => {
     $("connection-dot").className = connected ? "dot online" : "dot";
     $("connection-label").textContent = text;
@@ -184,7 +191,29 @@
       }, "danger small"));
       const id = document.createElement("code");
       id.textContent = task.id;
-      card.append(head, details, summary, id, controls);
+      const artifacts = Array.isArray(task.artifacts) ? task.artifacts : [];
+      let artifactSection = null;
+      if (artifacts.length) {
+        artifactSection = document.createElement("div");
+        artifactSection.className = "artifact-list";
+        const heading = document.createElement("p");
+        heading.className = "muted";
+        heading.textContent = "Fichiers vérifiés sur le poste";
+        artifactSection.append(heading);
+        for (const artifact of artifacts) {
+          const item = document.createElement("div");
+          item.className = "artifact-item";
+          const file = document.createElement("code");
+          file.textContent = artifact.path || "Fichier";
+          const meta = document.createElement("span");
+          meta.textContent = artifactKind(artifact.kind) + " · " + formatBytes(artifact.size);
+          item.append(file, meta);
+          artifactSection.append(item);
+        }
+      }
+      card.append(head, details, summary);
+      if (artifactSection) card.append(artifactSection);
+      card.append(id, controls);
       root.append(card);
     }
   }

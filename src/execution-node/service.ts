@@ -7,6 +7,7 @@ import type { Store, Bot } from "../store/db.js";
 import type { TaskService } from "../tasks/service.js";
 import type { ApprovalCenter, ApprovalEvent } from "../agent/approvals.js";
 import { logger, registerSecret } from "../log.js";
+import { deliverables } from "../agent/host.js";
 
 const log = logger("execution-node");
 const NODE_ID_KEY = "execution-node.id.v1";
@@ -39,6 +40,7 @@ interface RemoteTaskRow {
   local_task_id: string;
   status: RemoteTaskStatus;
   summary: string;
+  artifacts: string;
   created_at: number;
   updated_at: number;
 }
@@ -101,12 +103,46 @@ function isTerminal(status: RemoteTaskStatus): boolean {
   return status === "succeeded" || status === "failed" || status === "cancelled" || status === "rejected" || status === "interrupted";
 }
 
+export interface RemoteTaskArtifact {
+  path: string;
+  size: number;
+  kind: "image" | "video" | "audio" | "document" | "file";
+}
+
+/** Convert task_report file references to safe, workspace-relative metadata. */
+export function collectRemoteArtifacts(workspace: string, folder: string | undefined, requested: unknown): RemoteTaskArtifact[] {
+  if (!Array.isArray(requested) || requested.length === 0) return [];
+  let root: string;
+  try { root = fs.realpathSync(workspace); } catch { return []; }
+  const candidates = requested.filter((item): item is string => typeof item === "string").slice(0, 8);
+  const verified = deliverables(root, candidates, folder ? path.resolve(root, folder) : undefined);
+  const result: RemoteTaskArtifact[] = [];
+  for (const file of verified) {
+    try {
+      const relative = path.relative(root, file);
+      if (!relative || path.isAbsolute(relative) || relative === ".." || relative.startsWith(".." + path.sep)) continue;
+      const safePath = relative.split(path.sep).join("/");
+      if (!safePath || /[\x00-\x1f\x7f]/.test(safePath)) continue;
+      const stat = fs.statSync(file);
+      if (!stat.isFile() || stat.size <= 0 || stat.size > 50 * 1024 * 1024) continue;
+      const ext = path.extname(file).toLowerCase();
+      const kind = /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/.test(ext) ? "image"
+        : /\.(mp4|webm|mov|m4v|mkv|avi)$/.test(ext) ? "video"
+          : /\.(mp3|wav|m4a|aac|ogg|flac)$/.test(ext) ? "audio"
+            : /\.(pdf|docx?|xlsx?|pptx?|txt|md|csv|json)$/.test(ext) ? "document" : "file";
+      result.push({ path: safePath, size: stat.size, kind });
+    } catch { /* A file may disappear between realpath and stat. */ }
+  }
+  return result.slice(0, 8);
+}
+
 export function shouldEmitTaskUpdate(
-  previous: { status: RemoteTaskStatus; summary: string },
-  next: { status: RemoteTaskStatus; summary: string },
+  previous: { status: RemoteTaskStatus; summary: string; artifacts?: string },
+  next: { status: RemoteTaskStatus; summary: string; artifacts?: string },
   force = false,
 ): boolean {
-  return force || previous.status !== next.status || previous.summary !== next.summary;
+  return force || previous.status !== next.status || previous.summary !== next.summary ||
+    (next.artifacts !== undefined && previous.artifacts !== next.artifacts);
 }
 
 /**
@@ -146,11 +182,14 @@ export class LocalExecutionNode {
         local_task_id TEXT NOT NULL UNIQUE,
         status TEXT NOT NULL,
         summary TEXT NOT NULL DEFAULT '',
+        artifacts TEXT NOT NULL DEFAULT '[]',
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS execution_node_tasks_status ON execution_node_tasks(status, updated_at);
     `);
+    const taskColumns = new Set((this.db.prepare("PRAGMA table_info(execution_node_tasks)").all() as Array<{ name: string }>).map((column) => column.name));
+    if (!taskColumns.has("artifacts")) this.db.exec("ALTER TABLE execution_node_tasks ADD COLUMN artifacts TEXT NOT NULL DEFAULT '[]'");
     this.unlistenApprovals = o.approvals?.listen((event) => this.approvalEvent(event));
   }
 
@@ -641,10 +680,10 @@ export class LocalExecutionNode {
     return this.db.prepare("SELECT * FROM execution_node_tasks WHERE remote_task_id = ?").get(id) as RemoteTaskRow | undefined;
   }
 
-  private updateRemoteTask(id: string, localId: string, status: RemoteTaskStatus, summary: string): void {
+  private updateRemoteTask(id: string, localId: string, status: RemoteTaskStatus, summary: string, artifacts?: string): void {
     this.db.prepare(
-      "UPDATE execution_node_tasks SET local_task_id = ?, status = ?, summary = ?, updated_at = ? WHERE remote_task_id = ?",
-    ).run(localId, status, clip(summary, 500), Date.now(), id);
+      "UPDATE execution_node_tasks SET local_task_id = ?, status = ?, summary = ?, artifacts = COALESCE(?, artifacts), updated_at = ? WHERE remote_task_id = ?",
+    ).run(localId, status, clip(summary, 500), artifacts ?? null, Date.now(), id);
   }
 
   private taskStatus(localId: string): RemoteTaskStatus {
@@ -668,7 +707,12 @@ export class LocalExecutionNode {
     const status = this.taskStatus(row.local_task_id);
     const run = this.o.store.latestRun(row.local_task_id);
     const summary = clip(String(run?.report?.message || run?.error || row.summary || ""), 400);
-    const changed = shouldEmitTaskUpdate(row, { status, summary }, force);
+    const task = this.o.store.getTask(row.local_task_id);
+    const workspace = path.resolve(this.o.workspace(this.botId));
+    const folder = task ? path.join(workspace, task.folder) : undefined;
+    const artifacts = collectRemoteArtifacts(workspace, folder, run?.report?.files);
+    const artifactsJson = JSON.stringify(artifacts);
+    const changed = shouldEmitTaskUpdate(row, { status, summary, artifacts: artifactsJson }, force);
     if (!changed) return;
     const sent = await this.sendReliable({
       type: "task.update",
@@ -676,11 +720,12 @@ export class LocalExecutionNode {
       local_task_id: row.local_task_id,
       status,
       summary,
+      artifacts,
       at: Date.now(),
     });
     // Leave the old snapshot in SQLite when disconnected or when ws rejects the frame; reconnect can replay it.
-    if (sent && (status !== row.status || summary !== row.summary)) {
-      this.updateRemoteTask(row.remote_task_id, row.local_task_id, status, summary);
+    if (sent && (status !== row.status || summary !== row.summary || artifactsJson !== row.artifacts)) {
+      this.updateRemoteTask(row.remote_task_id, row.local_task_id, status, summary, artifactsJson);
     }
   }
 
