@@ -51,7 +51,7 @@ describe("amb-execution-node-gate", () => {
     expect(task.guard?.({ name: "spawn_agent" })).toMatch(/restricted to Computer Use/);
     expect(task.section).toHaveBeenCalledOnce();
     const rules = (task.section.mock.calls[0]?.[0] as { text: () => string }).text();
-    expect(rules).toMatch(/explicitly approves that exact action through task_report\\(needs_you\\)/);
+    expect(rules).toContain("explicitly approves that exact action through task_report(needs_you)");
     expect(rules).toContain("perform only the approved action");
   });
 
