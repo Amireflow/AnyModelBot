@@ -440,3 +440,45 @@ test("pause and revoke commands are forwarded; revoked nodes cannot reconnect", 
   node.ws.close();
   await s.close();
 });
+
+
+test("a task rejection from the workstation closes the matching queued task", async (t) => {
+  const server = await setup();
+  let node;
+  t.after(async () => { try { node?.ws.close(); } catch {} await server.close(); });
+
+  node = await connectNode(server.wsUrl, "rejection-node");
+  await waitFor(async () => {
+    const data = await (await request(server.base, "/api/v1/nodes")).json();
+    return data.nodes.find((item) => item.id === "rejection-node")?.connected ? data : undefined;
+  });
+
+  const created = await request(server.base, "/api/v1/tasks", ADMIN, {
+    method: "POST",
+    body: JSON.stringify({
+      node_id: "rejection-node",
+      kind: "flowauto",
+      title: "Paused workstation task",
+      instruction: "Generate one test image.",
+    }),
+  });
+  assert.equal(created.status, 201);
+  const taskId = (await created.json()).task.id;
+  await waitFor(() => node.messages.find((message) => message.type === "task.submit" && message.task?.id === taskId));
+
+  node.ws.send(JSON.stringify({
+    type: "task.rejected",
+    task_id: taskId,
+    code: "NODE_PAUSED",
+    message: "The workstation is paused.",
+  }));
+
+  const data = await waitFor(async () => {
+    const response = await (await request(server.base, "/api/v1/tasks")).json();
+    const task = response.tasks.find((item) => item.id === taskId);
+    return task?.status === "rejected" ? response : undefined;
+  });
+  const task = data.tasks.find((item) => item.id === taskId);
+  assert.equal(task.status, "rejected");
+  assert.equal(task.summary, "The workstation is paused.");
+});

@@ -90,6 +90,74 @@ describe("LocalExecutionNode", () => {
     expect(store.listTasks({ limit: 10 })).toHaveLength(0);
   });
 
+  it.each([
+    { state: "paused" as const, code: "NODE_PAUSED" },
+    { state: "revoked" as const, code: "NODE_REVOKED" },
+  ])("includes the remote task id when rejecting a task on a $state node", async ({ state, code }) => {
+    store = new Store(":memory:");
+    const create = vi.fn();
+    const node = new LocalExecutionNode({
+      store,
+      tasks: { create } as never,
+      workspace: () => "/tmp/workspace",
+      env: {},
+    });
+    if (state === "paused") node.pause();
+    else await node.revoke();
+
+    const internal = node as unknown as {
+      submitTask(value: unknown): Promise<void>;
+      send(value: Record<string, unknown>): void;
+    };
+    const sent: Record<string, unknown>[] = [];
+    internal.send = (message) => sent.push(message);
+
+    await internal.submitTask({
+      id: "remote-paused-task-1",
+      kind: "flowauto",
+      title: "Paused task",
+      instruction: "Generate one test image.",
+    });
+
+    expect(sent.at(-1)).toMatchObject({
+      type: "task.rejected",
+      task_id: "remote-paused-task-1",
+      code,
+    });
+    expect(create).not.toHaveBeenCalled();
+    expect(store.listTasks({ limit: 10 })).toHaveLength(0);
+  });
+
+  it("includes the remote task id when rejecting unsupported task fields", async () => {
+    store = new Store(":memory:");
+    const node = new LocalExecutionNode({
+      store,
+      tasks: { create: vi.fn() } as never,
+      workspace: () => "/tmp/workspace",
+      env: {},
+    });
+    const internal = node as unknown as {
+      submitTask(value: unknown): Promise<void>;
+      send(value: Record<string, unknown>): void;
+    };
+    const sent: Record<string, unknown>[] = [];
+    internal.send = (message) => sent.push(message);
+
+    await internal.submitTask({
+      id: "remote-unsupported-task-1",
+      kind: "flowauto",
+      title: "Unsupported field",
+      instruction: "Generate one test image.",
+      unexpected: true,
+    });
+
+    expect(sent.at(-1)).toMatchObject({
+      type: "task.rejected",
+      task_id: "remote-unsupported-task-1",
+      code: "UNSUPPORTED_TASK_FIELDS",
+    });
+  });
+
   it("passes the FlowAuto safety policy into the durable local task", async () => {
     store = new Store(":memory:");
     const bot = {

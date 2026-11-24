@@ -593,25 +593,37 @@ export class LocalExecutionNode {
   }
 
   private async submitTask(value: unknown): Promise<void> {
+    // Keep the remote identity on every rejection so the Control Plane can close the
+    // matching queued task instead of leaving it pending for another dispatch attempt.
+    const remoteId = isObject(value) && typeof value.id === "string" ? value.id.trim() : "";
+    const hasRemoteId = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/.test(remoteId);
+    const reject = (code: string, message?: string): void => {
+      this.send({
+        type: "task.rejected",
+        ...(hasRemoteId ? { task_id: remoteId } : {}),
+        code,
+        ...(message ? { message } : {}),
+      });
+    };
+
     if (this.state !== "active") {
-      this.send({ type: "task.rejected", code: this.state === "paused" ? "NODE_PAUSED" : "NODE_REVOKED" });
+      reject(this.state === "paused" ? "NODE_PAUSED" : "NODE_REVOKED");
       return;
     }
     if (!isObject(value)) {
-      this.send({ type: "task.rejected", code: "INVALID_TASK" });
+      reject("INVALID_TASK");
       return;
     }
     const allowed = new Set(["id", "kind", "title", "instruction"]);
     if (Object.keys(value).some((key) => !allowed.has(key))) {
-      this.send({ type: "task.rejected", code: "UNSUPPORTED_TASK_FIELDS" });
+      reject("UNSUPPORTED_TASK_FIELDS");
       return;
     }
-    const remoteId = typeof value.id === "string" ? value.id.trim() : "";
     const kind = value.kind;
     const title = typeof value.title === "string" ? clip(value.title, 60) : "";
     const instruction = typeof value.instruction === "string" ? value.instruction.trim() : "";
-    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/.test(remoteId) || kind !== "flowauto" || !title || !instruction || Buffer.byteLength(instruction, "utf8") > 500) {
-      this.send({ type: "task.rejected", task_id: remoteId || undefined, code: "INVALID_TASK" });
+    if (!hasRemoteId || kind !== "flowauto" || !title || !instruction || Buffer.byteLength(instruction, "utf8") > 500) {
+      reject("INVALID_TASK");
       return;
     }
     const bot = this.o.store.getBot(this.botId);
