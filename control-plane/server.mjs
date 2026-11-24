@@ -251,6 +251,11 @@ export function createControlPlaneServer(options = {}) {
     return count;
   };
 
+  const cancelNodeApprovals = (nodeId, reason, at = Date.now()) => {
+    const rows = db.prepare("SELECT DISTINCT task_id FROM approvals WHERE node_id = ? AND status = 'pending'").all(nodeId);
+    for (const row of rows) cancelPendingApprovals(row.task_id, nodeId, reason, at);
+  };
+
   const send = (socket, payload) => new Promise((resolve) => {
     if (socket?.readyState !== WebSocket.OPEN) return resolve(false);
     try {
@@ -331,6 +336,7 @@ export function createControlPlaneServer(options = {}) {
         db.prepare(`UPDATE tasks SET status = 'cancelled', summary = 'Execution node revoked.', cancel_requested = 0, completed_at = ?, updated_at = ?
           WHERE node_id = ? AND status NOT IN ('succeeded','failed','cancelled','rejected','interrupted')`)
           .run(now, now, nodeId);
+        cancelNodeApprovals(nodeId, "node_revoked", now);
         logEvent(nodeId, "", "node.revoked");
         socket.close(1000, "node revoked");
         return;
@@ -351,8 +357,9 @@ export function createControlPlaneServer(options = {}) {
         const taskId = String(message.task_id ?? "");
         if (!taskId || !db.prepare("SELECT id FROM tasks WHERE id = ? AND node_id = ?").get(taskId, nodeId)) return;
         const reason = clip(message.message || message.code || "Rejected by the local execution node.", 500);
-        db.prepare("UPDATE tasks SET status = 'rejected', summary = ?, cancel_requested = 0, completed_at = ?, updated_at = ? WHERE id = ?")
+        const updated = db.prepare("UPDATE tasks SET status = 'rejected', summary = ?, cancel_requested = 0, completed_at = ?, updated_at = ? WHERE id = ? AND status NOT IN ('succeeded','failed','cancelled','rejected','interrupted')")
           .run(reason, now, now, taskId);
+        if (Number(updated.changes) === 0) return;
         cancelPendingApprovals(taskId, nodeId, "task_rejected", now);
         logEvent(nodeId, taskId, "task.rejected", { code: clip(message.code, 80) });
         return;
@@ -363,12 +370,19 @@ export function createControlPlaneServer(options = {}) {
         if (!taskId || !TASK_STATUSES.has(status) || !db.prepare("SELECT id FROM tasks WHERE id = ? AND node_id = ?").get(taskId, nodeId)) return;
         const summary = clip(message.summary, 500);
         const localId = clip(message.local_task_id, 100);
-        db.prepare(`
+        const updated = db.prepare(`
           UPDATE tasks SET status = ?, summary = ?, local_task_id = CASE WHEN ? = '' THEN local_task_id ELSE ? END,
             completed_at = CASE WHEN ? = 1 THEN ? ELSE completed_at END,
             cancel_requested = CASE WHEN ? = 'cancelled' THEN 0 ELSE cancel_requested END,
             updated_at = ? WHERE id = ?
-        `).run(status, summary, localId, localId, TERMINAL.has(status) ? 1 : 0, now, status, now, taskId);
+              AND status NOT IN ('succeeded','failed','cancelled','rejected','interrupted')
+              AND CASE status
+                WHEN 'queued' THEN 0 WHEN 'accepted' THEN 1 WHEN 'running' THEN 2 WHEN 'needs_you' THEN 2 ELSE 3
+              END <= CASE ?
+                WHEN 'queued' THEN 0 WHEN 'accepted' THEN 1 WHEN 'running' THEN 2 WHEN 'needs_you' THEN 2 ELSE 3
+              END
+        `).run(status, summary, localId, localId, TERMINAL.has(status) ? 1 : 0, now, status, now, taskId, status);
+        if (Number(updated.changes) === 0) return;
         if (TERMINAL.has(status)) cancelPendingApprovals(taskId, nodeId, "task_terminal", now);
         logEvent(nodeId, taskId, "task.update", { status });
         return;
@@ -621,7 +635,7 @@ export function createControlPlaneServer(options = {}) {
           }
           if (action === "revoke") {
             const now = Date.now();
-            db.prepare("UPDATE approvals SET status='cancelled',decision_requested=0,decided_at=?,decided_by='node_revoked' WHERE node_id=? AND status='pending'").run(now,id);
+            cancelNodeApprovals(id, "node_revoked", now);
             db.prepare(`UPDATE tasks SET status='cancelled', summary='Execution node revoked.', cancel_requested=0, completed_at=?, updated_at=?
               WHERE node_id=? AND status NOT IN ('succeeded','failed','cancelled','rejected','interrupted')`).run(now, now, id);
           }

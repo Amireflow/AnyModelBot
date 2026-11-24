@@ -198,9 +198,40 @@ test("terminal tasks cancel pending approvals and late resolutions cannot reopen
   await new Promise(resolve=>setTimeout(resolve,40));
   const final=await(await request(server.base,"/api/v1/approvals?status=all")).json();
   assert.equal(final.approvals.some(a=>a.id==="approval-after-terminal"),false);
+
+  node.ws.send(JSON.stringify({type:"task.update",task_id:taskId,status:"running",summary:"Stale running snapshot"}));
+  node.ws.send(JSON.stringify({type:"task.rejected",task_id:taskId,code:"LATE_REJECTION",message:"Late rejection"}));
+  await new Promise(resolve=>setTimeout(resolve,40));
+  const tasks=await(await request(server.base,"/api/v1/tasks")).json();
+  const finalTask=tasks.tasks.find(task=>task.id===taskId);
+  assert.equal(finalTask.status,"succeeded");
+  assert.equal(finalTask.summary,"Completed.");
 });
 
 
+
+test("local workstation revocation cancels every pending remote approval", async (t) => {
+  const server=await setup();let node;
+  t.after(async()=>{try{node?.ws.close();}catch{}await server.close();});
+  node=await connectNode(server.wsUrl,"local-revocation-node");
+  await waitFor(async()=>{const d=await(await request(server.base,"/api/v1/nodes")).json();return d.nodes[0]?.connected?d:undefined;});
+  const created=await request(server.base,"/api/v1/tasks",ADMIN,{method:"POST",body:JSON.stringify({
+    node_id:"local-revocation-node",kind:"flowauto",title:"Revoke test",instruction:"Generate and verify the video.",
+  })});
+  assert.equal(created.status,201);const taskId=(await created.json()).task.id;
+  await waitFor(()=>node.messages.find(m=>m.type==="task.submit"&&m.task?.id===taskId));
+  for (const id of ["local-revocation-approval-1","local-revocation-approval-2"]) {
+    node.ws.send(JSON.stringify({type:"task.approval",task_id:taskId,approval:{
+      id,tool:"mcp__computer-use__click",detail:"Confirm browser action",created_at:Date.now(),expires_at:Date.now()+60000,
+    }}));
+  }
+  await waitFor(async()=>{const d=await(await request(server.base,"/api/v1/approvals?status=pending")).json();return d.approvals.length===2?d:undefined;});
+  node.ws.send(JSON.stringify({type:"node.revoked",node_id:"local-revocation-node"}));
+  const resolved=await waitFor(async()=>{const d=await(await request(server.base,"/api/v1/approvals?status=all")).json();return d.approvals.length===2&&d.approvals.every(a=>a.status==="cancelled")?d:undefined;});
+  assert.equal(resolved.approvals.length,2);
+  const tasks=await(await request(server.base,"/api/v1/tasks")).json();
+  assert.equal(tasks.tasks.find(task=>task.id===taskId).status,"cancelled");
+});
 test("FlowAuto task questions can be answered remotely and resolved locally", async (t) => {
   const s=await setup();let node;
   t.after(async()=>{try{node?.ws.close();}catch{}await s.close();});
