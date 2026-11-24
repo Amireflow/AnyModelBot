@@ -44,6 +44,19 @@ describe("Company Research workspace importer", () => {
       { url: "https://finance.example/acme", title: "Acme annual filing", domain: "financial", score: 0.84, used: false },
       { url: "javascript:alert(1)", title: "Unsafe source", used: true },
     ]));
+    fs.writeFileSync(path.join(appRoot, "jobs", jobId, "curated.json"), JSON.stringify({
+      financial: [],
+      news: [],
+      industry: [],
+      company: [{
+        url: "https://acme.example/about?utm_source=research#team",
+        title: "About Acme",
+        summary: "Acme designs and sells point-of-sale software to retailers.",
+        content: "The official site lists inventory and payment workflows.",
+        publishedAt: "2026-10-12",
+        score: 0.98,
+      }],
+    }));
   });
 
   afterEach(() => fs.rmSync(dataDir, { recursive: true, force: true }));
@@ -98,8 +111,28 @@ describe("Company Research workspace importer", () => {
     expect(loaded.sources[0]).toMatchObject({
       url: "https://acme.example/about", title: "About Acme",
       domain: "company", score: 0.91, used: true,
+      summary: "Acme designs and sells point-of-sale software to retailers.",
+      content: "The official site lists inventory and payment workflows.",
+      publishedAt: "2026-10-12",
     });
     expect(loaded.sources[1].used).toBe(false);
+  });
+
+  it("keeps legacy imports working when curated.json is absent", () => {
+    fs.rmSync(path.join(appRoot, "jobs", jobId, "curated.json"));
+    const loaded = loadCompanyResearchSources(dataDir, botId, company, jobId);
+    expect(loaded.sources[0]).not.toHaveProperty("summary");
+    expect(loaded.sources[0]).not.toHaveProperty("publishedAt");
+  });
+
+  it("rejects an unsafe curated.json symlink", () => {
+    const curatedPath = path.join(appRoot, "jobs", jobId, "curated.json");
+    const outsidePath = path.join(dataDir, "outside-curated.json");
+    fs.writeFileSync(outsidePath, JSON.stringify({ company: [{ url: "https://acme.example/about", summary: "outside" }] }));
+    fs.rmSync(curatedPath);
+    fs.symlinkSync(outsidePath, curatedPath);
+    expect(() => loadCompanyResearchSources(dataDir, botId, company, jobId))
+      .toThrowError(CompanyResearchImportError);
   });
 
   it("rejects importing a completed report for a different company", () => {

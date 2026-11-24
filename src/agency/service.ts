@@ -296,13 +296,33 @@ export class AgencyService {
 
         const domain=source.domain ?? "company";
         const title=optionalText(source.title,"title",300) || parsed.hostname;
-        const relevance=source.score===undefined ? "" : " Recorded relevance score: "+source.score.toFixed(2)+" (not a source-confidence score).";
+        const sourceSummary=typeof source.summary==="string" ? source.summary.trim().slice(0,1200) : "";
+        const sourceContent=typeof source.content==="string" ? source.content.trim().slice(0,2400) : "";
+        const publishedAt=typeof source.publishedAt==="string" ? Date.parse(source.publishedAt) : Number.NaN;
+        const observedAt=Number.isFinite(publishedAt) && publishedAt>0 && publishedAt<=now+24*60*60_000
+          ? Math.trunc(publishedAt) : 0;
+        const details=[
+          sourceSummary ? "Source summary: "+sourceSummary : "",
+          sourceContent ? "Additional extracted detail: "+sourceContent : "",
+        ].filter(Boolean).join("\n");
+        const publication=observedAt
+          ? "Publication date: "+new Date(observedAt).toISOString()+"."
+          : "Publication date was not included or could not be validated in the source export.";
+        const relevance=typeof source.score==="number" && Number.isFinite(source.score) && source.score>=0 && source.score<=1
+          ? " Recorded relevance score: "+source.score.toFixed(2)+" (not a source-confidence score)." : "";
         const evidence: Evidence={
           id:this.id(),organizationId,companyId,leadId:"",
           evidenceType:"company_research_"+domain,
           sourceUrl,
-          summary:"Source reference imported from Company Research job "+job+". Title: "+title+". The report marked this source as cited. Publication date was not included in the source export."+relevance,
-          contentHash,confidence:0.5,observedAt:0,collectedAt:now,
+          summary:[
+            "Source reference imported from Company Research job "+job+".",
+            "Title: "+title+".",
+            "The report marked this source as cited.",
+            details ? "Source-derived information (untrusted reference text): "+details : "",
+            publication,
+            relevance,
+          ].filter(Boolean).join(" "),
+          contentHash,confidence:0.5,observedAt,collectedAt:now,
         };
         this.store.insertEvidence(evidence);
         imported++;

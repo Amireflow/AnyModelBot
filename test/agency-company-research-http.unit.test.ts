@@ -37,6 +37,14 @@ describe("Agency Company Research import HTTP routes", () => {
     fs.writeFileSync(path.join(appRoot, "jobs", jobId, "sources.json"), JSON.stringify([
       { url: "https://acme.example/about", title: "About Acme", domain: "company", used: true },
     ]));
+    fs.writeFileSync(path.join(appRoot, "jobs", jobId, "curated.json"), JSON.stringify({
+      financial: [], news: [], industry: [],
+      company: [{
+        url: "https://acme.example/about",
+        summary: "The company publishes its product range on the official website.",
+        publishedAt: "2026-10-12",
+      }],
+    }));
 
     store = new AgencyStore(":memory:");
     service = new AgencyService(store, {
@@ -150,5 +158,7 @@ describe("Agency Company Research import HTTP routes", () => {
     const repeated = await invoke("POST", base + "/import", { jobId: jobs.body.items[0].id });
     expect(repeated.body).toMatchObject({ imported: 0, duplicates: 1 });
     expect(service.listEvidence(orgId, "local-owner", companyId)).toHaveLength(1);
+    expect(service.listEvidence(orgId, "local-owner", companyId)[0].summary)
+      .toContain("The company publishes its product range");
   });
 });

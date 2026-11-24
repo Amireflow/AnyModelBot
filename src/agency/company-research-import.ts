@@ -19,11 +19,15 @@ export interface CompanyResearchSource {
   title: string;
   domain?: "financial" | "news" | "industry" | "company";
   score?: number;
+  summary?: string;
+  content?: string;
+  publishedAt?: string;
   used: boolean;
 }
 
 const STATE_LIMIT = 1_000_000;
 const SOURCES_LIMIT = 2_000_000;
+const CURATED_LIMIT = 5_000_000;
 const SOURCES_MAX = 250;
 const JOB_ID = /^job-[a-z0-9][a-z0-9-]{0,120}$/i;
 
@@ -46,6 +50,16 @@ function websiteHost(value: string): string {
   catch { return ""; }
 }
 
+function canonicalSourceUrl(value: string): string {
+  const url = new URL(value);
+  url.hash = "";
+  for (const key of [...url.searchParams.keys()]) {
+    if (key.toLowerCase().startsWith("utm_")) url.searchParams.delete(key);
+  }
+  url.searchParams.sort();
+  return url.toString();
+}
+
 function readSafeJson(file: string, root: string, maxBytes: number): unknown {
   try {
     const relative = path.relative(root, file);
@@ -57,6 +71,21 @@ function readSafeJson(file: string, root: string, maxBytes: number): unknown {
     return JSON.parse(fs.readFileSync(real, "utf8"));
   } catch {
     throw new CompanyResearchImportError("file_invalid", "Company Research data is missing, invalid or outside its workspace");
+  }
+}
+
+function readOptionalSafeJson(file: string, root: string, maxBytes: number): unknown | undefined {
+  try {
+    const relative = path.relative(root, file);
+    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("outside");
+    const st = fs.lstatSync(file);
+    if (st.isSymbolicLink() || !st.isFile() || st.nlink !== 1 || st.size > maxBytes) throw new Error("unsafe file");
+    const real = fs.realpathSync(file);
+    if (!inside(real, root)) throw new Error("outside");
+    return JSON.parse(fs.readFileSync(real, "utf8"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw new CompanyResearchImportError("file_invalid", "Company Research curated source data is invalid or unsafe");
   }
 }
 
@@ -87,13 +116,35 @@ function parseSource(raw: unknown): CompanyResearchSource | undefined {
     ? item.domain as CompanyResearchSource["domain"]
     : undefined;
   const score = typeof item.score === "number" && Number.isFinite(item.score) && item.score >= 0 && item.score <= 1 ? item.score : undefined;
+  const summary = typeof item.summary === "string" ? item.summary.trim().slice(0, 1200) : "";
+  const content = typeof item.content === "string" ? item.content.trim().slice(0, 2400) : "";
+  const publishedAt = typeof item.publishedAt === "string" ? item.publishedAt.trim().slice(0, 80) : "";
   return {
     url: url.toString(),
     title: typeof item.title === "string" ? item.title.trim().slice(0, 300) : "",
     ...(domain ? { domain } : {}),
     ...(score !== undefined ? { score } : {}),
+    ...(summary ? { summary } : {}),
+    ...(content ? { content } : {}),
+    ...(publishedAt ? { publishedAt } : {}),
     used: item.used !== false,
   };
+}
+
+function parseCuratedSources(raw: unknown): CompanyResearchSource[] {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  const curated = raw as Record<string, unknown>;
+  const domains = ["financial", "news", "industry", "company"] as const;
+  const sources: CompanyResearchSource[] = [];
+  for (const domain of domains) {
+    const entries = curated[domain];
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      const source = parseSource(entry);
+      if (source) sources.push({ ...source, domain: source.domain ?? domain });
+    }
+  }
+  return sources;
 }
 
 function matchesCompany(job: Record<string, unknown>, company: Company): boolean {
@@ -162,7 +213,41 @@ function loadSources(appRoot: string, jobsRoot: string, job: Record<string, unkn
   }
   const sources = parsed.map(parseSource).filter((item): item is CompanyResearchSource => !!item);
   if (!sources.length) throw new CompanyResearchImportError("file_invalid", "The selected report does not contain importable HTTP sources");
-  return sources;
+
+  // sources.json remains authoritative for citations; curated.json enriches only matching URLs.
+  // Older jobs may not have curated.json, so keep the traceable source-only import as a fallback.
+  const curatedRaw = readOptionalSafeJson(path.join(jobDir, "curated.json"), appRoot, CURATED_LIMIT);
+  const curatedSources = parseCuratedSources(curatedRaw);
+  const detailsByUrl = new Map<string, CompanyResearchSource>();
+  for (const detail of curatedSources) {
+    const key = canonicalSourceUrl(detail.url);
+    const previous = detailsByUrl.get(key);
+    if (!previous) {
+      detailsByUrl.set(key, detail);
+      continue;
+    }
+    detailsByUrl.set(key, {
+      ...previous,
+      ...(previous.domain || !detail.domain ? {} : { domain: detail.domain }),
+      ...(detail.summary ? { summary: detail.summary } : {}),
+      ...(detail.content ? { content: detail.content } : {}),
+      ...(detail.publishedAt ? { publishedAt: detail.publishedAt } : {}),
+      ...(detail.score !== undefined && (previous.score === undefined || detail.score > previous.score)
+        ? { score: detail.score } : {}),
+    });
+  }
+
+  return sources.map(source => {
+    const detail = detailsByUrl.get(canonicalSourceUrl(source.url));
+    if (!detail) return source;
+    return {
+      ...source,
+      ...(source.domain || !detail.domain ? {} : { domain: detail.domain }),
+      ...(detail.summary ? { summary: detail.summary } : {}),
+      ...(detail.content ? { content: detail.content } : {}),
+      ...(detail.publishedAt ? { publishedAt: detail.publishedAt } : {}),
+    };
+  });
 }
 
 export function listCompanyResearchJobs(dataDir: string, botId: string, company?: Company): CompanyResearchJob[] {
