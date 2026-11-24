@@ -182,13 +182,25 @@ export class LocalExecutionNode {
       this.notice("warn", `Execution Node disabled: ${policyError}`);
       return false;
     }
-    if (this.state === "revoked") {
-      this.notice("warn", "Execution Node pairing has been revoked. Re-pair locally before reconnecting.");
+    if (this.state === "revoked" && !this.resetRevocationForLocalPairing()) {
+      this.notice("warn", "Execution Node pairing has been revoked. Set AMB_EXECUTION_NODE_RESET=1 locally and provide a newly issued Control Plane token to re-pair.");
       return false;
     }
     registerSecret(this.token);
     this.stopping = false;
     this.connect();
+    return true;
+  }
+
+  /**
+   * One-shot local re-pair gate. The reset flag must be set in the local process environment;
+   * a remote message can never clear a revoked state.
+   */
+  resetRevocationForLocalPairing(): boolean {
+    if (this.state !== "revoked" || this.env.AMB_EXECUTION_NODE_RESET !== "1") return false;
+    delete this.env.AMB_EXECUTION_NODE_RESET;
+    this.setState("active");
+    this.notice("warn", "Local re-pair reset accepted. Remove AMB_EXECUTION_NODE_RESET from the launcher environment and keep the newly issued Control Plane token.");
     return true;
   }
 
@@ -291,7 +303,7 @@ export class LocalExecutionNode {
         void this.reportTaskStates();
       }, HEARTBEAT_MS);
       this.heartbeat.unref?.();
-      void this.reportTaskStates();
+      void this.reportTaskStates(true);
       this.notice("info", "Execution Node connected to the Control Plane.");
     });
     socket.on("message", (data: RawData) => {
@@ -407,7 +419,7 @@ export class LocalExecutionNode {
     const existing = this.db.prepare("SELECT * FROM execution_node_tasks WHERE remote_task_id = ?").get(remoteId) as RemoteTaskRow | undefined;
     if (existing && this.o.store.getTask(existing.local_task_id)) {
       this.send({ type: "task.accepted", task_id: remoteId, local_task_id: existing.local_task_id, duplicate: true });
-      await this.reportOneTask(existing);
+      await this.reportOneTask(existing, true);
       return;
     }
     if (existing && isTerminal(existing.status)) {
@@ -444,7 +456,7 @@ export class LocalExecutionNode {
     }
     this.updateRemoteTask(remoteId, localId, "queued", "");
     this.send({ type: "task.accepted", task_id: remoteId, local_task_id: localId, duplicate: false });
-    await this.reportOneTask(this.getRemoteTask(remoteId)!);
+    await this.reportOneTask(this.getRemoteTask(remoteId)!, true);
   }
 
   private async cancelTask(value: unknown): Promise<void> {
@@ -492,11 +504,13 @@ export class LocalExecutionNode {
     return "queued";
   }
 
-  private async reportOneTask(row: RemoteTaskRow): Promise<void> {
+  private async reportOneTask(row: RemoteTaskRow, force = false): Promise<void> {
     const status = this.taskStatus(row.local_task_id);
     const run = this.o.store.latestRun(row.local_task_id);
     const summary = clip(String(run?.report?.message || run?.error || row.summary || ""), 400);
-    if (status !== row.status || summary !== row.summary) this.updateRemoteTask(row.remote_task_id, row.local_task_id, status, summary);
+    const changed = status !== row.status || summary !== row.summary;
+    if (changed) this.updateRemoteTask(row.remote_task_id, row.local_task_id, status, summary);
+    if (!changed && !force) return;
     this.send({
       type: "task.update",
       task_id: row.remote_task_id,
@@ -507,10 +521,10 @@ export class LocalExecutionNode {
     });
   }
 
-  private async reportTaskStates(): Promise<void> {
+  private async reportTaskStates(force = false): Promise<void> {
     const rows = this.db.prepare(
       "SELECT * FROM execution_node_tasks WHERE status NOT IN ('succeeded','failed','cancelled','rejected','interrupted') ORDER BY updated_at DESC LIMIT 100",
     ).all() as RemoteTaskRow[];
-    for (const row of rows) await this.reportOneTask(row);
+    for (const row of rows) await this.reportOneTask(row, force);
   }
 }

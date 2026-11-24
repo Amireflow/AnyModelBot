@@ -35,6 +35,18 @@ describe("LocalExecutionNode", () => {
     expect(node.resume()).toBe(false);
   });
 
+  it("requires a local one-shot environment flag to clear a revoked pairing", async () => {
+    store = new Store(":memory:");
+    const env: NodeJS.ProcessEnv = { AMB_EXECUTION_NODE_RESET: "1" };
+    const node = new LocalExecutionNode({ store, tasks: {} as never, workspace: () => "/tmp/workspace", env });
+    await node.revoke();
+    expect(node.status().state).toBe("revoked");
+    expect(node.resetRevocationForLocalPairing()).toBe(true);
+    expect(node.status().state).toBe("active");
+    expect(env.AMB_EXECUTION_NODE_RESET).toBeUndefined();
+    expect(node.resetRevocationForLocalPairing()).toBe(false);
+  });
+
   it("allows only TLS Control Plane URLs except loopback development", () => {
     expect(validateControlPlaneUrl("wss://control.example.test/node").protocol).toBe("wss:");
     expect(validateControlPlaneUrl("ws://127.0.0.1:8787/node").hostname).toBe("127.0.0.1");

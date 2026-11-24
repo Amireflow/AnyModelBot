@@ -33,7 +33,7 @@ The Control Plane authenticates the WebSocket handshake with `Authorization: Bea
 Node → Control Plane:
 
 - `node.hello`: node id, platform, architecture, configured bot, capabilities and current state.
-- `node.heartbeat`: state and count of active remote tasks every 15 seconds.
+- `node.heartbeat`: state and count of active remote tasks every 15 seconds. Task updates are sent on connection/reconnect and only when task state or summary changes, not on every heartbeat.
 - `task.accepted`, `task.rejected`, `task.update`, `task.cancelled`.
 - `node.pong`, `node.state`, `node.revoked`, `node.goodbye`, `node.error`.
 
@@ -43,7 +43,7 @@ Control Plane → Node:
 - `task.submit` with exactly `{ id, kind: "flowauto", title, instruction }`.
 - `task.cancel` with `task_id`.
 
-A pause blocks new requests but lets already accepted tasks finish. Revocation blocks reconnection and stops all remote tasks. A revoked node requires local re-pairing.
+A pause blocks new requests but lets already accepted tasks finish. Revocation blocks reconnection and stops all remote tasks. To re-pair after revocation, configure a newly issued Control Plane token, set `AMB_EXECUTION_NODE_RESET=1` in the local launcher environment for one startup, and remove that variable immediately after the reset. The flag is consumed from the running process environment; remote messages cannot reset a revoked node.
 
 ### Safety and execution
 
