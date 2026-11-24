@@ -228,7 +228,7 @@
   const instructionInput = $("task-instruction");
   const instructionCount = $("task-instruction-count");
   const updateInstructionCount = () => {
-    const bytes = new TextEncoder().encode(instructionInput.value).length;
+    const bytes = new TextEncoder().encode(instructionInput.value.trim()).length;
     instructionCount.textContent = `${bytes} / 500 octets UTF-8`;
   };
   instructionInput.addEventListener("input", updateInstructionCount);
@@ -250,6 +250,7 @@
       const result = await api("/api/v1/tasks", { method: "POST", body: JSON.stringify(body) });
       $("task-title").value = "";
       $("task-instruction").value = "";
+      updateInstructionCount();
       setMessage("task-message", `Tâche créée : ${result.task.id}`);
       await refresh();
     } catch (e) {

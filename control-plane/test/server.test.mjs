@@ -68,6 +68,22 @@ test("health is public; all admin APIs require the administrator token", async (
   assert.equal((await request(s.base, "/api/v1/nodes", ADMIN)).status, 200);
 });
 
+
+test("task instruction limit counts UTF-8 bytes rather than characters", async (t) => {
+  const server=await setup();let node;
+  t.after(async()=>{try{node?.ws.close();}catch{}await server.close();});
+  node=await connectNode(server.wsUrl,"utf8-limit-node");
+  await waitFor(async()=>{const d=await(await request(server.base,"/api/v1/nodes")).json();return d.nodes.length===1?d:undefined;});
+  const exact=await request(server.base,"/api/v1/tasks",ADMIN,{method:"POST",body:JSON.stringify({
+    node_id:"utf8-limit-node",kind:"flowauto",title:"UTF-8 boundary",instruction:"é".repeat(250),
+  })});
+  assert.equal(exact.status,201);
+  const tooLong=await request(server.base,"/api/v1/tasks",ADMIN,{method:"POST",body:JSON.stringify({
+    node_id:"utf8-limit-node",kind:"flowauto",title:"UTF-8 overflow",instruction:"é".repeat(251),
+  })});
+  assert.equal(tooLong.status,400);
+});
+
 test("authenticated node receives persisted FlowAuto tasks and reports status", async (t) => {
   const s = await setup();
   t.after(async () => { try { node.ws.close(); } catch {} await s.close(); });
