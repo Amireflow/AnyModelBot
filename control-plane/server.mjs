@@ -105,6 +105,14 @@ function initDatabase(db) {
       completed_at INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS tasks_node_status ON tasks(node_id, status, created_at);
+    CREATE TABLE IF NOT EXISTS approvals (
+      id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), node_id TEXT NOT NULL REFERENCES nodes(id),
+      tool TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL DEFAULT 0,
+      decision TEXT NOT NULL DEFAULT '', decision_requested INTEGER NOT NULL DEFAULT 0,
+      decided_at INTEGER NOT NULL DEFAULT 0, decided_by TEXT NOT NULL DEFAULT '', result TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS approvals_task_status ON approvals(task_id,status,created_at);
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       node_id TEXT NOT NULL DEFAULT '',
@@ -135,6 +143,11 @@ function nodeView(row, connected) {
   };
 }
 
+function approvalView(r) {
+  return {id:r.id,task_id:r.task_id,node_id:r.node_id,tool:r.tool,detail:r.detail,reason:r.reason,status:r.status,
+    created_at:Number(r.created_at),expires_at:Number(r.expires_at)||null,decision_requested:!!r.decision_requested,
+    decided_at:Number(r.decided_at)||null,decided_by:r.decided_by||null,result:r.result||""};
+}
 function taskView(row) {
   return {
     id: row.id,
@@ -317,6 +330,28 @@ export function createControlPlaneServer(options = {}) {
         logEvent(nodeId, taskId, "task.update", { status });
         return;
       }
+      case "task.approval": {
+        const taskId=String(message.task_id??""), a=message.approval;
+        if(!taskId||!a||typeof a!=="object"||typeof a.id!=="string"||!/^[A-Za-z0-9._:-]{1,100}$/.test(a.id)||
+          typeof a.tool!=="string"||!a.tool.startsWith("mcp__computer-use__")||
+          !db.prepare("SELECT id FROM tasks WHERE id=? AND node_id=? AND status NOT IN ('cancelled','rejected')").get(taskId,nodeId)) return;
+        db.prepare("INSERT OR IGNORE INTO approvals(id,task_id,node_id,tool,detail,reason,status,created_at,expires_at) VALUES(?,?,?,?,?,?,'pending',?,?)")
+          .run(a.id,taskId,nodeId,clip(a.tool,180),clip(a.detail,700),clip(a.reason,300),Number(a.created_at)||now,Number(a.expires_at)||0);
+        logEvent(nodeId,taskId,"task.approval.created",{approval_id:a.id}); return;
+      }
+      case "task.approval.resolved": {
+        const taskId=String(message.task_id??""), id=String(message.approval_id??""), status=String(message.status??"");
+        if(!taskId||!id||!["allowed","rejected","expired","cancelled","answered"].includes(status))return;
+        db.prepare("UPDATE approvals SET status=?,decision_requested=0,decided_at=?,decided_by=? WHERE id=? AND task_id=? AND node_id=?")
+          .run(status,Number(message.decided_at)||now,clip(message.decided_by,80),id,taskId,nodeId);
+        logEvent(nodeId,taskId,"task.approval.resolved",{approval_id:id,status}); return;
+      }
+      case "task.approval.decision_ack": {
+        const id=String(message.approval_id??""); if(!id)return;
+        if(message.applied!==true) db.prepare("UPDATE approvals SET decision_requested=0,result=? WHERE id=? AND node_id=? AND status='pending'")
+          .run(clip(message.reason||"Local workstation rejected the decision.",300),id,nodeId);
+        return;
+      }
       case "task.cancelled": {
         const taskId = String(message.task_id ?? "");
         if (!taskId || !db.prepare("SELECT id FROM tasks WHERE id = ? AND node_id = ?").get(taskId, nodeId)) return;
@@ -387,6 +422,8 @@ export function createControlPlaneServer(options = {}) {
 
     const queued = db.prepare("SELECT id FROM tasks WHERE node_id = ? AND cancel_requested = 1 AND status NOT IN ('cancelled','succeeded','failed','rejected','interrupted')").all(id);
     for (const task of queued) await send(socket, { type: "task.cancel", task_id: task.id });
+    const pending=db.prepare("SELECT id,task_id,decision FROM approvals WHERE node_id=? AND status='pending' AND decision_requested=1").all(id);
+    for(const a of pending) await send(socket,{type:"task.approval.decision",task_id:a.task_id,approval_id:a.id,allow:a.decision==="allow"});
   };
 
   const server = http.createServer(async (req, res) => {
@@ -430,6 +467,23 @@ export function createControlPlaneServer(options = {}) {
           const row = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
           return json(res, 201, { task: taskView(row) });
         }
+        if(url.pathname==="/api/v1/approvals"&&req.method==="GET"){
+          const status=url.searchParams.get("status")||"pending";
+          const rows=status==="all"?db.prepare("SELECT a.*,t.title FROM approvals a JOIN tasks t ON t.id=a.task_id ORDER BY a.created_at DESC LIMIT 100").all():
+            db.prepare("SELECT a.*,t.title FROM approvals a JOIN tasks t ON t.id=a.task_id WHERE a.status=? ORDER BY a.created_at DESC LIMIT 100").all(status);
+          return json(res,200,{approvals:rows.map(r=>({...approvalView(r),task_title:r.title}))});
+        }
+        const dm=/^\/api\/v1\/approvals\/([A-Za-z0-9._:-]+)\/(approve|deny)$/.exec(url.pathname);
+        if(dm&&req.method==="POST"){
+          const [,id,action]=dm,a=db.prepare("SELECT * FROM approvals WHERE id=?").get(id);
+          if(!a)return json(res,404,{error:"Approval not found."});
+          if(a.status!=="pending"||a.decision_requested)return json(res,409,{error:"Approval is no longer actionable."});
+          const decision=action==="approve"?"allow":"deny";
+          db.prepare("UPDATE approvals SET decision=?,decision_requested=1,decided_by='control-plane' WHERE id=?").run(decision,id);
+          const delivered=await send(connections.get(a.node_id),{type:"task.approval.decision",task_id:a.task_id,approval_id:id,allow:decision==="allow"});
+          logEvent(a.node_id,a.task_id,"task.approval.decision_requested",{approval_id:id,decision,delivered});
+          return json(res,202,{approval:approvalView(db.prepare("SELECT * FROM approvals WHERE id=?").get(id)),delivery:delivered?"sent":"queued_until_reconnect"});
+        }
         const cancelMatch = /^\/api\/v1\/tasks\/([A-Za-z0-9._:-]+)\/cancel$/.exec(url.pathname);
         if (cancelMatch && req.method === "POST") {
           const id = cancelMatch[1];
@@ -437,6 +491,7 @@ export function createControlPlaneServer(options = {}) {
           if (!task) return json(res, 404, { error: "Task not found." });
           if (TERMINAL.has(task.status)) return json(res, 200, { task: taskView(task), already_terminal: true });
           const now = Date.now();
+          db.prepare("UPDATE approvals SET status='cancelled',decision_requested=0,decided_at=?,decided_by='task_cancelled' WHERE task_id=? AND status='pending'").run(now,id);
           if (task.status === "queued" && !task.local_task_id) {
             db.prepare("UPDATE tasks SET status='cancelled', summary='Cancelled before dispatch.', cancel_requested=0, completed_at=?, updated_at=? WHERE id=?")
               .run(now, now, id);
@@ -462,6 +517,7 @@ export function createControlPlaneServer(options = {}) {
           }
           if (action === "revoke") {
             const now = Date.now();
+            db.prepare("UPDATE approvals SET status='cancelled',decision_requested=0,decided_at=?,decided_by='node_revoked' WHERE node_id=? AND status='pending'").run(now,id);
             db.prepare(`UPDATE tasks SET status='cancelled', summary='Execution node revoked.', cancel_requested=0, completed_at=?, updated_at=?
               WHERE node_id=? AND status NOT IN ('succeeded','failed','cancelled','rejected','interrupted')`).run(now, now, id);
           }

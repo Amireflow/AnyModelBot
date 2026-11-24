@@ -101,6 +101,22 @@ test("authenticated node receives persisted FlowAuto tasks and reports status", 
   assert.equal(tasks.tasks.find((item) => item.id === taskId).status, "running");
 });
 
+test("remote Computer Use approvals can be reviewed and relayed to the workstation", async (t) => {
+  const s=await setup();let node;t.after(async()=>{try{node?.ws.close();}catch{}await s.close();});
+  node=await connectNode(s.wsUrl,"approval-node");
+  await waitFor(async()=>{const d=await(await request(s.base,"/api/v1/nodes")).json();return d.nodes.length===1?d:undefined;});
+  const created=await request(s.base,"/api/v1/tasks",ADMIN,{method:"POST",body:JSON.stringify({node_id:"approval-node",kind:"flowauto",title:"Approval test",instruction:"Click Generate"})});
+  assert.equal(created.status,201);const taskId=(await created.json()).task.id;
+  await waitFor(()=>node.messages.find(m=>m.type==="task.submit"&&m.task?.id===taskId));
+  const approvalId="approval-test-1";
+  node.ws.send(JSON.stringify({type:"task.approval",task_id:taskId,approval:{id:approvalId,tool:"mcp__computer-use__click",detail:"x: 200, y: 300",created_at:Date.now(),expires_at:Date.now()+60000}}));
+  await waitFor(async()=>{const d=await(await request(s.base,"/api/v1/approvals?status=pending")).json();return d.approvals.find(a=>a.id===approvalId);});
+  const response=await request(s.base,`/api/v1/approvals/${approvalId}/approve`,ADMIN,{method:"POST"});assert.equal(response.status,202);
+  await waitFor(()=>node.messages.find(m=>m.type==="task.approval.decision"&&m.approval_id===approvalId));
+  node.ws.send(JSON.stringify({type:"task.approval.resolved",task_id:taskId,approval_id:approvalId,status:"allowed",decided_by:"control-plane",decided_at:Date.now()}));
+  await waitFor(async()=>{const d=await(await request(s.base,"/api/v1/approvals?status=all")).json();return d.approvals.find(a=>a.id===approvalId)?.status==="allowed";});
+});
+
 test("tasks remain queued while the workstation is offline", async (t) => {
   const s = await setup();
   t.after(s.close);

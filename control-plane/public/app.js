@@ -98,6 +98,23 @@
       if (active) select.value = active.id;
     }
   }
+  function renderApprovals(items) {
+    const root=$("approvals");root.replaceChildren();$("approval-count").textContent=`${items.length} demande(s)`;
+    if(!items.length){root.className="task-list empty";root.textContent="Aucune action en attente d'approbation.";return;}
+    root.className="task-list";
+    for(const a of items){
+      const card=document.createElement("article");card.className="task-card approval-card";
+      const top=document.createElement("div");top.className="card-top";
+      const title=document.createElement("strong");title.textContent=a.task_title||"Tâche FlowAuto";
+      const status=document.createElement("span");status.className="status warn";status.textContent=a.decision_requested?"Décision transmise":"En attente";top.append(title,status);
+      const tool=document.createElement("p");tool.className="approval-tool";tool.textContent=a.tool;
+      const detail=document.createElement("p");detail.className="muted";detail.textContent=a.detail||a.reason||"Action Computer Use";
+      const actions=document.createElement("div");actions.className="actions";
+      if(!a.decision_requested)for(const [label,verb,style] of [["Approuver","approve","primary small"],["Refuser","deny","danger small"]])
+        actions.append(button(label,async()=>{try{await api(`/api/v1/approvals/${encodeURIComponent(a.id)}/${verb}`,{method:"POST"});await refresh();}catch(e){setMessage("auth-message",e.message,true);}},style));
+      card.append(top,tool,detail,actions);root.append(card);
+    }
+  }
   function renderTasks(tasks) {
     const root = $("tasks");
     root.replaceChildren();
@@ -144,9 +161,8 @@
   async function refresh() {
     if (!token) return;
     try {
-      const [nodeData, taskData] = await Promise.all([api("/api/v1/nodes"), api("/api/v1/tasks?limit=50")]);
-      renderNodes(nodeData.nodes || []);
-      renderTasks(taskData.tasks || []);
+      const [nodeData,taskData,approvalData]=await Promise.all([api("/api/v1/nodes"),api("/api/v1/tasks?limit=50"),api("/api/v1/approvals?status=pending")]);
+      renderNodes(nodeData.nodes||[]);renderTasks(taskData.tasks||[]);renderApprovals(approvalData.approvals||[]);
       setConnection(true, "Connecté");
       setMessage("auth-message", "Session administrateur active. Le token reste uniquement en mémoire.");
     } catch (e) {
@@ -163,6 +179,7 @@
     setConnection(false, "Non authentifié");
     renderNodes([]);
     renderTasks([]);
+    renderApprovals([]);
     setMessage("auth-message", "Déconnecté.");
   }
   $("auth-form").addEventListener("submit", async (event) => {

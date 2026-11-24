@@ -7,10 +7,10 @@ Minimal self-hosted Control Plane for the outbound workstation node in `src/exec
 - Receives authenticated outbound WebSocket connections from paired AnyModelBot workstations.
 - Stores nodes, queued tasks and status events in SQLite.
 - Dispatches only `flowauto` tasks; no arbitrary shell commands, scripts, filesystem paths or model prompts are accepted as separate fields.
-- Provides a small administrator dashboard to submit tasks, inspect node/task state, pause, resume, cancel or revoke.
+- Provides a small administrator dashboard to submit tasks, inspect node/task state, review Computer Use approvals, pause, resume, cancel or revoke.
 - Uses separate bearer secrets for the workstation node and the administrator.
 
-The Control Plane does not see Chrome cookies, browser profiles, model credentials or local files. Those remain on the workstation.
+The Control Plane does not see Chrome cookies, browser profiles, model credentials or local files. It receives only pending Computer Use approval metadata; decisions are revalidated by the local ApprovalCenter before application.
 
 ## Deploy
 
