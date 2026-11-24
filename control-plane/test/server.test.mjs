@@ -221,6 +221,8 @@ test("cancelling a remote task cancels pending approvals and ignores late decisi
   })});
   assert.equal(created.status,201);const taskId=(await created.json()).task.id;
   await waitFor(()=>node.messages.find(m=>m.type==="task.submit"&&m.task?.id===taskId));
+  node.ws.send(JSON.stringify({type:"task.accepted",task_id:taskId,local_task_id:"local-cancel-task-1"}));
+  await waitFor(async()=>{const d=await(await request(server.base,"/api/v1/tasks")).json();return d.tasks.find(task=>task.id===taskId)?.status==="accepted";});
   const approvalId="task-cancel-approval-1";
   node.ws.send(JSON.stringify({type:"task.approval",task_id:taskId,approval:{
     id:approvalId,tool:"mcp__computer-use__click",detail:"Confirm Generate",created_at:Date.now(),expires_at:Date.now()+60000,
