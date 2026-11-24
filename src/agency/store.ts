@@ -138,6 +138,31 @@ CREATE TABLE IF NOT EXISTS agency_approvals (
 );
 CREATE INDEX IF NOT EXISTS agency_approvals_org_status ON agency_approvals(organization_id, status, created_at);
 
+CREATE TABLE IF NOT EXISTS agency_whatsapp_outbox (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES agency_organizations(id),
+  contact_id TEXT NOT NULL REFERENCES agency_contacts(id),
+  channel TEXT NOT NULL CHECK(channel='whatsapp'),
+  purpose TEXT NOT NULL,
+  recipient TEXT NOT NULL,
+  template_name TEXT NOT NULL,
+  language TEXT NOT NULL,
+  template_components_json TEXT NOT NULL,
+  approval_id TEXT NOT NULL REFERENCES agency_approvals(id),
+  approval_payload_hash TEXT NOT NULL,
+  consent_id TEXT NOT NULL REFERENCES agency_consents(id),
+  status TEXT NOT NULL CHECK(status IN ('queued','sending','accepted','failed','submission_unknown','cancelled')),
+  provider_message_id TEXT NOT NULL DEFAULT '',
+  failure_code TEXT NOT NULL DEFAULT '',
+  idempotency_key TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  submitted_at INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(organization_id,idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS agency_whatsapp_outbox_org_status
+  ON agency_whatsapp_outbox(organization_id,status,created_at);
+
 CREATE TABLE IF NOT EXISTS agency_audit_events (
   sequence INTEGER PRIMARY KEY AUTOINCREMENT,
   id TEXT NOT NULL UNIQUE,
@@ -213,6 +238,45 @@ CREATE TRIGGER IF NOT EXISTS agency_consents_tenant_guard_update
 BEFORE UPDATE OF organization_id,contact_id ON agency_consents
 WHEN NOT EXISTS (SELECT 1 FROM agency_contacts WHERE id=NEW.contact_id AND organization_id=NEW.organization_id)
 BEGIN SELECT RAISE(ABORT, 'agency consent organization mismatch'); END;
+CREATE TRIGGER IF NOT EXISTS agency_consents_no_update
+BEFORE UPDATE ON agency_consents
+BEGIN SELECT RAISE(ABORT, 'agency consent records are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS agency_consents_no_delete
+BEFORE DELETE ON agency_consents
+BEGIN SELECT RAISE(ABORT, 'agency consent records are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS agency_whatsapp_outbox_tenant_guard_insert
+BEFORE INSERT ON agency_whatsapp_outbox
+WHEN NOT EXISTS (SELECT 1 FROM agency_contacts WHERE id=NEW.contact_id AND organization_id=NEW.organization_id)
+  OR NOT EXISTS (
+    SELECT 1 FROM agency_consents
+    WHERE id=NEW.consent_id AND organization_id=NEW.organization_id AND contact_id=NEW.contact_id
+      AND channel=NEW.channel AND purpose=NEW.purpose AND status='granted'
+      AND source<>'' AND length(proof)>=8 AND text_version<>''
+      AND (expires_at=0 OR expires_at>NEW.created_at)
+      AND NOT EXISTS (
+        SELECT 1 FROM agency_consents newer
+        WHERE newer.organization_id=agency_consents.organization_id
+          AND newer.contact_id=agency_consents.contact_id
+          AND newer.channel=agency_consents.channel AND newer.purpose=agency_consents.purpose
+          AND newer.rowid>agency_consents.rowid
+      )
+  )
+  OR NOT EXISTS (
+    SELECT 1 FROM agency_approvals
+    WHERE id=NEW.approval_id AND organization_id=NEW.organization_id
+      AND action='send_message' AND resource_type='whatsapp_template' AND resource_id=NEW.contact_id
+      AND status='approved' AND payload_hash=NEW.approval_payload_hash
+      AND (expires_at=0 OR expires_at>NEW.created_at)
+  )
+BEGIN SELECT RAISE(ABORT, 'agency WhatsApp outbox invariant failed'); END;
+CREATE TRIGGER IF NOT EXISTS agency_whatsapp_outbox_no_delete
+BEFORE DELETE ON agency_whatsapp_outbox
+BEGIN SELECT RAISE(ABORT, 'agency WhatsApp outbox records are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS agency_whatsapp_outbox_payload_immutable
+BEFORE UPDATE OF organization_id,contact_id,channel,purpose,recipient,template_name,language,
+  template_components_json,approval_id,approval_payload_hash,consent_id,idempotency_key,created_at
+ON agency_whatsapp_outbox
+BEGIN SELECT RAISE(ABORT, 'agency WhatsApp message payload is immutable'); END;
 `;
 
 function text(row: Row, key: string): string { return String(row[key] ?? ""); }
@@ -294,6 +358,27 @@ function qualificationProfileOf(r: Row): QualificationProfile {
 function consentOf(r: Row): ConsentRecord {
   return { id:text(r,"id"), organizationId:text(r,"organization_id"), contactId:text(r,"contact_id"), channel:text(r,"channel"), purpose:text(r,"purpose"), status:text(r,"status") as ConsentRecord["status"], source:text(r,"source"), proof:text(r,"proof"), textVersion:text(r,"text_version"), expiresAt:number(r,"expires_at"), createdAt:number(r,"created_at") };
 }
+function jsonArray(value: string): Record<string, unknown>[] {
+  try {
+    const result = JSON.parse(value);
+    return Array.isArray(result) ? result.filter((item): item is Record<string, unknown> =>
+      !!item && typeof item === "object" && !Array.isArray(item)) : [];
+  } catch { return []; }
+}
+function whatsappOutboxOf(r: Row): import("./types.js").WhatsAppOutboxMessage {
+  return {
+    id:text(r,"id"), organizationId:text(r,"organization_id"), contactId:text(r,"contact_id"),
+    channel:"whatsapp", purpose:text(r,"purpose"), recipient:text(r,"recipient"),
+    templateName:text(r,"template_name"), language:text(r,"language"),
+    templateComponents:jsonArray(text(r,"template_components_json")),
+    approvalId:text(r,"approval_id"), approvalPayloadHash:text(r,"approval_payload_hash"),
+    consentId:text(r,"consent_id"),
+    status:text(r,"status") as import("./types.js").WhatsAppOutboxStatus,
+    providerMessageId:text(r,"provider_message_id"), failureCode:text(r,"failure_code"),
+    idempotencyKey:text(r,"idempotency_key"), createdAt:number(r,"created_at"),
+    updatedAt:number(r,"updated_at"), submittedAt:number(r,"submitted_at"),
+  };
+}
 function approvalOf(r: Row): Approval {
   return { id:text(r,"id"), organizationId:text(r,"organization_id"), projectId:text(r,"project_id"), requestedBy:text(r,"requested_by"), action:text(r,"action") as ApprovalAction, resourceType:text(r,"resource_type"), resourceId:text(r,"resource_id"), reason:text(r,"reason"), payloadJson:text(r,"payload_json"), payloadHash:text(r,"payload_hash"), status:text(r,"status") as ApprovalStatus, expiresAt:number(r,"expires_at"), decidedBy:text(r,"decided_by"), decisionReason:text(r,"decision_reason"), createdAt:number(r,"created_at"), decidedAt:number(r,"decided_at") };
 }
@@ -319,6 +404,8 @@ export class AgencyStore {
     this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(2, ?)").run(Date.now());
     // v3 introduces organization-scoped ideal-customer profiles.
     this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(3, ?)").run(Date.now());
+    // v4 adds an approval-bound, tenant-isolated WhatsApp Cloud API outbox.
+    this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(4, ?)").run(Date.now());
   }
 
   close(): void { this.db.close(); }
@@ -497,6 +584,53 @@ export class AgencyStore {
     const row=this.db.prepare("SELECT * FROM agency_consents WHERE organization_id=? AND contact_id=? AND channel=? AND purpose=? ORDER BY rowid DESC LIMIT 1")
       .get(orgId,contactId,channel,purpose) as Row|undefined;
     return row ? consentOf(row) : undefined;
+  }
+
+  listConsents(orgId: string, contactId: string, channel?: string, purpose?: string): ConsentRecord[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM agency_consents
+      WHERE organization_id=? AND contact_id=?
+        AND (?='' OR channel=?) AND (?='' OR purpose=?)
+      ORDER BY created_at DESC, rowid DESC LIMIT 200
+    `).all(orgId,contactId,channel ?? "",channel ?? "",purpose ?? "",purpose ?? "") as Row[];
+    return rows.map(consentOf);
+  }
+
+  insertWhatsAppOutbox(v: import("./types.js").WhatsAppOutboxMessage): import("./types.js").WhatsAppOutboxMessage {
+    this.db.prepare(`
+      INSERT INTO agency_whatsapp_outbox(
+        id,organization_id,contact_id,channel,purpose,recipient,template_name,language,
+        template_components_json,approval_id,approval_payload_hash,consent_id,status,
+        provider_message_id,failure_code,idempotency_key,created_at,updated_at,submitted_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(v.id,v.organizationId,v.contactId,v.channel,v.purpose,v.recipient,v.templateName,v.language,
+      JSON.stringify(v.templateComponents),v.approvalId,v.approvalPayloadHash,v.consentId,v.status,
+      v.providerMessageId,v.failureCode,v.idempotencyKey,v.createdAt,v.updatedAt,v.submittedAt);
+    return v;
+  }
+  getWhatsAppOutbox(orgId: string, id: string): import("./types.js").WhatsAppOutboxMessage | undefined {
+    const row=this.db.prepare("SELECT * FROM agency_whatsapp_outbox WHERE organization_id=? AND id=?").get(orgId,id) as Row|undefined;
+    return row ? whatsappOutboxOf(row) : undefined;
+  }
+  findWhatsAppOutboxByIdempotency(orgId: string, key: string): import("./types.js").WhatsAppOutboxMessage | undefined {
+    const row=this.db.prepare("SELECT * FROM agency_whatsapp_outbox WHERE organization_id=? AND idempotency_key=?").get(orgId,key) as Row|undefined;
+    return row ? whatsappOutboxOf(row) : undefined;
+  }
+  listWhatsAppOutbox(orgId: string, limit = 100): import("./types.js").WhatsAppOutboxMessage[] {
+    const rows=this.db.prepare("SELECT * FROM agency_whatsapp_outbox WHERE organization_id=? ORDER BY created_at DESC LIMIT ?").all(orgId,limit) as Row[];
+    return rows.map(whatsappOutboxOf);
+  }
+  updateWhatsAppOutbox(
+    orgId: string, id: string, expectedStatus: import("./types.js").WhatsAppOutboxStatus,
+    status: import("./types.js").WhatsAppOutboxStatus, now: number,
+    providerMessageId = "", failureCode = "", submittedAt = 0,
+  ): boolean {
+    const result=this.db.prepare(`
+      UPDATE agency_whatsapp_outbox
+      SET status=?,provider_message_id=?,failure_code=?,updated_at=?,submitted_at=?
+      WHERE organization_id=? AND id=? AND status=?
+    `).run(status,providerMessageId,failureCode,now,submittedAt,orgId,id,expectedStatus);
+    return Number(result.changes) === 1;
   }
 
   insertApproval(v: Approval): Approval {

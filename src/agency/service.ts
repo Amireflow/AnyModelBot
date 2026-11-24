@@ -34,6 +34,13 @@ export class AgencyService {
   private now(): number { return (this.options.now ?? Date.now)(); }
   private id(): string { return (this.options.id ?? randomUUID)(); }
 
+  private activeConsentRecord(organizationId: string, contactId: string, channel: string, purpose: string) {
+    const latest=this.store.latestConsent(organizationId,contactId,channel,purpose);
+    if (!latest || latest.status !== "granted" || (latest.expiresAt && latest.expiresAt <= this.now())
+      || !latest.source.trim() || !latest.proof.trim() || !latest.textVersion.trim()) return undefined;
+    return latest;
+  }
+
   private requireMember(organizationId: string, actorId: string, roles: AgencyRole[] = WRITE_ROLES): AgencyRole {
     const organization=this.store.getOrganization(organizationId);
     if (!organization) throw new AgencyError("NOT_FOUND","Organization not found");
@@ -415,12 +422,21 @@ export class AgencyService {
     const channel=requiredText(input.channel,"channel",40).toLowerCase();
     const purpose=requiredText(input.purpose,"purpose",80).toLowerCase();
     if (input.status!=="granted" && input.status!=="withdrawn") throw new AgencyError("VALIDATION_ERROR","Consent status must be granted or withdrawn");
-    const source=requiredText(input.source,"source",300);
+    if (!/^[a-z][a-z0-9_.-]{1,39}$/.test(channel) || !/^[a-z][a-z0-9_.-]{1,79}$/.test(purpose)) {
+      throw new AgencyError("VALIDATION_ERROR","Consent channel and purpose must use stable identifiers");
+    }
+    const source=requiredText(input.source,"source",80).toLowerCase();
+    if (!/^[a-z][a-z0-9_.-]{1,79}$/.test(source)) throw new AgencyError("VALIDATION_ERROR","Consent source must use a stable identifier");
     const proof=requiredText(input.proof,"proof",4000);
+    if (proof.length<8) throw new AgencyError("VALIDATION_ERROR","Consent proof must contain a meaningful reference (at least 8 characters)");
+    const textVersion=optionalText(input.textVersion,"textVersion",100);
+    if (input.status==="granted" && !textVersion) {
+      throw new AgencyError("VALIDATION_ERROR","A granted consent requires the exact consent-text version");
+    }
     const now=this.now();
     const record={
       id:this.id(),organizationId,contactId,channel,purpose,status:input.status,
-      source,proof,textVersion:optionalText(input.textVersion,"textVersion",100),
+      source,proof,textVersion,
       expiresAt:input.expiresAt == null ? 0 : positiveTimestamp(input.expiresAt,"expiresAt"),
       createdAt:now,
     };
@@ -429,18 +445,190 @@ export class AgencyService {
       const saved=this.store.insertConsent(record);
       this.audit(organizationId,actorId,input.status === "granted" ? "consent.granted" : "consent.withdrawn","consent",record.id,{
         contactId,channel,purpose,source,textVersion:record.textVersion,expiresAt:record.expiresAt,
+        proofPresent:true,
       });
       return saved;
     });
   }
 
+  listConsents(organizationId: string, actorId: string, contactId: string, channel?: string, purpose?: string) {
+    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
+    if (!this.store.getContact(organizationId,contactId)) throw new AgencyError("NOT_FOUND","Contact not found");
+    return this.store.listConsents(organizationId,contactId,
+      channel ? requiredText(channel,"channel",40).toLowerCase() : undefined,
+      purpose ? requiredText(purpose,"purpose",80).toLowerCase() : undefined);
+  }
+
   hasActiveConsent(organizationId: string, actorId: string, contactId: string, channel: string, purpose: string): boolean {
     this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
     if (!this.store.getContact(organizationId,contactId)) throw new AgencyError("NOT_FOUND","Contact not found");
-    const latest=this.store.latestConsent(
-      organizationId,contactId,requiredText(channel,"channel",40).toLowerCase(),requiredText(purpose,"purpose",80).toLowerCase(),
-    );
-    return !!latest && latest.status === "granted" && (!latest.expiresAt || latest.expiresAt > this.now());
+    return !!this.activeConsentRecord(organizationId,contactId,
+      requiredText(channel,"channel",40).toLowerCase(),requiredText(purpose,"purpose",80).toLowerCase());
+  }
+
+  queueWhatsAppTemplate(organizationId: string, actorId: string, input: QueueWhatsAppTemplateInput): WhatsAppOutboxMessage {
+    this.requireMember(organizationId,actorId);
+    const approvalId=requiredText(input.approvalId,"approvalId",100);
+    const idempotencyKey=requiredText(input.idempotencyKey,"idempotencyKey",120);
+    if (!/^[A-Za-z0-9._:-]{8,120}$/.test(idempotencyKey)) {
+      throw new AgencyError("VALIDATION_ERROR","idempotencyKey must contain 8-120 safe characters");
+    }
+    const payload=input.payload;
+    if (!payload || typeof payload!=="object" || Array.isArray(payload)) throw new AgencyError("VALIDATION_ERROR","WhatsApp payload must be an object");
+    const contactId=requiredText(payload.contactId as string,"payload.contactId",100);
+    const channel=requiredText(payload.channel as string,"payload.channel",40).toLowerCase();
+    const purpose=requiredText(payload.purpose as string,"payload.purpose",80).toLowerCase();
+    const recipient=requiredText(payload.recipient as string,"payload.recipient",32);
+    if (channel!=="whatsapp" || payload.type!=="template") {
+      throw new AgencyError("VALIDATION_ERROR","Only WhatsApp Cloud API template messages are supported");
+    }
+    const phone=recipient;
+    if (!/^\+[1-9][0-9]{7,14}$/.test(phone)) throw new AgencyError("VALIDATION_ERROR","Recipient must be a canonical E.164 phone number");
+    const template=payload.template;
+    if (!template || typeof template!=="object" || Array.isArray(template)) throw new AgencyError("VALIDATION_ERROR","A WhatsApp template is required");
+    const templateRecord=template as Record<string,unknown>;
+    if (Object.keys(payload).sort().join(",")!=="channel,contactId,purpose,recipient,template,type"
+      || Object.keys(templateRecord).sort().join(",")!=="components,language,name") {
+      throw new AgencyError("VALIDATION_ERROR","WhatsApp approval payload contains unsupported fields");
+    }
+    const templateName=requiredText(templateRecord.name as string,"template.name",512).toLowerCase();
+    const language=requiredText(templateRecord.language as string,"template.language",20);
+    if (!/^[a-z0-9_]{1,512}$/.test(templateName) || !/^[a-z]{2,3}_[A-Z]{2}$/.test(language)) {
+      throw new AgencyError("VALIDATION_ERROR","Template name or language is invalid");
+    }
+    if (!Array.isArray(templateRecord.components) || templateRecord.components.length>10
+      || templateRecord.components.some((item) => !item || typeof item!=="object" || Array.isArray(item))) {
+      throw new AgencyError("VALIDATION_ERROR","Template components must be an array of up to 10 objects");
+    }
+    const components=templateRecord.components as Record<string,unknown>[];
+    let payloadHash: ReturnType<typeof stablePayloadHash>;
+    try { payloadHash=stablePayloadHash(payload); }
+    catch { throw new AgencyError("VALIDATION_ERROR","WhatsApp payload must be finite JSON"); }
+    if (payloadHash.json.length>12_000) throw new AgencyError("VALIDATION_ERROR","WhatsApp template parameters are too large");
+
+    const contact=this.store.getContact(organizationId,contactId);
+    if (!contact) throw new AgencyError("NOT_FOUND","Contact not found");
+    const storedPhone=contact.phone.replace(/[\s().-]/g,"");
+    if (!/^\+[1-9][0-9]{7,14}$/.test(storedPhone) || storedPhone!==phone) {
+      throw new AgencyError("VALIDATION_ERROR","The approved recipient must exactly match the contact stored E.164 phone number");
+    }
+    const consent=this.activeConsentRecord(organizationId,contactId,"whatsapp",purpose);
+    if (!consent) throw new AgencyError("CONSENT_REQUIRED","A current, evidenced WhatsApp consent for this exact purpose is required");
+    const approval=this.store.getApproval(organizationId,approvalId);
+    if (!approval || approval.action!=="send_message" || approval.resourceType!=="whatsapp_template"
+      || approval.resourceId!==contactId || approval.status!=="approved"
+      || approval.payloadHash!==payloadHash.hash || (approval.expiresAt && approval.expiresAt<=this.now())) {
+      throw new AgencyError("FORBIDDEN","A current owner approval for this exact WhatsApp template payload is required");
+    }
+    const existing=this.store.findWhatsAppOutboxByIdempotency(organizationId,idempotencyKey);
+    if (existing) {
+      if (existing.approvalPayloadHash!==payloadHash.hash || existing.approvalId!==approvalId
+        || existing.contactId!==contactId || existing.consentId!==consent.id) {
+        throw new AgencyError("CONFLICT","idempotencyKey was already used for a different or superseded authorization");
+      }
+      return existing;
+    }
+    const now=this.now();
+    const message: WhatsAppOutboxMessage={
+      id:this.id(),organizationId,contactId,channel:"whatsapp",purpose,recipient:phone,
+      templateName,language,templateComponents:components,approvalId,approvalPayloadHash:payloadHash.hash,
+      consentId:consent.id,status:"queued",providerMessageId:"",failureCode:"",
+      idempotencyKey,createdAt:now,updatedAt:now,submittedAt:0,
+    };
+    return this.store.transaction(()=>{
+      // Recheck under BEGIN IMMEDIATE so concurrent retries cannot race the unique key.
+      const lockedExisting=this.store.findWhatsAppOutboxByIdempotency(organizationId,idempotencyKey);
+      if (lockedExisting) {
+        if (lockedExisting.approvalPayloadHash!==payloadHash.hash || lockedExisting.approvalId!==approvalId
+          || lockedExisting.contactId!==contactId || lockedExisting.consentId!==consent.id) {
+          throw new AgencyError("CONFLICT","idempotencyKey was already used for a different or superseded authorization");
+        }
+        return lockedExisting;
+      }
+      const currentConsent=this.activeConsentRecord(organizationId,contactId,"whatsapp",purpose);
+      if (!currentConsent || currentConsent.id!==consent.id) {
+        throw new AgencyError("CONSENT_REQUIRED","Consent changed while the message was being queued");
+      }
+      const currentApproval=this.store.getApproval(organizationId,approvalId);
+      if (!currentApproval || currentApproval.status!=="approved" || currentApproval.action!=="send_message"
+        || currentApproval.resourceType!=="whatsapp_template" || currentApproval.resourceId!==contactId
+        || currentApproval.payloadHash!==payloadHash.hash || (currentApproval.expiresAt && currentApproval.expiresAt<=now)) {
+        throw new AgencyError("FORBIDDEN","Approval changed while the message was being queued");
+      }
+      const saved=this.store.insertWhatsAppOutbox(message);
+      this.audit(organizationId,actorId,"whatsapp.message.queued","whatsapp_message",message.id,{
+        contactId,purpose,templateName,language,approvalId,approvalPayloadHash:payloadHash.hash,consentId:consent.id,
+        idempotencyKey,
+      });
+      return saved;
+    });
+  }
+
+  listWhatsAppOutbox(organizationId: string, actorId: string, limit=100): WhatsAppOutboxMessage[] {
+    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
+    if (!Number.isInteger(limit) || limit<1 || limit>200) throw new AgencyError("VALIDATION_ERROR","limit must be between 1 and 200");
+    return this.store.listWhatsAppOutbox(organizationId,limit);
+  }
+
+  async dispatchWhatsAppTemplate(organizationId: string, actorId: string, messageId: string): Promise<WhatsAppOutboxMessage> {
+    this.requireMember(organizationId,actorId,["owner"]);
+    const message=this.store.getWhatsAppOutbox(organizationId,requiredText(messageId,"messageId",100));
+    if (!message) throw new AgencyError("NOT_FOUND","WhatsApp outbox message not found");
+    if (message.status==="accepted") return message;
+    if (message.status!=="queued") throw new AgencyError("CONFLICT","Only queued messages can be submitted; ambiguous submissions must be reconciled manually");
+    const sender=this.options.whatsapp;
+    if (!sender?.isConfigured()) throw new AgencyError("WHATSAPP_NOT_CONFIGURED","WhatsApp Cloud API credentials are not configured");
+    const approval=this.store.getApproval(organizationId,message.approvalId);
+    if (!approval || approval.status!=="approved" || approval.action!=="send_message"
+      || approval.resourceType!=="whatsapp_template" || approval.resourceId!==message.contactId
+      || approval.payloadHash!==message.approvalPayloadHash || (approval.expiresAt && approval.expiresAt<=this.now())) {
+      throw new AgencyError("FORBIDDEN","The owner approval is missing, expired or no longer matches this message");
+    }
+    const consent=this.activeConsentRecord(organizationId,message.contactId,"whatsapp",message.purpose);
+    if (!consent || consent.id!==message.consentId) {
+      throw new AgencyError("CONSENT_REQUIRED","Consent was withdrawn, expired or replaced after this message was queued");
+    }
+    const contact=this.store.getContact(organizationId,message.contactId);
+    if (!contact || contact.phone.replace(/[\s().-]/g,"")!==message.recipient) {
+      throw new AgencyError("CONSENT_REQUIRED","The contact recipient changed after approval; a new review is required");
+    }
+
+    const startedAt=this.now();
+    this.store.transaction(()=>{
+      if (!this.store.updateWhatsAppOutbox(organizationId,message.id,"queued","sending",startedAt)) {
+        throw new AgencyError("CONFLICT","This WhatsApp message is already being processed");
+      }
+      this.audit(organizationId,actorId,"whatsapp.message.submission_started","whatsapp_message",message.id,{
+        approvalId:message.approvalId,approvalPayloadHash:message.approvalPayloadHash,
+      });
+    });
+
+    try {
+      const result=await sender.sendTemplateMessage({
+        recipient:message.recipient,templateName:message.templateName,
+        language:message.language,components:message.templateComponents,
+      });
+      const now=this.now();
+      this.store.transaction(()=>{
+        if (!this.store.updateWhatsAppOutbox(organizationId,message.id,"sending","accepted",now,result.providerMessageId,"",now)) {
+          throw new AgencyError("CONFLICT","WhatsApp message state changed during submission");
+        }
+        this.audit(organizationId,actorId,"whatsapp.message.accepted","whatsapp_message",message.id,{
+          providerMessageId:result.providerMessageId,
+        });
+      });
+    } catch (error) {
+      const providerError=error instanceof WhatsAppProviderError ? error : new WhatsAppProviderError("UNEXPECTED_PROVIDER_FAILURE",true);
+      const status=providerError.uncertain ? "submission_unknown" : "failed";
+      const now=this.now();
+      this.store.transaction(()=>{
+        this.store.updateWhatsAppOutbox(organizationId,message.id,"sending",status,now,"",providerError.code,0);
+        this.audit(organizationId,actorId,"whatsapp.message."+status,"whatsapp_message",message.id,{
+          failureCode:providerError.code,
+        });
+      });
+    }
+    return this.store.getWhatsAppOutbox(organizationId,message.id)!;
   }
 
   requestApproval(organizationId: string, actorId: string, input: RequestApprovalInput): Approval {

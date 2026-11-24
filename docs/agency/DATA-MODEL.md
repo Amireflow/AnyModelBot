@@ -93,14 +93,13 @@ Une information issue d'un site web doit rester distincte de l'interprétation p
 
 ### ConsentRecord
 - contact et organisation ;
-- canal ;
-- finalité et catégorie de message ;
-- portée du consentement ;
-- source et preuve ;
-- version du texte présenté ;
-- date d'obtention ;
-- date et motif de retrait ;
-- statut.
+- canal et finalité exacts (aucune portée implicite ou wildcard) ;
+- source, référence de preuve et version exacte du texte présenté ;
+- date d'obtention et expiration éventuelle ;
+- retrait enregistré comme nouvel événement, sans effacer l'historique ;
+- statut accordé ou retiré.
+
+Un accord ne peut autoriser un envoi que si sa source, sa référence de preuve et sa version de texte sont présentes, qu'il est le dernier événement pour le couple canal/finalité et qu'il n'est pas expiré. La référence est une pièce justificative à examiner par un humain ; sa seule présence ne constitue pas une vérification automatisée de son authenticité.
 
 ### SuppressionRecord
 - identifiant minimal nécessaire pour empêcher un nouveau contact ;
@@ -133,6 +132,8 @@ Une information issue d'un site web doit rester distincte de l'interprétation p
 - empreinte et identifiant de déduplication.
 
 Les pièces jointes sont conservées séparément avec accès privé.
+
+Pour WhatsApp Cloud API, une ligne de file sortante doit référencer exactement le contact, le consentement actif, l'approbation propriétaire, l'empreinte du payload, le modèle approuvé, la clé d'idempotence, le statut de soumission et l'identifiant provider. Une acceptation HTTP par Meta ne vaut pas confirmation de livraison ; les statuts delivered/read/failed viennent des webhooks vérifiés.
 
 ### ChannelTemplate
 - provider ;

@@ -13,6 +13,7 @@ const ERROR_STATUS: Record<string, number> = {
   VALIDATION_ERROR:400, NOT_FOUND:404, FORBIDDEN:403, CONFLICT:409,
   INVALID_TRANSITION:409, CONSENT_REQUIRED:409, APPROVAL_EXPIRED:409,
   APPROVAL_ALREADY_DECIDED:409, APPROVAL_PAYLOAD_MISMATCH:409, ORGANIZATION_SUSPENDED:423,
+  WHATSAPP_NOT_CONFIGURED:503, WHATSAPP_PROVIDER_ERROR:502, WHATSAPP_SUBMISSION_UNKNOWN:409,
 };
 
 function routeError(error: unknown): never {
@@ -77,6 +78,66 @@ export function agencyRoutes(ctx: WebContext): Route {
           return send(res,200,{profile});
         }
         throw new HttpError(405,"Method not allowed");
+      }
+
+      if (seg[2]==="contacts" && seg.length===5 && seg[4]==="consents") {
+        const contactId=decodeSegment(seg[3],"contact id");
+        if (method==="GET") {
+          return send(res,200,{items:service.listConsents(
+            organizationId,actor,contactId,url.searchParams.get("channel")??undefined,
+            url.searchParams.get("purpose")??undefined,
+          )});
+        }
+        if (method==="POST") {
+          const body=await readObject(req);
+          const consent=service.recordConsent(organizationId,actor,{
+            contactId,channel:body.channel as string,purpose:body.purpose as string,
+            status:body.status as "granted"|"withdrawn",source:body.source as string,
+            proof:body.proof as string,textVersion:body.textVersion as string|undefined,
+            expiresAt:body.expiresAt as number|undefined,
+          });
+          return send(res,201,{consent});
+        }
+        throw new HttpError(405,"Method not allowed");
+      }
+
+      if (seg[2]==="approvals" && seg.length===3 && method==="POST") {
+        const body=await readObject(req);
+        const approval=service.requestApproval(organizationId,actor,{
+          projectId:body.projectId as string|undefined,
+          action:body.action as import("../../agency/types.js").ApprovalAction,
+          resourceType:body.resourceType as string,resourceId:body.resourceId as string,
+          reason:body.reason as string,payload:body.payload as Record<string,unknown>,
+          expiresAt:body.expiresAt as number|undefined,
+        });
+        return send(res,201,{approval});
+      }
+      if (seg[2]==="approvals" && seg.length===5 && seg[4]==="decision" && method==="POST") {
+        const approvalId=decodeSegment(seg[3],"approval id");
+        const body=await readObject(req);
+        if (body.decision!=="approved" && body.decision!=="rejected") throw new HttpError(400,"decision must be approved or rejected");
+        if (typeof body.expectedPayloadHash!=="string") throw new HttpError(400,"expectedPayloadHash is required");
+        const approval=service.decideApproval(organizationId,actor,approvalId,body.decision,body.expectedPayloadHash,body.reason as string|undefined);
+        return send(res,200,{approval});
+      }
+
+      if (seg[2]==="whatsapp" && seg.length===4 && seg[3]==="outbox") {
+        if (method==="GET") return send(res,200,{items:service.listWhatsAppOutbox(organizationId,actor,queryInteger(url,"limit",100))});
+        if (method==="POST") {
+          const body=await readObject(req);
+          if (!body.payload || typeof body.payload!=="object" || Array.isArray(body.payload)) throw new HttpError(400,"payload must be an object");
+          const message=service.queueWhatsAppTemplate(organizationId,actor,{
+            approvalId:body.approvalId as string,idempotencyKey:body.idempotencyKey as string,
+            payload:body.payload as Record<string,unknown>,
+          });
+          return send(res,201,{message});
+        }
+        throw new HttpError(405,"Method not allowed");
+      }
+      if (seg[2]==="whatsapp" && seg.length===6 && seg[3]==="outbox" && seg[5]==="send" && method==="POST") {
+        const messageId=decodeSegment(seg[4],"message id");
+        const message=await service.dispatchWhatsAppTemplate(organizationId,actor,messageId);
+        return send(res,200,{message});
       }
 
       if (seg[2]==="companies") {

@@ -111,6 +111,36 @@ export interface ConsentRecord {
   createdAt: number;
 }
 
+export type WhatsAppOutboxStatus = "queued" | "sending" | "accepted" | "failed" | "submission_unknown" | "cancelled";
+
+export interface WhatsAppOutboxMessage {
+  id: string;
+  organizationId: string;
+  contactId: string;
+  channel: "whatsapp";
+  purpose: string;
+  recipient: string;
+  templateName: string;
+  language: string;
+  templateComponents: Record<string, unknown>[];
+  approvalId: string;
+  approvalPayloadHash: string;
+  consentId: string;
+  status: WhatsAppOutboxStatus;
+  providerMessageId: string;
+  failureCode: string;
+  idempotencyKey: string;
+  createdAt: number;
+  updatedAt: number;
+  submittedAt: number;
+}
+
+export interface QueueWhatsAppTemplateInput {
+  approvalId: string;
+  idempotencyKey: string;
+  payload: Record<string, unknown>;
+}
+
 export interface Approval {
   id: string;
   organizationId: string;

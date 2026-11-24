@@ -288,3 +288,18 @@ Le registre de preuves du Lot 3 est exposé dans le CRM local : ajout et listage
 Le moteur de qualification commerciale company-fit-v1 est maintenant disponible : profil client idéal par organisation, critères explicables, gestion des données inconnues et exclusions bloquantes. Le score d'adéquation reste distinct du score de qualité documentaire et ne modifie jamais le pipeline automatiquement.
 
 Le contrôle CI doit être exécuté sur le commit livré avant de déclarer le lot validé.
+
+
+## État du Lot 4 — première tranche technique (24 novembre 2026)
+
+Une première tranche du contrôle des envois WhatsApp est intégrée dans le code :
+
+- preuve de consentement obligatoire avec version du texte, source et référence de preuve ;
+- historique de consentement append-only, retrait explicite par nouvel événement et vérification juste avant envoi ;
+- API locale pour les consentements, demandes/décisions d'approbation et registre de messages sortants ;
+- file SQLite isolée par organisation, référence vers le consentement et l'approbation, clé d'idempotence ;
+- approbation propriétaire liée à l'empreinte exacte du destinataire, du modèle, de la langue et des paramètres ;
+- adaptateur officiel Cloud API : vérification à distance du statut APPROVED du modèle, puis soumission via l'endpoint messages ;
+- aucun envoi libre, aucune automatisation WhatsApp Web et aucun retry automatique quand le résultat de soumission est ambigu.
+
+**Le Lot 4 reste ouvert.** L'ingress public des webhooks Meta, la vérification de challenge, la déduplication persistante des événements entrants, la mise à jour des statuts de livraison, le stockage des secrets dans le trousseau système, l'interface de revue et la simulation réelle avec un compte Meta de test doivent encore être implémentés et vérifiés. Un statut `accepted` signifie que l'API a accepté la requête, pas que le destinataire a reçu le message.
