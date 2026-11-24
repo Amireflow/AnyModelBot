@@ -4,7 +4,7 @@
  */
 import { AgencyError } from "../../agency/errors.js";
 import type { AgencyService } from "../../agency/service.js";
-import type { AddEvidenceInput, CompanySearchFilters, ContactSearchFilters, LeadSearchFilters, LeadStage } from "../../agency/types.js";
+import type { AddEvidenceInput, CompanySearchFilters, ContactSearchFilters, LeadSearchFilters, LeadStage, UpdateQualificationProfileInput } from "../../agency/types.js";
 import { HttpError, readJson, send, webEvent, type Route, type WebContext } from "../http.js";
 import { CompanyResearchImportError, findActiveCompanyResearchJob, listCompanyResearchJobs, loadCompanyResearchSources } from "../../agency/company-research-import.js";
 
@@ -69,6 +69,16 @@ export function agencyRoutes(ctx: WebContext): Route {
 
       if (seg.length===3 && seg[2]==="dashboard" && method==="GET") return send(res,200,service.dashboard(organizationId,actor));
 
+      if (seg.length===3 && seg[2]==="qualification-profile") {
+        if (method==="GET") return send(res,200,{profile:service.getQualificationProfile(organizationId,actor)});
+        if (method==="PUT") {
+          const body=await readObject(req);
+          const profile=service.updateQualificationProfile(organizationId,actor,body as UpdateQualificationProfileInput);
+          return send(res,200,{profile});
+        }
+        throw new HttpError(405,"Method not allowed");
+      }
+
       if (seg[2]==="companies") {
         if (seg.length===3 && method==="GET") {
           const filters: CompanySearchFilters={
@@ -89,6 +99,10 @@ export function agencyRoutes(ctx: WebContext): Route {
         }
         if (seg.length===4 && method==="GET") {
           return send(res,200,{company:service.getCompany(organizationId,actor,decodeSegment(seg[3],"company id"))});
+        }
+        if (seg.length===5 && seg[4]==="qualification" && method==="GET") {
+          const companyId=decodeSegment(seg[3],"company id");
+          return send(res,200,{assessment:service.assessCompanyQualification(organizationId,actor,companyId)});
         }
         if (seg.length===6 && seg[4]==="research" && seg[5]==="jobs" && method==="GET") {
           const companyId=decodeSegment(seg[3],"company id");

@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import type {
   Approval, ApprovalAction, ApprovalStatus, AuditEvent, Company, ConsentRecord, Contact,
-  Evidence, Lead, LeadStage, Membership, Organization, OrganizationStatus, AgencyRole,
+  Evidence, Lead, LeadStage, Membership, Organization, OrganizationStatus, AgencyRole, QualificationProfile, ResearchDomain,
 } from "./types.js";
 
 type Row = Record<string, unknown>;
@@ -91,6 +91,17 @@ CREATE TABLE IF NOT EXISTS agency_evidence (
 );
 CREATE INDEX IF NOT EXISTS agency_evidence_org_company ON agency_evidence(organization_id, company_id, collected_at);
 CREATE INDEX IF NOT EXISTS agency_evidence_org_company_hash ON agency_evidence(organization_id, company_id, content_hash);
+
+CREATE TABLE IF NOT EXISTS agency_qualification_profiles (
+  organization_id TEXT PRIMARY KEY REFERENCES agency_organizations(id),
+  target_industries_json TEXT NOT NULL DEFAULT '[]',
+  target_countries_json TEXT NOT NULL DEFAULT '[]',
+  excluded_industries_json TEXT NOT NULL DEFAULT '[]',
+  required_evidence_domains_json TEXT NOT NULL DEFAULT '[]',
+  require_website INTEGER NOT NULL DEFAULT 0 CHECK(require_website IN (0,1)),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS agency_consents (
   id TEXT PRIMARY KEY,
@@ -262,6 +273,24 @@ function leadOf(r: Row): Lead {
 function evidenceOf(r: Row): Evidence {
   return { id:text(r,"id"), organizationId:text(r,"organization_id"), companyId:text(r,"company_id"), leadId:text(r,"lead_id"), evidenceType:text(r,"evidence_type"), sourceUrl:text(r,"source_url"), summary:text(r,"summary"), contentHash:text(r,"content_hash"), confidence:Number(r.confidence), observedAt:number(r,"observed_at"), collectedAt:number(r,"collected_at") };
 }
+function jsonStringArray(value: string): string[] {
+  try {
+    const result=JSON.parse(value);
+    return Array.isArray(result) ? result.filter((item): item is string => typeof item==="string") : [];
+  } catch { return []; }
+}
+function qualificationProfileOf(r: Row): QualificationProfile {
+  return {
+    organizationId:text(r,"organization_id"),
+    targetIndustries:jsonStringArray(text(r,"target_industries_json")),
+    targetCountries:jsonStringArray(text(r,"target_countries_json")),
+    excludedIndustries:jsonStringArray(text(r,"excluded_industries_json")),
+    requiredEvidenceDomains:jsonStringArray(text(r,"required_evidence_domains_json")) as ResearchDomain[],
+    requireWebsite:number(r,"require_website")===1,
+    createdAt:number(r,"created_at"),
+    updatedAt:number(r,"updated_at"),
+  };
+}
 function consentOf(r: Row): ConsentRecord {
   return { id:text(r,"id"), organizationId:text(r,"organization_id"), contactId:text(r,"contact_id"), channel:text(r,"channel"), purpose:text(r,"purpose"), status:text(r,"status") as ConsentRecord["status"], source:text(r,"source"), proof:text(r,"proof"), textVersion:text(r,"text_version"), expiresAt:number(r,"expires_at"), createdAt:number(r,"created_at") };
 }
@@ -288,6 +317,8 @@ export class AgencyStore {
     this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(1, ?)").run(Date.now());
     // v2 installs the idempotent tenant-integrity triggers on existing v1 databases.
     this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(2, ?)").run(Date.now());
+    // v3 introduces organization-scoped ideal-customer profiles.
+    this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(3, ?)").run(Date.now());
   }
 
   close(): void { this.db.close(); }
@@ -430,6 +461,31 @@ export class AgencyStore {
   }
   listEvidence(orgId: string, companyId: string): Evidence[] {
     return (this.db.prepare("SELECT * FROM agency_evidence WHERE organization_id=? AND company_id=? ORDER BY collected_at DESC").all(orgId,companyId) as Row[]).map(evidenceOf);
+  }
+
+  getQualificationProfile(orgId: string): QualificationProfile | undefined {
+    const row=this.db.prepare("SELECT * FROM agency_qualification_profiles WHERE organization_id=?").get(orgId) as Row|undefined;
+    return row ? qualificationProfileOf(row) : undefined;
+  }
+  saveQualificationProfile(v: QualificationProfile): QualificationProfile {
+    this.db.prepare(`
+      INSERT INTO agency_qualification_profiles(
+        organization_id,target_industries_json,target_countries_json,excluded_industries_json,
+        required_evidence_domains_json,require_website,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?)
+      ON CONFLICT(organization_id) DO UPDATE SET
+        target_industries_json=excluded.target_industries_json,
+        target_countries_json=excluded.target_countries_json,
+        excluded_industries_json=excluded.excluded_industries_json,
+        required_evidence_domains_json=excluded.required_evidence_domains_json,
+        require_website=excluded.require_website,
+        updated_at=excluded.updated_at
+    `).run(
+      v.organizationId,JSON.stringify(v.targetIndustries),JSON.stringify(v.targetCountries),
+      JSON.stringify(v.excludedIndustries),JSON.stringify(v.requiredEvidenceDomains),
+      v.requireWebsite?1:0,v.createdAt,v.updatedAt,
+    );
+    return this.getQualificationProfile(v.organizationId)!;
   }
 
   insertConsent(v: ConsentRecord): ConsentRecord {

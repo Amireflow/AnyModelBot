@@ -9,6 +9,8 @@ const blankCompany={name:"",website:"",industry:"",countryCode:"SN",city:""};
 const blankLead={companyId:"",source:"",notes:""};
 const blankContact={displayName:"",role:"",email:"",phone:""};
 const blankEvidence={evidenceType:"company",sourceUrl:"",summary:"",confidence:"0.7"};
+const blankQualificationDraft={targetIndustries:"",targetCountries:"",excludedIndustries:"",requiredEvidenceDomains:"",requireWebsite:false};
+const splitValues=value=>value.split(",").map(item=>item.trim()).filter(Boolean);
 const ACTIVE_RESEARCH=new Set(["pending","grounding","researching","collecting","curating","enriching","briefing","editing"]);
 const isActiveResearch=job=>{
   if(!ACTIVE_RESEARCH.has(job.status))return false;
@@ -46,6 +48,9 @@ export function AgencyScreen() {
   const [selected,setSelected]=useState("");
   const [contacts,setContacts]=useState([]);
   const [research,setResearch]=useState({items:[],assessment:null});
+  const [qualification,setQualification]=useState(null);
+  const [qualificationDraft,setQualificationDraft]=useState(blankQualificationDraft);
+  const [qualificationForm,setQualificationForm]=useState(false);
   const [researchJobs,setResearchJobs]=useState([]);
   const [researchLaunch,setResearchLaunch]=useState(null);
   const [researchJobId,setResearchJobId]=useState("");
@@ -77,6 +82,24 @@ export function AgencyScreen() {
   },[lang]);
 
   useEffect(()=>{
+    if(!orgId){setQualificationDraft(blankQualificationDraft);return;}
+    let live=true;
+    api("/agency/"+enc(orgId)+"/qualification-profile")
+      .then(d=>{
+        if(!live)return;
+        const profile=d.profile;
+        setQualificationDraft({
+          targetIndustries:(profile.targetIndustries||[]).join(", "),
+          targetCountries:(profile.targetCountries||[]).join(", "),
+          excludedIndustries:(profile.excludedIndustries||[]).join(", "),
+          requiredEvidenceDomains:(profile.requiredEvidenceDomains||[]).join(", "),
+          requireWebsite:!!profile.requireWebsite,
+        });
+      }).catch(e=>live&&setError(e.message));
+    return ()=>{live=false;};
+  },[orgId,lang]);
+
+  useEffect(()=>{
     if(!orgId){setDashboard(null);setRows({items:[],total:0});return;}
     let live=true;setBusy("load");setError("");
     const path=tab==="companies"?"/companies?":"/leads?";
@@ -99,7 +122,7 @@ export function AgencyScreen() {
   },[orgId,revision,lang]);
 
   useEffect(()=>{
-    if(!orgId||!selected){setContacts([]);return;}
+    if(!orgId||!selected){setContacts([]);setQualification(null);return;}
     let live=true;
     api(`/agency/${enc(orgId)}/companies/${enc(selected)}/contacts?limit=100`)
       .then(d=>live&&setContacts(d.items||[])).catch(e=>live&&setError(e.message));
@@ -107,11 +130,13 @@ export function AgencyScreen() {
   },[orgId,selected,revision,lang]);
 
   useEffect(()=>{
-    if(!orgId||!selected){setResearch({items:[],assessment:null});setResearchJobs([]);setResearchLaunch(null);setResearchJobId("");return;}
+    if(!orgId||!selected){setResearch({items:[],assessment:null});setResearchJobs([]);setResearchLaunch(null);setResearchJobId("");setQualification(null);return;}
     let live=true;
     const refresh=()=>{
       api("/agency/"+enc(orgId)+"/companies/"+enc(selected)+"/evidence")
         .then(d=>live&&setResearch(d)).catch(e=>live&&setError(e.message));
+      api("/agency/"+enc(orgId)+"/companies/"+enc(selected)+"/qualification")
+        .then(d=>live&&setQualification(d.assessment)).catch(e=>live&&setError(e.message));
       api("/agency/"+enc(orgId)+"/companies/"+enc(selected)+"/research/jobs")
         .then(d=>{
           if(!live)return;
@@ -166,6 +191,24 @@ export function AgencyScreen() {
         method:"POST",body:{...evidenceDraft,confidence:Number(evidenceDraft.confidence)}
       });
       setEvidenceDraft(blankEvidence);setEvidenceForm(false);setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const saveQualificationProfile=async(e)=>{
+    e.preventDefault();setBusy("qualification-profile");setError("");
+    try{
+      const payload={
+        targetIndustries:splitValues(qualificationDraft.targetIndustries),
+        targetCountries:splitValues(qualificationDraft.targetCountries),
+        excludedIndustries:splitValues(qualificationDraft.excludedIndustries),
+        requiredEvidenceDomains:splitValues(qualificationDraft.requiredEvidenceDomains),
+        requireWebsite:qualificationDraft.requireWebsite,
+      };
+      await api("/agency/"+enc(orgId)+"/qualification-profile",{method:"PUT",body:payload});
+      setQualificationForm(false);
+      if(selected){
+        const assessment=await api("/agency/"+enc(orgId)+"/companies/"+enc(selected)+"/qualification");
+        setQualification(assessment.assessment);
+      }
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const startResearch=async()=>{
@@ -224,12 +267,23 @@ export function AgencyScreen() {
           <button role="tab" aria-selected=${tab==="companies"} class=${tab==="companies"?"active":""} onClick=${()=>{setTab("companies");setPage(0);}}>${t("agency.companies")}</button>
           <button role="tab" aria-selected=${tab==="leads"} class=${tab==="leads"?"active":""} onClick=${()=>{setTab("leads");setPage(0);}}>${t("agency.leads")}</button>
         </div>
+        ${tab==="companies"&&html`<button class="btn" onClick=${()=>setQualificationForm(v=>!v)}>${t("agency.qualificationProfile")}</button>`}
         <label class="agency-search"><${Icon} name="search"/><input type="search" value=${query} placeholder=${t("agency.search")} onInput=${e=>{setQuery(e.currentTarget.value);setPage(0);}}/></label>
         ${tab==="companies"
           ?html`<button class="btn primary" onClick=${()=>setCompanyForm(v=>!v)}><${Icon} name="plus"/>${t("agency.newCompany")}</button>`
           :html`<button class="btn primary" disabled=${!dashboard?.companyCount} onClick=${()=>setLeadForm(v=>!v)}><${Icon} name="plus"/>${t("agency.newLead")}</button>`}
       </div>
       ${error&&html`<div class="agency-alert" role="alert">${error}</div>`}
+      ${qualificationForm&&tab==="companies"&&orgId&&html`<form class="agency-form agency-form-grid agency-qualification-form" onSubmit=${saveQualificationProfile}>
+        <div class="agency-form-head"><div><h2>${t("agency.qualificationProfile")}</h2><p>${t("agency.qualificationProfileHint")}</p></div><button type="button" class="text" onClick=${()=>setQualificationForm(false)}>${t("agency.cancel")}</button></div>
+        <${Field} label=${t("agency.targetIndustries")} value=${qualificationDraft.targetIndustries} placeholder="software, santé, commerce" onInput=${v=>update(setQualificationDraft,"targetIndustries",v)}/>
+        <${Field} label=${t("agency.targetCountries")} value=${qualificationDraft.targetCountries} placeholder="SN, CI, BJ" onInput=${v=>update(setQualificationDraft,"targetCountries",v)}/>
+        <${Field} label=${t("agency.excludedIndustries")} value=${qualificationDraft.excludedIndustries} placeholder="secteurs à exclure" onInput=${v=>update(setQualificationDraft,"excludedIndustries",v)}/>
+        <${Field} label=${t("agency.requiredEvidenceDomains")} value=${qualificationDraft.requiredEvidenceDomains} placeholder="company, financial, news" onInput=${v=>update(setQualificationDraft,"requiredEvidenceDomains",v)}/>
+        <label class="agency-qualification-checkbox"><input type="checkbox" checked=${qualificationDraft.requireWebsite} onChange=${e=>update(setQualificationDraft,"requireWebsite",e.currentTarget.checked)}/><span>${t("agency.requireWebsite")}</span></label>
+        <p class="agency-muted agency-form-wide">${t("agency.qualificationProfileNote")}</p>
+        <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${busy==="qualification-profile"}>${busy==="qualification-profile"?t("agency.creating"):t("agency.saveProfile")}</button></div>
+      </form>`}
       ${companyForm&&tab==="companies"&&html`<form class="agency-form agency-form-grid" onSubmit=${createCompany}>
         <div class="agency-form-head"><h2>${t("agency.newCompany")}</h2><button type="button" class="text" onClick=${()=>setCompanyForm(false)}>${t("agency.cancel")}</button></div>
         <${Field} label=${t("agency.companyName")} value=${company.name} required onInput=${v=>update(setCompany,"name",v)}/>
@@ -260,6 +314,15 @@ export function AgencyScreen() {
           ${contacts.map(p=>html`<div class="agency-contact-row"><span class="agency-contact-avatar">${(p.displayName||"?").slice(0,1).toUpperCase()}</span><span><strong>${p.displayName}</strong><small>${p.role||p.email||p.phone||"—"}</small></span></div>`)}
 
           ${!contacts.length&&html`<p class="agency-muted">${t("agency.noContacts")}</p>`}
+          <section class="agency-qualification">
+            <div class="agency-contact-heading"><h3>${t("agency.qualificationTitle")}</h3><span class="agency-qualification-status">${qualification?t("agency.qualificationStatus."+qualification.status):"—"}</span></div>
+            ${qualification&&html`<div class="agency-qualification-score"><strong>${qualification.score===null?"—":qualification.score+"/100"}</strong><span>${t("agency.qualificationCoverage",{coverage:qualification.coverage})}</span></div>
+              ${qualification.criteria.map(item=>html`<div class="agency-qualification-criterion"><strong>${t("agency.qualificationCriteria."+item.id)}</strong><span class=${"agency-qualification-result "+item.result}>${t("agency.qualificationResult."+item.result)}</span><small>${t("agency.qualificationExpected",{value:item.expected.join(", ")})} · ${item.observed||t("agency.qualificationUnknownValue")} · ${t("agency.qualificationWeight",{weight:Math.round(item.weight)})}</small></div>`)}
+              ${qualification.blockingReasons.length?html`<p class="agency-qualification-warning">${t("agency.qualificationBlocked")}</p>`:null}
+              ${qualification.status==="unconfigured"?html`<p class="agency-muted">${t("agency.qualificationNoProfile")}</p>`:null}
+            ` : html`<p class="agency-muted">${t("agency.qualificationNoProfile")}</p>`}
+            <p class="agency-muted">${t("agency.qualificationManualOnly")}</p>
+          </section>
           <section class="agency-research">
             <div class="agency-contact-heading"><h3>${t("agency.researchImportTitle")}</h3><button class="btn" disabled=${!!busy||activeResearchJobs.length>0||researchLaunchActive} onClick=${startResearch}>${busy==="research-start"?t("agency.startingResearch"):t("agency.startResearch")}</button></div>
             ${activeResearchJobs.map(job=>html`<div class="agency-active-job"><div><strong>${t("agency.jobStatus."+job.status)}</strong><span class="num">${job.progress}%</span></div><div class="agency-job-progress"><i style=${{width:Math.max(0,Math.min(100,job.progress))+"%"}}></i></div><small>${job.currentStep||job.id}</small></div>`)}

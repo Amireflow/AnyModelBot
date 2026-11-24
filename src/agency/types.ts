@@ -247,6 +247,52 @@ export interface ResearchAssessment {
   assessedAt: number;
 }
 
+export interface QualificationProfile {
+  organizationId: string;
+  targetIndustries: string[];
+  targetCountries: string[];
+  excludedIndustries: string[];
+  requiredEvidenceDomains: ResearchDomain[];
+  requireWebsite: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface UpdateQualificationProfileInput {
+  targetIndustries?: string[];
+  targetCountries?: string[];
+  excludedIndustries?: string[];
+  requiredEvidenceDomains?: ResearchDomain[];
+  requireWebsite?: boolean;
+}
+
+export type QualificationStatus = "unconfigured" | "insufficient_data" | "strong_fit" | "review" | "weak_fit";
+export type QualificationCriterionId =
+  | "target_industry" | "target_country" | "excluded_industry" | "website"
+  | "evidence_company" | "evidence_industry" | "evidence_financial" | "evidence_news";
+
+export interface QualificationCriterion {
+  id: QualificationCriterionId;
+  result: "met" | "not_met" | "unknown";
+  weight: number;
+  points: number;
+  expected: string[];
+  observed: string;
+}
+
+export interface CompanyQualificationAssessment {
+  modelVersion: string;
+  companyId: string;
+  status: QualificationStatus;
+  score: number | null;
+  coverage: number;
+  configuredWeight: number;
+  evaluatedWeight: number;
+  criteria: QualificationCriterion[];
+  blockingReasons: QualificationCriterionId[];
+  assessedAt: number;
+}
+
 export interface AgencyDashboard {
   companyCount: number; contactCount: number; leadCount: number;
   openLeadCount: number; wonLeadCount: number; stageCounts: Record<LeadStage, number>;

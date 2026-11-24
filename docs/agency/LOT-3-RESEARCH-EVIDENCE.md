@@ -48,6 +48,18 @@ La recherche web automatisée de prospection, la configuration de fournisseurs, 
 
 Le résumé et le contenu enrichi sont récupérés depuis `curated.json` uniquement pour les URL également présentes dans `sources.json` et marquées comme citées par le rapport. Le texte importé est conservé comme référence externe non fiable à vérifier, pas comme instruction. Les anciens rapports sans `curated.json` restent importables avec le comportement précédent : simple référence de source. La confiance reste à 0,5 (valeur neutre), car le score Company Research mesure la pertinence de la source et non la fiabilité factuelle. La date observée est renseignée uniquement lorsqu'un `publishedAt` valide est présent ; sinon elle reste inconnue (0), sans bonus artificiel de fraîcheur.
 
+## Qualification commerciale basée sur le profil client idéal
+
+Le CRM dispose d'un moteur `company-fit-v1` déterministe, distinct du score de qualité documentaire :
+
+- chaque organisation peut configurer ses secteurs et pays cibles, ses secteurs exclus, ses domaines de preuves obligatoires et l'exigence d'un site officiel ;
+- l'évaluation expose chaque critère, son poids, son résultat et la couverture des critères effectivement évaluables ;
+- une donnée manquante produit un résultat inconnu et diminue la couverture ; elle n'est pas inventée ni automatiquement considérée comme un échec ;
+- un secteur exclu est un blocage explicite ;
+- l'évaluation est consultative : elle ne fait pas avancer un prospect dans le pipeline et n'infère ni intention d'achat, ni budget, ni capacité financière.
+
+Le profil est enregistré par organisation. Seuls le propriétaire et l'administrateur peuvent le modifier. L'évaluation est calculée à la demande à partir des attributs CRM et de la présence des domaines de preuves.
+
 ## Validation à effectuer
 
 - tests du calcul versionné, des catégories, des sources, de la fraîcheur et de la confiance ;

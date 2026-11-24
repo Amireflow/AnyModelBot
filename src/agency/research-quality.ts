@@ -4,7 +4,7 @@ const DOMAINS: readonly ResearchDomain[] = ["company", "industry", "financial", 
 const DAY = 24 * 60 * 60 * 1000;
 
 /** Measures research-dossier quality; it is not a prospect-fit or likelihood-to-buy score. */
-function classifyEvidenceType(value: string): ResearchDomain | undefined {
+export function classifyEvidenceType(value: string): ResearchDomain | undefined {
   const type = value.toLowerCase().replace(/[^a-z0-9]+/g, "_");
   if (/(financial|finance|funding|revenue|annual_report|balance_sheet|investment)/.test(type)) return "financial";
   if (/(news|press|media|announcement|event)/.test(type)) return "news";

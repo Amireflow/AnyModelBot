@@ -3,12 +3,14 @@ import { AgencyError } from "./errors.js";
 import { AgencyStore, stablePayloadHash } from "./store.js";
 import { assertLeadTransition } from "./transitions.js";
 import { assessResearchEvidence } from "./research-quality.js";
+import { assessCompanyQualification } from "./qualification.js";
 import type { CompanyResearchSource } from "./company-research-import.js";
 import type {
   AddEvidenceInput, AgencyDashboard, Approval, ApprovalAction, AuditEvent, Company, CompanySearchFilters,
   Contact, ContactSearchFilters, CreateCompanyInput, CreateContactInput, CreateLeadInput,
   CreateOrganizationInput, Evidence, Lead, LeadSearchFilters, LeadStage, Organization,
   Page, RecordConsentInput, RequestApprovalInput, AgencyRole, ResearchAssessment,
+  CompanyQualificationAssessment, QualificationProfile, ResearchDomain, UpdateQualificationProfileInput,
 } from "./types.js";
 import {
   confidenceValue, countryCode, currencyCode, emailAddress, normalizedName, optionalText,
@@ -270,6 +272,74 @@ export class AgencyService {
     this.requireMember(organizationId,actorId,["owner","admin","member","client","auditor"]);
     if (!this.store.getCompany(organizationId,companyId)) throw new AgencyError("NOT_FOUND","Company not found");
     return assessResearchEvidence(this.store.listEvidence(organizationId,companyId),this.now());
+  }
+
+  getQualificationProfile(organizationId: string, actorId: string): QualificationProfile {
+    this.requireMember(organizationId,actorId,["owner","admin","member","client","auditor"]);
+    return this.store.getQualificationProfile(organizationId) ?? {
+      organizationId,targetIndustries:[],targetCountries:[],excludedIndustries:[],
+      requiredEvidenceDomains:[],requireWebsite:false,createdAt:0,updatedAt:0,
+    };
+  }
+
+  updateQualificationProfile(organizationId: string, actorId: string, input: UpdateQualificationProfileInput): QualificationProfile {
+    this.requireMember(organizationId,actorId,["owner","admin"]);
+    const list=(value: unknown,field: string,maxItems=20): string[] => {
+      if (value==null) return [];
+      if (!Array.isArray(value) || value.length>maxItems) throw new AgencyError("VALIDATION_ERROR",field+" must be a list of up to "+maxItems+" values");
+      const result:string[]=[];
+      const seen=new Set<string>();
+      for (const raw of value) {
+        const item=requiredText(raw,field,100);
+        const key=normalizedName(item);
+        if (!seen.has(key)) { seen.add(key); result.push(item); }
+      }
+      return result;
+    };
+    const targetIndustries=list(input.targetIndustries,"targetIndustries");
+    const excludedIndustries=list(input.excludedIndustries,"excludedIndustries");
+    const targetCountries=list(input.targetCountries,"targetCountries").map(value=>{
+      const code=countryCode(value);
+      if (!code) throw new AgencyError("VALIDATION_ERROR","targetCountries cannot contain empty country codes");
+      return code;
+    });
+    const requiredEvidenceDomains=list(input.requiredEvidenceDomains,"requiredEvidenceDomains",4) as ResearchDomain[];
+    const validDomains:ResearchDomain[]=["company","industry","financial","news"];
+    if (requiredEvidenceDomains.some(domain=>!validDomains.includes(domain))) {
+      throw new AgencyError("VALIDATION_ERROR","requiredEvidenceDomains contains an unsupported domain");
+    }
+    if (targetIndustries.some(value=>excludedIndustries.some(excluded=>normalizedName(excluded)===normalizedName(value)))) {
+      throw new AgencyError("VALIDATION_ERROR","An industry cannot be both targeted and excluded");
+    }
+    if (input.requireWebsite!==undefined && typeof input.requireWebsite!=="boolean") {
+      throw new AgencyError("VALIDATION_ERROR","requireWebsite must be a boolean");
+    }
+    const now=this.now();
+    const previous=this.store.getQualificationProfile(organizationId);
+    const profile:QualificationProfile={
+      organizationId,targetIndustries,targetCountries,excludedIndustries,requiredEvidenceDomains,
+      requireWebsite:input.requireWebsite??false,
+      createdAt:previous?.createdAt||now,updatedAt:now,
+    };
+    return this.store.transaction(()=>{
+      const saved=this.store.saveQualificationProfile(profile);
+      this.audit(organizationId,actorId,"qualification.profile_updated","qualification_profile",organizationId,{
+        targetIndustries:targetIndustries.length,targetCountries:targetCountries.length,
+        excludedIndustries:excludedIndustries.length,requiredEvidenceDomains,requireWebsite:profile.requireWebsite,
+      });
+      return saved;
+    });
+  }
+
+  assessCompanyQualification(organizationId: string, actorId: string, companyId: string): CompanyQualificationAssessment {
+    this.requireMember(organizationId,actorId,["owner","admin","member","client","auditor"]);
+    const company=this.store.getCompany(organizationId,requiredText(companyId,"companyId",100));
+    if (!company) throw new AgencyError("NOT_FOUND","Company not found");
+    const profile=this.store.getQualificationProfile(organizationId) ?? {
+      organizationId,targetIndustries:[],targetCountries:[],excludedIndustries:[],
+      requiredEvidenceDomains:[],requireWebsite:false,createdAt:0,updatedAt:0,
+    };
+    return assessCompanyQualification(company,profile,this.store.listEvidence(organizationId,companyId),this.now());
   }
 
   importCompanyResearchSources(organizationId: string, actorId: string, companyId: string, jobId: string, sources: CompanyResearchSource[]) {
