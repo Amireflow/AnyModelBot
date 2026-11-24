@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Store } from "../src/store/db.js";
-import { LocalExecutionNode, localTaskId, shouldEmitTaskUpdate, validateControlPlaneUrl } from "../src/execution-node/service.js";
+import { LocalExecutionNode, buildFlowAutoBrief, localTaskId, shouldEmitTaskUpdate, validateControlPlaneUrl } from "../src/execution-node/service.js";
 
 describe("LocalExecutionNode", () => {
   let store: Store | undefined;
@@ -45,6 +45,18 @@ describe("LocalExecutionNode", () => {
     expect(node.status().state).toBe("active");
     expect(env.AMB_EXECUTION_NODE_RESET).toBeUndefined();
     expect(node.resetRevocationForLocalPairing()).toBe(false);
+  });
+
+
+  it("includes the FlowAuto safety policy without truncating a maximum-size request", () => {
+    const instruction = "x".repeat(800);
+    const brief = buildFlowAutoBrief(instruction);
+    expect(brief).toContain(`OWNER REQUEST:\n${instruction}`);
+    expect(brief).toContain("approved Computer Use");
+    expect(brief).toContain("task_report(needs_you)");
+    expect(brief).toContain("save only in this bot's workspace");
+    expect(brief.length).toBeLessThanOrEqual(1_500);
+    expect(() => buildFlowAutoBrief("x".repeat(801))).toThrow(/800 UTF-8 bytes/);
   });
 
   it("allows only TLS Control Plane URLs except loopback development", () => {

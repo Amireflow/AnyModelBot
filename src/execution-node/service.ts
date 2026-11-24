@@ -44,13 +44,23 @@ interface RemoteTaskRow {
 }
 
 const FLOWAUTO_POLICY = [
-  "LOCAL EXECUTION POLICY — this task is limited to FlowAuto / Google Flow.",
-  "Use only the already-open Chrome profile and the FlowAuto / Google Flow interface. Do not switch browser profiles or Google accounts, sign in, inspect credentials, or read browser session data. If an account chooser, login prompt, or unexpected permission dialog appears, stop and ask the local owner.",
-  "Use the approved Computer Use interface for browser interaction. Every click, keystroke, or other input action requires the owner's local approval. Do not bypass this approval through scripts, shell commands, extensions APIs, or direct network calls.",
-  "Never publish, share, externally upload, send, spend credits, change account settings, or delete content without first asking the owner through task_report(needs_you) and waiting for the owner's decision. Do not claim an action succeeded until the resulting UI state has been checked.",
-  "Save deliverables only inside this bot's workspace. If Chrome's download flow cannot save there, stop and ask the owner rather than writing outside the workspace.",
-  "Verify generated images and videos in the UI; for videos, inspect playback and the final rendered result. Report what was actually verified, any limitations, and the workspace-relative output path.",
+  "Scope: FlowAuto/Google Flow only. Use the open Chrome profile; don't switch accounts, sign in, inspect credentials/session data, or change settings. Stop on login or permission prompts; ask owner.",
+  "Browser: use approved Computer Use only; every click/key/input needs local approval. No scripts, shell, extension APIs, or network calls to bypass it.",
+  "Approval: before publishing, sharing, external upload, sending, spending credits, changing settings, or deleting, call task_report(needs_you) and wait for approval.",
+  "Files/QA: save only in this bot's workspace; stop if Chrome cannot. Verify images and play final videos in UI; report verified results, limits, and relative paths."
 ].join("\n");
+
+export function buildFlowAutoBrief(instruction: string): string {
+  const request = instruction.trim();
+  if (Buffer.byteLength(request, "utf8") > 800) {
+    throw new Error("FlowAuto instruction must not exceed 800 UTF-8 bytes.");
+  }
+  const brief = `OWNER REQUEST:\n${request}\n\n${FLOWAUTO_POLICY}`;
+  // TaskService clips assistant briefs at 1,500 characters. Fail closed rather than silently
+  // dropping the safety rules or truncating the owner's request.
+  if (brief.length > 1_500) throw new Error("FlowAuto execution policy does not fit in the task brief.");
+  return brief;
+}
 
 export function validateControlPlaneUrl(value: string): URL {
   let url: URL;
@@ -580,7 +590,7 @@ export class LocalExecutionNode {
     const marker = `[Execution Node task ${remoteId}]`;
     const alreadyRecorded = this.o.store.listMessages(conversation.id, 10).some((item) => item.role === "user" && item.content.startsWith(marker));
     if (!alreadyRecorded) this.o.store.addMessage(conversation.id, "user", `${marker}\n${instruction}`);
-    const brief = `OWNER REQUEST:\n${instruction}`;
+    const brief = buildFlowAutoBrief(instruction);
     const created = this.o.tasks.create({
       id: localId,
       botId: this.botId,
