@@ -579,6 +579,14 @@ export class LocalExecutionNode {
       this.send({ type: "task.rejected", task_id: remoteId, code: existing.status.toUpperCase(), message: existing.summary });
       return;
     }
+    let brief: string;
+    try {
+      brief = buildFlowAutoBrief(instruction);
+    } catch (error) {
+      const reason = clip((error as Error).message || "FlowAuto safety policy could not be assembled.", 300);
+      this.send({ type: "task.rejected", task_id: remoteId, code: "FLOWAUTO_POLICY_INVALID", message: reason });
+      return;
+    }
     const now = Date.now();
     this.db.prepare(
       "INSERT OR IGNORE INTO execution_node_tasks(remote_task_id,local_task_id,status,summary,created_at,updated_at) VALUES(?,?,?,?,?,?)",
@@ -590,7 +598,6 @@ export class LocalExecutionNode {
     const marker = `[Execution Node task ${remoteId}]`;
     const alreadyRecorded = this.o.store.listMessages(conversation.id, 10).some((item) => item.role === "user" && item.content.startsWith(marker));
     if (!alreadyRecorded) this.o.store.addMessage(conversation.id, "user", `${marker}\n${instruction}`);
-    const brief = buildFlowAutoBrief(instruction);
     const created = this.o.tasks.create({
       id: localId,
       botId: this.botId,

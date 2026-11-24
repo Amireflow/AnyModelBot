@@ -60,6 +60,33 @@ describe("LocalExecutionNode", () => {
   });
 
 
+
+  it("rejects invalid FlowAuto input with an explicit remote task rejection", async () => {
+    store = new Store(":memory:");
+    const node = new LocalExecutionNode({
+      store, tasks: { create: vi.fn() } as never,
+      workspace: () => "/tmp/workspace", env: {},
+    });
+    const internal = node as unknown as {
+      submitTask(value: unknown): Promise<void>;
+      send(value: Record<string, unknown>): void;
+    };
+    const sent: Record<string, unknown>[] = [];
+    internal.send = (message) => sent.push(message);
+    await internal.submitTask({
+      id: "remote-flow-task-too-long",
+      kind: "flowauto",
+      title: "Oversized request",
+      instruction: "x".repeat(501),
+    });
+    expect(sent.at(-1)).toMatchObject({
+      type: "task.rejected",
+      task_id: "remote-flow-task-too-long",
+      code: "INVALID_TASK",
+    });
+    expect(store.listTasks({ limit: 10 })).toHaveLength(0);
+  });
+
   it("passes the FlowAuto safety policy into the durable local task", async () => {
     store = new Store(":memory:");
     const bot = {
