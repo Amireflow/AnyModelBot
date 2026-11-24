@@ -76,36 +76,6 @@ describe("bridge /dsh/media", () => {
   });
 });
 
-describe("bridge /dsh/agency", () => {
-  it("forwards a read-only CRM request through the authenticated local bridge", async () => {
-    const seen: unknown[] = [];
-    bridge = new AgentBridge({
-      upstream: () => ({ baseUrl: "", apiKey: "" }),
-      ask: async () => ({ id: "" }),
-      wait: async () => ({}),
-      cancel: async () => undefined,
-      agency: async (body, signal) => {
-        seen.push({body,aborted:signal.aborted});
-        return {text:JSON.stringify({leadId:"lead-1",readOnly:true})};
-      },
-    });
-    await bridge.start();
-    const r=post(bridge,"/dsh/agency",{
-      botId:"bot-1",sessionId:"session-1",op:"get_prospect_dossier",
-      args:{organizationId:"org-1",leadId:"lead-1"},
-    });
-    await r.end;
-    expect(seen).toEqual([{
-      body:{
-        botId:"bot-1",sessionId:"session-1",op:"get_prospect_dossier",
-        args:{organizationId:"org-1",leadId:"lead-1"},
-      },
-      aborted:false,
-    }]);
-    expect(JSON.parse(r.chunks.join(""))).toEqual({text:JSON.stringify({leadId:"lead-1",readOnly:true})});
-  });
-});
-
 describe("bridge /dsh/search", () => {
   it("hands the query to the host and answers with its JSON; the plugin hanging up cancels the search", async () => {
     const seen: unknown[] = [];

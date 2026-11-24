@@ -227,8 +227,6 @@ export interface AgentHostOptions {
    * prompt：提示词里说连了哪些应用的那一段，每个回合开始前现读，对话中途连上的应用下一次请求就知道。
    */
   apps?: () => { config: { apps: boolean; tools: string[] }; prompt: string };
-  /** Whether the read-only local CRM plugin should be loaded in this bot's DSH process. */
-  agency?: () => boolean;
   /** 模型的上下文长度（Modelflare 模型资料）；不知道时 undefined，用内置兜底表 */
   contextWindow?: (model: string) => Promise<number | undefined>;
   /** 模型支持的接口与是否推理（Modelflare 模型资料），用来选对话接口；不知道时 undefined，走 Chat Completions */
@@ -870,8 +868,6 @@ export class AgentHost {
       ...(this.allows("network") ? ["    - id: amb-web-search", `      name: ${yamlStr(path.join(this.o.runtimeDir, "plugins", "amb-web-search.mjs"))}`] : []),
       // 连接应用（内置应用连接器、自定义 MCP、现有的 Notion / 飞书账号）：注册什么看 AMB_CONNECTIONS，凭证只在宿主这边（tools/apps/service.ts）
       ...(this.allows("accounts") ? ["    - id: amb-connections", `      name: ${yamlStr(path.join(this.o.runtimeDir, "plugins", "amb-connections.mjs"))}`] : []),
-      // 本地 CRM dossier：只在启用 AgencyService 时注册，只读，宿主再校验所有权与私聊
-      ...(this.o.agency?.() ? ["    - id: amb-agency", `      name: ${yamlStr(path.join(this.o.runtimeDir, "plugins", "amb-agency.mjs"))}`] : []),
       // 目录 Bot：没声明的权限一律拒绝，声明了的第一次用时问用户（amb-bot-gate.mjs）
       ...(this.o.store.getBot(this.o.botId)?.app ? ["    - id: amb-bot-gate", `      name: ${yamlStr(path.join(this.o.runtimeDir, "plugins", "amb-bot-gate.mjs"))}`] : []),
       // sdk 配置默认不带这两个工具：ask_user_question 走 user-questions → 插件 → 审批中心；
@@ -1186,7 +1182,7 @@ exec "$REAL" "$@"
    */
   private settingsSig(pwsh = pwshProbe.cachedDshPath, skills = this.userSkills.revision(this.o.botId)): string {
     const st = this.settings();
-    return `${st.permission}|${st.memory.enabled}|${st.computerUse.enabled}|${st.computerUse.backend}|${st.computerUse.approval}|${this.connectionsEnv()}|${this.o.agency?.() ? "agency" : ""}|${pwsh ?? ""}|${skills}`;
+    return `${st.permission}|${st.memory.enabled}|${st.computerUse.enabled}|${st.computerUse.backend}|${st.computerUse.approval}|${this.connectionsEnv()}|${pwsh ?? ""}|${skills}`;
   }
   private sig = "";
   private appliedSkills = "";

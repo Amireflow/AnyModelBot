@@ -32,8 +32,6 @@ export interface BridgeHandlers {
   apps?(body: any, signal: AbortSignal): Promise<unknown>;
   /** amb-zip 插件：zip_list / zip_extract（可能要等用户批准解到别处；signal = 连接断了：工具超时或回合被中止，解压随之停下清理） */
   zip?(body: any, signal: AbortSignal): Promise<unknown>;
-  /** amb-agency plugin: read-only CRM context; signal means the local request was closed. */
-  agency?(body: any, signal: AbortSignal): Promise<unknown>;
   /** amb-control 插件：长轮询取宿主的指令（signal = 连接断了）、回报结果 */
   control?: { poll(body: any, signal: AbortSignal): Promise<unknown>; result(body: any): void };
   /** amb-computer-use-gate 插件：电脑操作工具调用前查系统权限（macOS 桌面版） */
@@ -308,13 +306,6 @@ export class AgentBridge {
         if (!res.writableEnded) ac.abort();
       });
       return this.longCall(res, this.h.zip(body, ac.signal));
-    }
-    else if (url === "/dsh/agency" && this.h.agency) {
-      const ac = new AbortController();
-      res.on("close", () => {
-        if (!res.writableEnded) ac.abort();
-      });
-      out = await this.h.agency(body, ac.signal);
     }
     else if (url === "/dsh/control/poll" && this.h.control) {
       const ac = new AbortController();

@@ -2,9 +2,6 @@ import type { ReasoningEffort } from "../config.js";
 import crypto from "node:crypto";
 import { resolveComputerUse } from "../tools/computer-use/index.js";
 import type { Store } from "../store/db.js";
-import { AgencyError } from "../agency/errors.js";
-import type { AgencyService } from "../agency/service.js";
-import type { LeadStage } from "../agency/types.js";
 import { logger } from "../log.js";
 import type { CuPermissions } from "../tools/computer-use/permissions.js";
 import { AgentBridge } from "./bridge.js";
@@ -203,7 +200,6 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
 export class AgentManager {
   readonly approvals: ApprovalCenter;
   readonly bridge: AgentBridge;
-  private agencyService: AgencyService | undefined;
   private hosts = new Map<string, AgentHost>();
   /** botId → 正在进行回合的会话（子代理 session 无映射时用来归属审批） */
   private activeConvs = new Map<string, Set<string>>();
@@ -265,7 +261,6 @@ export class AgentManager {
       search: (b, signal) => this.searchOp(b, signal),
       apps: (b, signal) => this.appOp(b, signal),
       zip: (b, signal) => this.zipOp(b, signal),
-      agency: (b, signal) => this.agencyOp(b, signal),
       cuPermission: async (b) => this.cuPermissionOp(b),
       // amb-control 插件按机器人取指令；不认识的机器人（已删除、已停止）让它别再来
       control: {
@@ -344,10 +339,6 @@ export class AgentManager {
           const input = this.appInput(botId);
           return { config: this.o.apps?.pluginConfig(botId, input) ?? { apps: false, tools: [] }, prompt: this.o.apps?.promptText(botId, input) ?? "" };
         },
-        agency: () => {
-          const bot = this.o.store.getBot(botId);
-          return !!this.agencyService && !!bot && bot.origin !== "catalog" && !bot.app;
-        },
         contextWindow: this.o.contextWindow,
         apiInfo: this.o.apiInfo,
         effort: this.o.effort,
@@ -398,12 +389,6 @@ export class AgentManager {
   }
 
   /** PowerShell 等启动参数变了：空闲的代理进程在后台换用新的（正在跑回合的等下一条消息） */
-  /** Attach the web-owned CRM database to the local agent bridge; undefined disables access. */
-  attachAgencyService(service: AgencyService | undefined): void {
-    this.agencyService = service;
-    void this.refreshIdle();
-  }
-
   async refreshIdle(): Promise<void> {
     await Promise.all([...this.hosts.values()].map((h) => h.restartIfStale().catch(() => undefined)));
   }
@@ -1529,59 +1514,6 @@ export class AgentManager {
     } catch (e) {
       if (e instanceof MemoryError) return { error: e.message };
       throw e;
-    }
-  }
-
-  /**
-   * DSH commercial-agent tools: CRM is visible only in an active private conversation owned by the local owner.
-   * Background tasks, scheduled rules, group chats and unowned sessions fail closed. No write or send operations exist.
-   */
-  private async agencyOp(b: any, signal: AbortSignal): Promise<{ text?: string; error?: string }> {
-    const service=this.agencyService;
-    const botId=String(b?.botId ?? "");
-    const sessionId=String(b?.sessionId ?? "");
-    if(signal.aborted)return {error:"The CRM lookup was cancelled."};
-    if(!service || !botId || !this.hosts.has(botId))return {error:"The local CRM is not available."};
-    if(!sessionId || /^(task|rule)-/.test(sessionId))return {error:"CRM access is available only in a direct owner chat, not background or scheduled sessions."};
-    const conversationId=this.resolveConversation(botId,sessionId);
-    const conversation=conversationId?this.o.store.getConversation(conversationId):undefined;
-    const turn=conversationId?this.turnsInProgress.get(conversationId):undefined;
-    if(!conversation || conversation.kind!=="dm" || !turn || turn.botId!==botId || this.o.ownsConversation?.(conversationId)!==true) {
-      return {error:"CRM access is restricted to the owner's active private conversation."};
-    }
-    const args=(b?.args && typeof b.args==="object" && !Array.isArray(b.args))?b.args as Record<string,unknown>:{};
-    const operation=String(b?.op ?? "");
-    try {
-      if(operation==="list_organizations") {
-        const organizations=service.listOrganizations("local-owner").map(item=>({
-          id:item.id,name:item.name,countryCode:item.countryCode,currency:item.currency,status:item.status,
-        }));
-        return {text:JSON.stringify({organizations},null,2)};
-      }
-      const organizationId=typeof args.organizationId==="string"?args.organizationId.trim():"";
-      if(!organizationId)return {error:"organizationId is required."};
-      if(operation==="search_prospects") {
-        const limit=args.limit===undefined?10:Number(args.limit);
-        const offset=args.offset===undefined?0:Number(args.offset);
-        if(!Number.isInteger(limit) || limit<1 || limit>20)return {error:"limit must be an integer between 1 and 20."};
-        if(!Number.isSafeInteger(offset) || offset<0 || offset>100_000)return {error:"offset must be an integer between 0 and 100000."};
-        const stage=typeof args.stage==="string" && args.stage ? args.stage as LeadStage : undefined;
-        const page=service.searchProspects(organizationId,"local-owner",{
-          query:typeof args.query==="string"?args.query:undefined,stage,limit,offset,
-        });
-        return {text:JSON.stringify(page,null,2)};
-      }
-      if(operation==="get_prospect_dossier") {
-        const leadId=typeof args.leadId==="string"?args.leadId:"";
-        if(!leadId)return {error:"leadId is required."};
-        const dossier=service.getProspectDossier(organizationId,"local-owner",leadId);
-        return {text:JSON.stringify(dossier,null,2)};
-      }
-      return {error:"Unknown CRM operation."};
-    } catch(error) {
-      if(error instanceof AgencyError)return {error:error.message};
-      log.warn("commercial agent CRM lookup failed",{bot:botId,operation,error:(error as Error).message});
-      return {error:"The CRM lookup failed. No data was changed or sent."};
     }
   }
 
