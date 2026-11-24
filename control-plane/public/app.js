@@ -225,6 +225,15 @@
   });
   $("logout").addEventListener("click", disconnect);
   $("refresh").addEventListener("click", refresh);
+  const instructionInput = $("task-instruction");
+  const instructionCount = $("task-instruction-count");
+  const updateInstructionCount = () => {
+    const bytes = new TextEncoder().encode(instructionInput.value).length;
+    instructionCount.textContent = `${bytes} / 500 octets UTF-8`;
+  };
+  instructionInput.addEventListener("input", updateInstructionCount);
+  updateInstructionCount();
+
   $("task-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!token) return setMessage("task-message", "Connecte-toi d'abord.", true);
@@ -234,6 +243,9 @@
       title: $("task-title").value.trim(),
       instruction: $("task-instruction").value.trim(),
     };
+    if (new TextEncoder().encode(body.instruction).length > 500) {
+      return setMessage("task-message", "L'instruction dépasse la limite de 500 octets UTF-8.", true);
+    }
     try {
       const result = await api("/api/v1/tasks", { method: "POST", body: JSON.stringify(body) });
       $("task-title").value = "";

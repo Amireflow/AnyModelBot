@@ -54,8 +54,9 @@
           <select id="node-id" required><option value="">Aucun poste connecté</option></select>
           <label for="task-title">Titre</label>
           <input id="task-title" maxlength="60" placeholder="Ex. Générer les visuels" required>
-          <label for="task-instruction">Instruction (500 caractères maximum)</label>
+          <label for="task-instruction">Instruction (500 octets UTF-8 maximum)</label>
           <textarea id="task-instruction" maxlength="500" rows="5" placeholder="Décris le résultat attendu dans FlowAuto / Google Flow." required></textarea>
+          <p id="task-instruction-count" class="hint">0 / 500 octets UTF-8</p>
           <button class="primary" type="submit">Envoyer la tâche</button>
           <p class="hint">Le poste reste maître de l'exécution. Les actions de saisie et de clic demandent une approbation locale.</p>
           <p id="task-message" class="hint"></p>
