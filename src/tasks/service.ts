@@ -509,7 +509,7 @@ export class TaskService {
   // ---------- 建任务、追加、停止 ----------
 
   /** 新任务（聊天代理的 task_start）：用户原话、说明、最近的对话、附件和记忆快照作为第一条输入，排进队列 */
-  create(o: { botId: string; conversationId: string; title: string; brief: string; budgetUsd?: number; anytime?: boolean; root?: string }): { task?: TaskRow; error?: string } {
+  create(o: { id?: string; botId: string; conversationId: string; title: string; brief: string; budgetUsd?: number; anytime?: boolean; root?: string }): { task?: TaskRow; error?: string } {
     const conv = this.store.getConversation(o.conversationId);
     const bot = this.store.getBot(o.botId);
     if (!conv || !bot) return { error: "conversation not found" };
@@ -525,7 +525,7 @@ export class TaskService {
       .filter((m) => m.role === "user" || m.role === "assistant")
       .slice(-6)
       .map((m) => ({ role: m.role as "user" | "assistant", text: m.content }));
-    const id = `t_${hex(6)}`;
+    const id = o.id || `t_${hex(6)}`;
     const now = this.now();
     const folder = `tasks/${slugOf(title)}-${id.slice(2, 8)}`;
     const st = this.o.host.settings(o.botId);

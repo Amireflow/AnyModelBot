@@ -27,6 +27,7 @@ import { startWebServer, type WebServer } from "./web/server.js";
 import type { WhatsAppSecretsFile } from "./agency/whatsapp-secrets.js";
 import { initFileLog, logFilePath, logger, mask, registerSecret } from "./log.js";
 import { AgentManager } from "./agent/manager.js";
+import { LocalExecutionNode } from "./execution-node/service.js";
 import { normalizeSettings } from "./agent/settings.js";
 import { locateDshRuntime } from "./agent/host.js";
 import { pwshProbe } from "./tools/pwsh/index.js";
@@ -223,6 +224,8 @@ export class App {
   readonly access: AccessControl;
   /** 后台任务：自己的会话和文件夹，结果经出站队列回到请求它的会话；规则（3d）也由它跑（定时器是 tasks.scheduler） */
   readonly tasks: TaskService;
+  /** FlowAuto 局部执行节点：仅在显式配置安全策略和远程配对凭据后连接控制平面 */
+  readonly executionNode: LocalExecutionNode;
   /** 机器人之间发消息（collab/service.ts） */
   readonly collab: CollabService;
   /** 事件触发的规则的入口：以后用户配置的 workload（事件源）在这里把事件交进来（见 tasks/rule-events.ts） */
@@ -483,6 +486,13 @@ export class App {
       },
     });
     this.agent.tasks = this.tasks;
+    this.executionNode = new LocalExecutionNode({
+      store: this.store,
+      tasks: this.tasks,
+      workspace: (botId) => path.join(config.dataDir, "workspaces", botId),
+      env: process.env,
+      onNotice: (level, message) => this.notice(level, message),
+    });
     this.collab = new CollabService({
       store: this.store,
       tasks: this.tasks,
@@ -1071,6 +1081,8 @@ export class App {
       void this.modelInfo().catch(() => undefined);
     }
     if (!this.opts.noWeb) this.web = await startWebServer(this);
+    // Le nœud distant ne démarre qu'après la file locale, le DSH et l'interface d'approbation.
+    if (!this.opts.noWeb && this.agent.available) this.executionNode.start(true);
     if (this.magpie) {
       // 启动时和之后每小时核对一次启用的模型（新上架的加入，下架的移出）
       void this.syncModelPicks().then(() => this.fixGroupModels()).catch((e) => log.warn("fixing gateway group models failed", { message: (e as Error).message }));
@@ -1150,6 +1162,8 @@ export class App {
     if (this.catalogSweep) clearInterval(this.catalogSweep);
     // 先告诉运行时：之后因为退出而失败的回合不回复、不改用纯对话，留给下次启动提醒
     this.runtime.shutdown();
+    // 先断开控制平面，防止退出期间再接收本地执行任务。
+    await this.executionNode.stop();
     // 后台任务不再开始新的 run；跑着的留在库里，下次启动时恢复
     this.tasks.stop();
     this.collab.stop();
