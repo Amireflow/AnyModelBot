@@ -89,6 +89,14 @@ function isTerminal(status: RemoteTaskStatus): boolean {
   return status === "succeeded" || status === "failed" || status === "cancelled" || status === "rejected" || status === "interrupted";
 }
 
+export function shouldEmitTaskUpdate(
+  previous: { status: RemoteTaskStatus; summary: string },
+  next: { status: RemoteTaskStatus; summary: string },
+  force = false,
+): boolean {
+  return force || previous.status !== next.status || previous.summary !== next.summary;
+}
+
 /**
  * Outbound-only workstation node. Remote requests are converted into the app's existing durable TaskService;
  * this module never executes arbitrary shell commands or accepts remote filesystem paths.
@@ -350,9 +358,27 @@ export class LocalExecutionNode {
   }
 
   private send(value: Record<string, unknown>): void {
-    if (this.socket?.readyState !== WebSocket.OPEN) return;
-    try { this.socket.send(JSON.stringify(value)); }
+    const socket = this.socket;
+    if (socket?.readyState !== WebSocket.OPEN) return;
+    try { socket.send(JSON.stringify(value)); }
     catch (error) { log.warn("execution node send failed", { message: (error as Error).message.slice(0, 160) }); }
+  }
+
+  /** Resolve only after ws accepts the frame; task snapshots are persisted only after this succeeds. */
+  private async sendReliable(value: Record<string, unknown>): Promise<boolean> {
+    const socket = this.socket;
+    if (socket?.readyState !== WebSocket.OPEN) return false;
+    return new Promise<boolean>((resolve) => {
+      try {
+        socket.send(JSON.stringify(value), (error) => {
+          if (error) log.warn("execution node reliable send failed", { message: error.message.slice(0, 160) });
+          resolve(!error);
+        });
+      } catch (error) {
+        log.warn("execution node reliable send failed", { message: (error as Error).message.slice(0, 160) });
+        resolve(false);
+      }
+    });
   }
 
   private async handleFrame(raw: string): Promise<void> {
@@ -508,10 +534,9 @@ export class LocalExecutionNode {
     const status = this.taskStatus(row.local_task_id);
     const run = this.o.store.latestRun(row.local_task_id);
     const summary = clip(String(run?.report?.message || run?.error || row.summary || ""), 400);
-    const changed = status !== row.status || summary !== row.summary;
-    if (changed) this.updateRemoteTask(row.remote_task_id, row.local_task_id, status, summary);
-    if (!changed && !force) return;
-    this.send({
+    const changed = shouldEmitTaskUpdate(row, { status, summary }, force);
+    if (!changed) return;
+    const sent = await this.sendReliable({
       type: "task.update",
       task_id: row.remote_task_id,
       local_task_id: row.local_task_id,
@@ -519,11 +544,15 @@ export class LocalExecutionNode {
       summary,
       at: Date.now(),
     });
+    // Leave the old snapshot in SQLite when disconnected or when ws rejects the frame; reconnect can replay it.
+    if (sent && (status !== row.status || summary !== row.summary)) {
+      this.updateRemoteTask(row.remote_task_id, row.local_task_id, status, summary);
+    }
   }
 
   private async reportTaskStates(force = false): Promise<void> {
     const rows = this.db.prepare(
-      "SELECT * FROM execution_node_tasks WHERE status NOT IN ('succeeded','failed','cancelled','rejected','interrupted') ORDER BY updated_at DESC LIMIT 100",
+      "SELECT * FROM execution_node_tasks ORDER BY updated_at DESC LIMIT 100",
     ).all() as RemoteTaskRow[];
     for (const row of rows) await this.reportOneTask(row, force);
   }

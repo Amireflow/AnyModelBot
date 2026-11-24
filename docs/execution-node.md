@@ -33,7 +33,7 @@ The Control Plane authenticates the WebSocket handshake with `Authorization: Bea
 Node → Control Plane:
 
 - `node.hello`: node id, platform, architecture, configured bot, capabilities and current state.
-- `node.heartbeat`: state and count of active remote tasks every 15 seconds. Task updates are sent on connection/reconnect and only when task state or summary changes, not on every heartbeat.
+- `node.heartbeat`: state and count of active remote tasks every 15 seconds. Task updates are sent on connection/reconnect and only when task state or summary changes, not on every heartbeat. Up to the 100 most recently updated remote tasks are reconciled on reconnect, including recently completed ones.
 - `task.accepted`, `task.rejected`, `task.update`, `task.cancelled`.
 - `node.pong`, `node.state`, `node.revoked`, `node.goodbye`, `node.error`.
 

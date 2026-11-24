@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Store } from "../src/store/db.js";
-import { LocalExecutionNode, localTaskId, validateControlPlaneUrl } from "../src/execution-node/service.js";
+import { LocalExecutionNode, localTaskId, shouldEmitTaskUpdate, validateControlPlaneUrl } from "../src/execution-node/service.js";
 
 describe("LocalExecutionNode", () => {
   let store: Store | undefined;
@@ -53,6 +53,13 @@ describe("LocalExecutionNode", () => {
     expect(() => validateControlPlaneUrl("ws://control.example.test/node")).toThrow(/wss/);
     expect(() => validateControlPlaneUrl("https://control.example.test/node")).toThrow(/WebSocket/);
     expect(() => validateControlPlaneUrl("wss://user:pass@control.example.test/node")).toThrow(/credentials/);
+  });
+
+  it("reports task states only when changed, unless a reconnect forces a snapshot", () => {
+    const current = { status: "running" as const, summary: "Generating a video" };
+    expect(shouldEmitTaskUpdate(current, current)).toBe(false);
+    expect(shouldEmitTaskUpdate(current, { status: "succeeded", summary: "Video verified" })).toBe(true);
+    expect(shouldEmitTaskUpdate(current, current, true)).toBe(true);
   });
 
   it("derives deterministic local task ids without trusting remote ids as paths", () => {
