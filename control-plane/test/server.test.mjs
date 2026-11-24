@@ -210,6 +210,36 @@ test("terminal tasks cancel pending approvals and late resolutions cannot reopen
 
 
 
+
+test("cancelling a remote task cancels pending approvals and ignores late decisions", async (t) => {
+  const server=await setup();let node;
+  t.after(async()=>{try{node?.ws.close();}catch{}await server.close();});
+  node=await connectNode(server.wsUrl,"task-cancel-approval-node");
+  await waitFor(async()=>{const d=await(await request(server.base,"/api/v1/nodes")).json();return d.nodes[0]?.connected?d:undefined;});
+  const created=await request(server.base,"/api/v1/tasks",ADMIN,{method:"POST",body:JSON.stringify({
+    node_id:"task-cancel-approval-node",kind:"flowauto",title:"Cancel approval test",instruction:"Generate and verify the video.",
+  })});
+  assert.equal(created.status,201);const taskId=(await created.json()).task.id;
+  await waitFor(()=>node.messages.find(m=>m.type==="task.submit"&&m.task?.id===taskId));
+  const approvalId="task-cancel-approval-1";
+  node.ws.send(JSON.stringify({type:"task.approval",task_id:taskId,approval:{
+    id:approvalId,tool:"mcp__computer-use__click",detail:"Confirm Generate",created_at:Date.now(),expires_at:Date.now()+60000,
+  }}));
+  await waitFor(async()=>{const d=await(await request(server.base,"/api/v1/approvals?status=pending")).json();return d.approvals.find(a=>a.id===approvalId);});
+  const cancelled=await request(server.base,"/api/v1/tasks/"+taskId+"/cancel",ADMIN,{method:"POST"});
+  assert.equal(cancelled.status,200);
+  const cancelFrame=await waitFor(()=>node.messages.find(m=>m.type==="task.cancel"&&m.task_id===taskId));
+  assert.equal(cancelFrame.task_id,taskId);
+  const approvals=await(await request(server.base,"/api/v1/approvals?status=all")).json();
+  assert.equal(approvals.approvals.find(a=>a.id===approvalId)?.status,"cancelled");
+  node.ws.send(JSON.stringify({type:"task.cancelled",task_id:taskId,cancelled:true}));
+  await waitFor(async()=>{const d=await(await request(server.base,"/api/v1/tasks")).json();return d.tasks.find(task=>task.id===taskId)?.status==="cancelled";});
+  node.ws.send(JSON.stringify({type:"task.approval.resolved",task_id:taskId,approval_id:approvalId,status:"allowed",decided_by:"late-message",decided_at:Date.now() }));
+  await new Promise(resolve=>setTimeout(resolve,40));
+  const after=await(await request(server.base,"/api/v1/approvals?status=all")).json();
+  assert.equal(after.approvals.find(a=>a.id===approvalId)?.status,"cancelled");
+});
+
 test("local workstation revocation cancels every pending remote approval", async (t) => {
   const server=await setup();let node;
   t.after(async()=>{try{node?.ws.close();}catch{}await server.close();});
