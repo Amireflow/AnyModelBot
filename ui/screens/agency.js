@@ -40,6 +40,9 @@ export function AgencyScreen() {
   const [selected,setSelected]=useState("");
   const [contacts,setContacts]=useState([]);
   const [research,setResearch]=useState({items:[],assessment:null});
+  const [researchJobs,setResearchJobs]=useState([]);
+  const [researchJobId,setResearchJobId]=useState("");
+  const [researchImportMessage,setResearchImportMessage]=useState("");
   const [evidenceForm,setEvidenceForm]=useState(false);
   const [evidenceDraft,setEvidenceDraft]=useState(blankEvidence);
   const [busy,setBusy]=useState("");
@@ -97,12 +100,22 @@ export function AgencyScreen() {
   },[orgId,selected,revision,lang]);
 
   useEffect(()=>{
-    if(!orgId||!selected){setResearch({items:[],assessment:null});return;}
+    if(!orgId||!selected){setResearch({items:[],assessment:null});setResearchJobs([]);setResearchJobId("");return;}
     let live=true;
     api("/agency/"+enc(orgId)+"/companies/"+enc(selected)+"/evidence")
       .then(d=>live&&setResearch(d)).catch(e=>live&&setError(e.message));
+    api("/agency/"+enc(orgId)+"/companies/"+enc(selected)+"/research/jobs")
+      .then(d=>{
+        if(!live)return;
+        const jobs=d.items||[];
+        setResearchJobs(jobs);
+        setResearchJobId(current=>jobs.some(j=>j.id===current)?current:(jobs[0]?.id||""));
+      })
+      .catch(()=>live&&setResearchJobs([]));
     return ()=>{live=false;};
   },[orgId,selected,revision,lang]);
+
+  useEffect(()=>{setResearchImportMessage("");},[orgId,selected]);
 
   const update=(setter,key,value)=>setter(prev=>({...prev,[key]:value}));
   const changeOrg=(id)=>{setOrgId(id);rememberOrg(id);setSelected("");setPage(0);};
@@ -140,6 +153,19 @@ export function AgencyScreen() {
         method:"POST",body:{...evidenceDraft,confidence:Number(evidenceDraft.confidence)}
       });
       setEvidenceDraft(blankEvidence);setEvidenceForm(false);setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const importResearch=async()=>{
+    if(!researchJobId||!selected)return;
+    setBusy("research-import");setError("");setResearchImportMessage("");
+    try{
+      const result=await api("/agency/"+enc(orgId)+"/companies/"+enc(selected)+"/research/import",{
+        method:"POST",body:{jobId:researchJobId}
+      });
+      setResearchImportMessage(t("agency.researchImportResult",{
+        imported:result.imported||0,duplicates:result.duplicates||0,uncited:result.uncited||0
+      }));
+      setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const selectedCompany=(tab==="companies"?(rows.items||[]).find(x=>x.id===selected):null);
@@ -205,6 +231,9 @@ export function AgencyScreen() {
 
           ${!contacts.length&&html`<p class="agency-muted">${t("agency.noContacts")}</p>`}
           <section class="agency-research">
+            <div class="agency-contact-heading"><h3>${t("agency.researchImportTitle")}</h3></div>
+            ${researchJobs.length?html`<div class="agency-research-import"><label class="agency-field"><span>${t("agency.chooseResearchJob")}</span><select class="field" value=${researchJobId} onChange=${e=>setResearchJobId(e.currentTarget.value)}><option value="">—</option>${researchJobs.map(job=>html`<option value=${job.id}>${job.company} · ${job.sourceCount} ${t("agency.sources")} · ${job.id}</option>`)}</select></label><button class="btn" disabled=${!researchJobId||!!busy} onClick=${importResearch}>${busy==="research-import"?t("agency.importingResearch"):t("agency.importResearch")}</button></div>`:html`<p class="agency-muted">${t("agency.noResearchJobs")}</p>`}
+            ${researchImportMessage&&html`<p class="agency-research-feedback" role="status">${researchImportMessage}</p>`}
             <div class="agency-contact-heading"><h3>${t("agency.researchTitle")}</h3><button class="text" onClick=${()=>setEvidenceForm(v=>!v)}>${t("agency.addEvidence")}</button></div>
             ${research.assessment&&html`<div class="agency-research-score"><strong>${research.assessment.score}/100</strong><span>${t("agency.researchStatus."+research.assessment.status)}</span><small>${research.assessment.evidenceCount} ${t("agency.evidenceCount")} · ${research.assessment.distinctSourceHosts} ${t("agency.sources")}</small></div>`}
             ${evidenceForm&&html`<form class="agency-form agency-evidence-form" onSubmit=${createEvidence}>

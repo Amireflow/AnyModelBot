@@ -1,8 +1,9 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { AgencyError } from "./errors.js";
 import { AgencyStore, stablePayloadHash } from "./store.js";
 import { assertLeadTransition } from "./transitions.js";
 import { assessResearchEvidence } from "./research-quality.js";
+import type { CompanyResearchSource } from "./company-research-import.js";
 import type {
   AddEvidenceInput, AgencyDashboard, Approval, ApprovalAction, AuditEvent, Company, CompanySearchFilters,
   Contact, ContactSearchFilters, CreateCompanyInput, CreateContactInput, CreateLeadInput,
@@ -269,6 +270,52 @@ export class AgencyService {
     this.requireMember(organizationId,actorId,["owner","admin","member","client","auditor"]);
     if (!this.store.getCompany(organizationId,companyId)) throw new AgencyError("NOT_FOUND","Company not found");
     return assessResearchEvidence(this.store.listEvidence(organizationId,companyId),this.now());
+  }
+
+  importCompanyResearchSources(organizationId: string, actorId: string, companyId: string, jobId: string, sources: CompanyResearchSource[]) {
+    this.requireMember(organizationId,actorId,["owner","admin","member"]);
+    const company=this.store.getCompany(organizationId,requiredText(companyId,"companyId",100));
+    if (!company) throw new AgencyError("NOT_FOUND","Company not found");
+    const job=requiredText(jobId,"jobId",128);
+    if (!Array.isArray(sources) || sources.length>250) throw new AgencyError("VALIDATION_ERROR","Research source list is invalid");
+
+    const now=this.now();
+    return this.store.transaction(() => {
+      let imported=0, duplicates=0, uncited=0;
+      for (const source of sources) {
+        if (!source || source.used===false) { uncited++; continue; }
+        const sourceUrl=websiteUrl(source.url);
+        if (!sourceUrl) continue;
+        const parsed=new URL(sourceUrl);
+        parsed.hash="";
+        for (const key of [...parsed.searchParams.keys()]) if (key.toLowerCase().startsWith("utm_")) parsed.searchParams.delete(key);
+        parsed.searchParams.sort();
+        const canonicalUrl=parsed.toString();
+        const contentHash=createHash("sha256").update("company-research:v1:"+companyId+":"+canonicalUrl).digest("hex");
+        if (this.store.findEvidenceByHash(organizationId,companyId,contentHash)) { duplicates++; continue; }
+
+        const domain=source.domain ?? "company";
+        const title=optionalText(source.title,"title",300) || parsed.hostname;
+        const relevance=source.score===undefined ? "" : " Recorded relevance score: "+source.score.toFixed(2)+" (not a source-confidence score).";
+        const evidence: Evidence={
+          id:this.id(),organizationId,companyId,leadId:"",
+          evidenceType:"company_research_"+domain,
+          sourceUrl,
+          summary:"Source reference imported from Company Research job "+job+". Title: "+title+". The report marked this source as cited."+relevance,
+          contentHash,confidence:0.5,observedAt:now,collectedAt:now,
+        };
+        this.store.insertEvidence(evidence);
+        imported++;
+      }
+      this.audit(organizationId,actorId,"research.sources_imported","company_research_job",job,{
+        companyId,jobId:job,imported,duplicates,uncited,
+      });
+      return {
+        jobId:job,imported,duplicates,uncited,
+        total:imported+duplicates+uncited,
+        assessment:assessResearchEvidence(this.store.listEvidence(organizationId,companyId),now),
+      };
+    });
   }
 
   recordConsent(organizationId: string, actorId: string, input: RecordConsentInput) {

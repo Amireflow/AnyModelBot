@@ -6,6 +6,7 @@ import { AgencyError } from "../../agency/errors.js";
 import type { AgencyService } from "../../agency/service.js";
 import type { AddEvidenceInput, CompanySearchFilters, ContactSearchFilters, LeadSearchFilters, LeadStage } from "../../agency/types.js";
 import { HttpError, readJson, send, type Route, type WebContext } from "../http.js";
+import { CompanyResearchImportError, listCompanyResearchJobs, loadCompanyResearchSources } from "../../agency/company-research-import.js";
 
 export const LOCAL_AGENCY_ACTOR = "local-owner";
 const ERROR_STATUS: Record<string, number> = {
@@ -86,6 +87,41 @@ export function agencyRoutes(ctx: WebContext): Route {
         }
         if (seg.length===4 && method==="GET") {
           return send(res,200,{company:service.getCompany(organizationId,actor,decodeSegment(seg[3],"company id"))});
+        }
+        if (seg.length===6 && seg[4]==="research" && seg[5]==="jobs" && method==="GET") {
+          const companyId=decodeSegment(seg[3],"company id");
+          const company=service.getCompany(organizationId,actor,companyId);
+          const researchBot=ctx.app.store.getBot("cat-company-research");
+          if (!researchBot?.app || researchBot.app.catalogId!=="company-research" || researchBot.origin!=="catalog") {
+            throw new HttpError(409,"Install the Company Research catalog bot before importing research");
+          }
+          try {
+            return send(res,200,{items:listCompanyResearchJobs(ctx.app.config.dataDir,researchBot.id,company)});
+          } catch (error) {
+            if (error instanceof CompanyResearchImportError) throw new HttpError(error.code==="not_installed"||error.code==="workspace_missing"?409:400,error.message);
+            throw error;
+          }
+        }
+        if (seg.length===6 && seg[4]==="research" && seg[5]==="import" && method==="POST") {
+          const companyId=decodeSegment(seg[3],"company id");
+          const company=service.getCompany(organizationId,actor,companyId);
+          const body=await readObject(req);
+          if (typeof body.jobId!=="string" || !body.jobId.trim()) throw new HttpError(400,"jobId is required");
+          const researchBot=ctx.app.store.getBot("cat-company-research");
+          if (!researchBot?.app || researchBot.app.catalogId!=="company-research" || researchBot.origin!=="catalog") {
+            throw new HttpError(409,"Install the Company Research catalog bot before importing research");
+          }
+          try {
+            const loaded=loadCompanyResearchSources(ctx.app.config.dataDir,researchBot.id,company,body.jobId.trim());
+            const result=service.importCompanyResearchSources(organizationId,actor,companyId,loaded.job.id,loaded.sources);
+            return send(res,200,{job:loaded.job,...result});
+          } catch (error) {
+            if (error instanceof CompanyResearchImportError) {
+              const status=error.code==="not_installed"||error.code==="workspace_missing"?409:error.code==="job_not_completed"?409:400;
+              throw new HttpError(status,error.message);
+            }
+            throw error;
+          }
         }
         if (seg.length===5 && seg[4]==="evidence" && (method==="GET" || method==="POST")) {
           const companyId=decodeSegment(seg[3],"company id");

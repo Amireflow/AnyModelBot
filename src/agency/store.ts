@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS agency_evidence (
   collected_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS agency_evidence_org_company ON agency_evidence(organization_id, company_id, collected_at);
+CREATE INDEX IF NOT EXISTS agency_evidence_org_company_hash ON agency_evidence(organization_id, company_id, content_hash);
 
 CREATE TABLE IF NOT EXISTS agency_consents (
   id TEXT PRIMARY KEY,
@@ -417,6 +418,11 @@ export class AgencyStore {
     return this.getLead(orgId,id);
   }
 
+  findEvidenceByHash(orgId: string, companyId: string, contentHash: string): Evidence | undefined {
+    const row=this.db.prepare("SELECT * FROM agency_evidence WHERE organization_id=? AND company_id=? AND content_hash=? LIMIT 1")
+      .get(orgId,companyId,contentHash) as Row|undefined;
+    return row ? evidenceOf(row) : undefined;
+  }
   insertEvidence(v: Evidence): Evidence {
     this.db.prepare("INSERT INTO agency_evidence(id,organization_id,company_id,lead_id,evidence_type,source_url,summary,content_hash,confidence,observed_at,collected_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
       .run(v.id,v.organizationId,v.companyId,v.leadId || null,v.evidenceType,v.sourceUrl,v.summary,v.contentHash,v.confidence,v.observedAt,v.collectedAt);

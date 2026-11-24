@@ -1,0 +1,101 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { Readable } from "node:stream";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { AgencyService, AgencyStore } from "../src/agency/index.js";
+import { agencyRoutes } from "../src/web/routes/agency.js";
+import type { WebContext } from "../src/web/http.js";
+
+describe("Agency Company Research import HTTP routes", () => {
+  let dataDir: string;
+  let store: AgencyStore;
+  let service: AgencyService;
+  let route: ReturnType<typeof agencyRoutes>;
+  let orgId: string;
+  let companyId: string;
+
+  beforeEach(() => {
+    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "agency-research-http-"));
+    const appRoot = path.join(dataDir, "workspaces", "cat-company-research", "app");
+    const jobId = "job-20261124-acme";
+    fs.mkdirSync(path.join(appRoot, "jobs", jobId), { recursive: true });
+    fs.writeFileSync(path.join(appRoot, "state.json"), JSON.stringify({
+      jobs: [{
+        id: jobId, company: "Acme Inc.", status: "completed",
+        reportPath: "app/jobs/" + jobId + "/report.md",
+        sourcesPath: "app/jobs/" + jobId + "/sources.json",
+        updatedAt: "2026-11-24T10:00:00Z",
+      }],
+    }));
+    fs.writeFileSync(path.join(appRoot, "jobs", jobId, "report.md"), "# Acme Inc. research report\n");
+    fs.writeFileSync(path.join(appRoot, "jobs", jobId, "sources.json"), JSON.stringify([
+      { url: "https://acme.example/about", title: "About Acme", domain: "company", used: true },
+    ]));
+
+    store = new AgencyStore(":memory:");
+    service = new AgencyService(store, {
+      now: () => 1_800_000_000_000,
+      id: (() => { let n=0; return () => "http-research-" + (++n); })(),
+    });
+    const org = service.createOrganization({ name: "Agency", countryCode: "SN" }, "local-owner");
+    orgId = org.id;
+    companyId = service.createCompany(orgId, "local-owner", {
+      name: "Acme Inc.", website: "https://acme.example/",
+    }).id;
+
+    const context = {
+      app: {
+        config: { dataDir },
+        store: {
+          getBot: (id: string) => id === "cat-company-research"
+            ? { id, origin: "catalog", app: { catalogId: "company-research" } }
+            : undefined,
+        },
+      },
+      agency: service,
+    } as unknown as WebContext;
+    route = agencyRoutes(context);
+  });
+
+  afterEach(() => {
+    store.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  async function invoke(method: string, pathname: string, body?: unknown) {
+    const request = Readable.from(body === undefined ? [] : [JSON.stringify(body)]) as unknown as IncomingMessage;
+    Object.defineProperty(request, "headers", { value: {
+      "content-type": body === undefined ? "" : "application/json",
+      "sec-fetch-site": "same-origin",
+    } });
+    const response = {
+      status: 0,
+      payload: "",
+      writeHead(status: number) { this.status = status; return this; },
+      end(payload?: string) { this.payload = String(payload ?? ""); return this; },
+    } as unknown as ServerResponse & { status: number; payload: string };
+    const segments = pathname.split("/").filter(Boolean);
+    await route(request, response, new URL("http://localhost/amb/api" + pathname), segments, pathname, method);
+    return { status: response.status, body: response.payload ? JSON.parse(response.payload) : null };
+  }
+
+  it("lists completed jobs and imports a report into the selected company", async () => {
+    const base = "/agency/" + orgId + "/companies/" + companyId + "/research";
+    const jobs = await invoke("GET", base + "/jobs");
+    expect(jobs.status).toBe(200);
+    expect(jobs.body.items).toHaveLength(1);
+
+    const imported = await invoke("POST", base + "/import", { jobId: jobs.body.items[0].id });
+    expect(imported.status).toBe(200);
+    expect(imported.body).toMatchObject({
+      job: { id: jobs.body.items[0].id },
+      imported: 1, duplicates: 0,
+    });
+
+    const repeated = await invoke("POST", base + "/import", { jobId: jobs.body.items[0].id });
+    expect(repeated.body).toMatchObject({ imported: 0, duplicates: 1 });
+    expect(service.listEvidence(orgId, "local-owner", companyId)).toHaveLength(1);
+  });
+});
