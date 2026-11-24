@@ -62,8 +62,9 @@ describe("Agency WhatsApp HTTP API",()=>{
       writeHead(status:number){this.status=status;return this;},
       end(payload?:string){this.payload=String(payload??"");return this;},
     } as unknown as ServerResponse & {status:number;payload:string};
-    const segments=path.split("/").filter(Boolean);
-    try{await route(request,response,new URL("http://localhost/amb/api"+path),segments,path,method);}
+    const requestUrl=new URL("http://localhost/amb/api"+path);
+    const segments=requestUrl.pathname.split("/").filter(Boolean);
+    try{await route(request,response,requestUrl,segments,path,method);}
     catch(error){
       if(!(error instanceof HttpError))throw error;
       response.writeHead(error.status);response.end(JSON.stringify({error:error.message}));
@@ -72,6 +73,15 @@ describe("Agency WhatsApp HTTP API",()=>{
   }
 
   it("records consent, asks for owner approval, queues and submits a template",async()=>{
+    const denied=await invoke("POST",`/agency/${organizationId}/approvals`,{
+      action:"send_message",resourceType:"whatsapp_template",resourceId:contactId,
+      reason:"Attempt before consent",
+      payload:{
+        channel:"whatsapp",purpose:"marketing",contactId,recipient:"+221771234567",
+        type:"template",template:{name:"hello_world",language:"fr_FR",components:[]},
+      },
+    });
+    expect(denied.status).toBe(409);
     const consent=await invoke("POST",\`/agency/\${organizationId}/contacts/\${contactId}/consents\`,{
       channel:"whatsapp",purpose:"marketing",status:"granted",source:"website_form",
       proof:"form-submission:42",textVersion:"wa-marketing-v1",
@@ -87,6 +97,17 @@ describe("Agency WhatsApp HTTP API",()=>{
       reason:"Explicit review of first prospect contact",payload,
     });
     expect(requested.status).toBe(201);
+    const approvals=await invoke("GET",`/agency/${organizationId}/approvals?limit=10`);
+    expect(approvals.status).toBe(200);
+    expect(approvals.body.items).toHaveLength(1);
+    expect(approvals.body.items[0]).toMatchObject({
+      action:"send_message",resourceType:"whatsapp_template",status:"pending",
+      resourceId:contactId,
+    });
+    const otherOrganization=service.createOrganization({name:"Other Agency"},"local-owner");
+    const otherApprovals=await invoke("GET",`/agency/${otherOrganization.id}/approvals?limit=10`);
+    expect(otherApprovals.status).toBe(200);
+    expect(otherApprovals.body.items).toHaveLength(0);
     const approvalId=requested.body.approval.id as string;
     const decision=await invoke("POST",\`/agency/\${organizationId}/approvals/\${approvalId}/decision\`,{
       decision:"approved",expectedPayloadHash:requested.body.approval.payloadHash,reason:"Approved",

@@ -329,3 +329,17 @@ Le callback est une route applicative, pas une publication réseau. Meta exige H
 - CLI/Docker conservent le mode configuration par variables d'environnement, nettoyées de `process.env` après capture.
 
 Le Lot 4 reste ouvert jusqu'à l'exposition HTTPS réelle, la revue visuelle des messages/approbations, la simulation avec un numéro Meta de test et les vérifications du dépôt. Aucun test, typecheck ou build n'a été exécuté pendant cette tranche.
+
+
+### État complémentaire — interface de consentement et de gouvernance WhatsApp (24 novembre 2026)
+
+- API `GET /amb/api/agency/:orgId/approvals` ajoutée avec lecture tenant-scoped et limite maximale de 200.
+- Le CRM affiche les consentements WhatsApp par contact et conserve la distinction entre octroi et retrait.
+- Une référence de preuve réelle et une version exacte du texte sont exigées pour un octroi ; l'interface n'invente pas de preuve.
+- La préparation d'un message est limitée aux modèles Meta : nom, langue et composants structurés.
+- Le propriétaire peut approuver ou refuser le hash exact du payload.
+- Une approbation doit ensuite être ajoutée explicitement à l'outbox ; un second geste avec confirmation déclenche l'envoi.
+- L'outbox affiche l'état local et le dernier statut Meta connu ; `accepted` ne signifie jamais livré.
+- Le backend revalide l'approbation, son expiration, le hash, le consentement et le numéro avant chaque envoi. Un état ambigu ne propose pas de retry automatique.
+
+**Validation :** test HTTP ajouté pour la lecture des approbations et l'isolation entre organisations. Les tests, le typecheck et le build n'ont pas été exécutés.

@@ -102,4 +102,16 @@ L'API locale de configuration est :
 
 Le panneau de configuration est intégré à l'écran CRM et traduit dans les huit langues disponibles. L'interface ne relit jamais les valeurs secrètes après sauvegarde ; le remplacement nécessite de saisir à nouveau les valeurs. Les credentials sont liés à une organisation précise et un seul jeu de credentials peut être conservé par nœud local. CLI/Docker utilisent les variables d'environnement, capturées au démarrage, enregistrées pour la redaction des logs puis retirées de `process.env` avant le lancement des sous-processus.
 
-**Limite :** l'interface de gestion des messages/approbations et l'exposition HTTPS publique du webhook restent distinctes de ce panneau de configuration.
+### Interface CRM — revue, consentement et envoi
+
+Le CRM présente désormais :
+- l'historique append-only des consentements WhatsApp par contact, avec source, référence de preuve et version du texte ;
+- un formulaire explicite d'octroi ou de retrait, qui exige une vraie référence de preuve saisie par l'opérateur ;
+- la préparation d'un modèle Meta approuvé et la soumission de son payload exact pour approbation ;
+- la liste des demandes d'approbation et les boutons d'approbation/refus réservés au propriétaire ;
+- la création explicite d'une entrée outbox à partir d'une approbation ;
+- une confirmation distincte avant l'appel Cloud API, puis l'état local et les statuts Meta disponibles.
+
+Une nouvelle route `GET /amb/api/agency/:orgId/approvals` expose les approbations de l'organisation, avec limite côté service et isolation par tenant. Le panneau actualise les listes périodiquement. Les règles de sécurité restent côté service : approbation owner-only, hash du payload, consentement toujours actif, numéro du contact inchangé et refus du retry en état ambigu.
+
+**Limite :** l'exposition HTTPS publique du webhook, l'essai avec un numéro Meta de test et la validation d'intégration restent à faire. Aucun message réel n'a été envoyé pendant cette tranche.

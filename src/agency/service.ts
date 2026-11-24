@@ -777,6 +777,49 @@ export class AgencyService {
   requestApproval(organizationId: string, actorId: string, input: RequestApprovalInput): Approval {
     this.requireMember(organizationId,actorId);
     if (!CRITICAL_APPROVAL_ACTIONS.includes(input.action)) throw new AgencyError("VALIDATION_ERROR","Unsupported approval action");
+    if (input.action==="send_message" && input.resourceType==="whatsapp_template") {
+      const message=input.payload;
+      if (!message || typeof message!=="object" || Array.isArray(message)
+        || message.channel!=="whatsapp" || message.type!=="template") {
+        throw new AgencyError("VALIDATION_ERROR","WhatsApp approval requires a template-message payload");
+      }
+      const contactId=requiredText(message.contactId as string,"payload.contactId",100);
+      const purpose=requiredText(message.purpose as string,"payload.purpose",80).toLowerCase();
+      const recipient=requiredText(message.recipient as string,"payload.recipient",32);
+      if (input.resourceId!==contactId) throw new AgencyError("VALIDATION_ERROR","WhatsApp approval resource must match its contact");
+      if (Object.keys(message).sort().join(",")!=="channel,contactId,purpose,recipient,template,type") {
+        throw new AgencyError("VALIDATION_ERROR","WhatsApp approval payload contains unsupported fields");
+      }
+      const template=message.template;
+      if (!template || typeof template!=="object" || Array.isArray(template)) {
+        throw new AgencyError("VALIDATION_ERROR","A WhatsApp template is required");
+      }
+      const templateRecord=template as Record<string,unknown>;
+      if (Object.keys(templateRecord).sort().join(",")!=="components,language,name") {
+        throw new AgencyError("VALIDATION_ERROR","WhatsApp template contains unsupported fields");
+      }
+      const templateName=requiredText(templateRecord.name as string,"payload.template.name",512).toLowerCase();
+      const language=requiredText(templateRecord.language as string,"payload.template.language",20);
+      if (!/^[a-z0-9_]{1,512}$/.test(templateName) || !/^[a-z]{2,3}_[A-Z]{2}$/.test(language)) {
+        throw new AgencyError("VALIDATION_ERROR","Template name or language is invalid");
+      }
+      const components=templateRecord.components;
+      if (!Array.isArray(components)||components.length>10
+        || components.some(item=>!item||typeof item!=="object"||Array.isArray(item))) {
+        throw new AgencyError("VALIDATION_ERROR","Template components must be an array of up to 10 objects");
+      }
+      if (!/^\+[1-9][0-9]{7,14}$/.test(recipient)) {
+        throw new AgencyError("VALIDATION_ERROR","Recipient must be a canonical E.164 phone number");
+      }
+      const contact=this.store.getContact(organizationId,contactId);
+      if (!contact) throw new AgencyError("NOT_FOUND","Contact not found");
+      if (contact.phone.replace(/[\s().-]/g,"")!==recipient) {
+        throw new AgencyError("CONSENT_REQUIRED","The WhatsApp recipient must match the contact's current phone number");
+      }
+      if (!this.activeConsentRecord(organizationId,contactId,"whatsapp",purpose)) {
+        throw new AgencyError("CONSENT_REQUIRED","A current WhatsApp consent grant with proof is required before requesting approval");
+      }
+    }
     const now=this.now();
     let payload: ReturnType<typeof stablePayloadHash>;
     try {
@@ -804,6 +847,14 @@ export class AgencyService {
       });
       return saved;
     });
+  }
+
+  listApprovals(organizationId: string, actorId: string, limit = 100): Approval[] {
+    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+      throw new AgencyError("VALIDATION_ERROR","limit must be between 1 and 200");
+    }
+    return this.store.listApprovals(organizationId,limit);
   }
 
   decideApproval(organizationId: string, actorId: string, approvalId: string, decision: "approved" | "rejected", expectedPayloadHash: string, reason = ""): Approval {

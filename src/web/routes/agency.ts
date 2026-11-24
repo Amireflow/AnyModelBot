@@ -115,6 +115,9 @@ export function agencyRoutes(ctx: WebContext): Route {
         throw new HttpError(405,"Method not allowed");
       }
 
+      if (seg[2]==="approvals" && seg.length===3 && method==="GET") {
+        return send(res,200,{items:service.listApprovals(organizationId,actor,queryInteger(url,"limit",100))});
+      }
       if (seg[2]==="approvals" && seg.length===3 && method==="POST") {
         const body=await readObject(req);
         const approval=service.requestApproval(organizationId,actor,{

@@ -737,6 +737,12 @@ export class AgencyStore {
     const row=this.db.prepare("SELECT * FROM agency_approvals WHERE organization_id=? AND id=?").get(orgId,id) as Row|undefined;
     return row ? approvalOf(row) : undefined;
   }
+  listApprovals(orgId: string, limit = 100): Approval[] {
+    const rows=this.db.prepare(
+      "SELECT * FROM agency_approvals WHERE organization_id=? ORDER BY created_at DESC, rowid DESC LIMIT ?",
+    ).all(orgId,limit) as Row[];
+    return rows.map(approvalOf);
+  }
   decideApproval(orgId: string, id: string, status: Exclude<ApprovalStatus,"pending">, actorId: string, reason: string, now: number): boolean {
     const result=this.db.prepare("UPDATE agency_approvals SET status=?,decided_by=?,decision_reason=?,decided_at=? WHERE organization_id=? AND id=? AND status='pending'")
       .run(status,actorId,reason,now,orgId,id);
