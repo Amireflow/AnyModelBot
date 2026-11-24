@@ -5,6 +5,7 @@ import path from "node:path";
 import WebSocket, { type RawData } from "ws";
 import type { Store, Bot } from "../store/db.js";
 import type { TaskService } from "../tasks/service.js";
+import type { ApprovalCenter, ApprovalEvent } from "../agent/approvals.js";
 import { logger, registerSecret } from "../log.js";
 
 const log = logger("execution-node");
@@ -20,6 +21,7 @@ type RemoteTaskStatus = "receiving" | "queued" | "running" | "needs_you" | "succ
 export interface LocalExecutionNodeOptions {
   store: Store;
   tasks: TaskService;
+  approvals?: Pick<ApprovalCenter, "listen" | "decide">;
   workspace(botId: string): string;
   env?: NodeJS.ProcessEnv;
   onNotice?(level: "info" | "warn", message: string): void;
@@ -115,6 +117,7 @@ export class LocalExecutionNode {
   private stopping = false;
   private inbound = Promise.resolve();
   private state: NodeState;
+  private unlistenApprovals: (() => void) | undefined;
 
   constructor(private readonly o: LocalExecutionNodeOptions) {
     this.env = o.env ?? process.env;
@@ -138,6 +141,7 @@ export class LocalExecutionNode {
       );
       CREATE INDEX IF NOT EXISTS execution_node_tasks_status ON execution_node_tasks(status, updated_at);
     `);
+    this.unlistenApprovals = o.approvals?.listen((event) => this.approvalEvent(event));
   }
 
   status(): {
@@ -244,6 +248,62 @@ export class LocalExecutionNode {
       this.socket.close(1000, "application shutdown");
     } else this.socket?.terminate();
     this.socket = undefined;
+    this.unlistenApprovals?.();
+    this.unlistenApprovals = undefined;
+  }
+
+  private approvalEvent(event: ApprovalEvent): void {
+    const row = event.row;
+    if (row.kind !== "approval" || !row.taskId || !row.tool.startsWith("mcp__computer-use__")) return;
+    const remote = this.db.prepare(
+      "SELECT remote_task_id FROM execution_node_tasks WHERE local_task_id = ?",
+    ).get(row.taskId) as { remote_task_id: string } | undefined;
+    if (!remote) return;
+    if (event.type === "created") {
+      this.send({
+        type: "task.approval",
+        task_id: remote.remote_task_id,
+        approval: {
+          id: row.id,
+          tool: row.tool,
+          detail: clip(row.detail, 700),
+          reason: clip(row.reason, 300),
+          created_at: row.createdAt,
+          expires_at: row.expiresAt,
+        },
+      });
+    } else {
+      this.send({
+        type: "task.approval.resolved",
+        task_id: remote.remote_task_id,
+        approval_id: row.id,
+        status: row.status,
+        decided_by: row.decidedBy,
+        decided_at: row.decidedAt,
+      });
+    }
+  }
+
+  private applyRemoteApproval(message: Record<string, unknown>): void {
+    const taskId = typeof message.task_id === "string" ? message.task_id : "";
+    const approvalId = typeof message.approval_id === "string" ? message.approval_id : "";
+    const allow = message.allow === true;
+    const remote = taskId ? this.getRemoteTask(taskId) : undefined;
+    const approval = approvalId ? this.o.store.getApproval(approvalId) : undefined;
+    const valid = !!remote && !!approval &&
+      approval.status === "pending" &&
+      approval.kind === "approval" &&
+      approval.botId === this.botId &&
+      approval.taskId === remote.local_task_id &&
+      approval.tool.startsWith("mcp__computer-use__");
+    const applied = valid && !!this.o.approvals?.decide(approvalId, allow, "control-plane");
+    this.send({
+      type: "task.approval.decision_ack",
+      task_id: taskId,
+      approval_id: approvalId,
+      applied,
+      reason: applied ? "" : "Approval is no longer pending or is not part of this FlowAuto task.",
+    });
   }
 
   private notice(level: "info" | "warn", message: string): void {
@@ -408,6 +468,9 @@ export class LocalExecutionNode {
       case "task.cancel":
         await this.cancelTask(message.task_id);
         return;
+      case "task.approval.decision":
+        this.applyRemoteApproval(message);
+        return;
       default:
         this.send({ type: "node.error", code: "UNKNOWN_MESSAGE" });
     }
@@ -463,7 +526,7 @@ export class LocalExecutionNode {
     const marker = `[Execution Node task ${remoteId}]`;
     const alreadyRecorded = this.o.store.listMessages(conversation.id, 10).some((item) => item.role === "user" && item.content.startsWith(marker));
     if (!alreadyRecorded) this.o.store.addMessage(conversation.id, "user", `${marker}\n${instruction}`);
-    const brief = `${FLOWAUTO_POLICY}\n\nOWNER REQUEST:\n${instruction}`;
+    const brief = `OWNER REQUEST:\n${instruction}`;
     const created = this.o.tasks.create({
       id: localId,
       botId: this.botId,

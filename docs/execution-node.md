@@ -49,7 +49,7 @@ A pause blocks new requests but lets already accepted tasks finish. Revocation b
 
 Remote requests become local background tasks; the existing TaskService remains the durable source of truth. Each request gets its own conversation, task id, and workspace root. The node derives the local task id from the node id and remote id for idempotent redelivery.
 
-The fixed task policy limits work to the existing Chrome profile and FlowAuto / Google Flow. It prohibits profile/account switching, credential access, direct network calls, arbitrary scripts, external publishing, purchases, account changes and deletion without a local human decision. Computer Use input actions are separately gated by the existing per-action approval mechanism. Files may be saved only in the configured bot workspace.
+The fixed task policy limits work to the existing Chrome profile and FlowAuto / Google Flow. It prohibits profile/account switching, credential access, direct network calls, arbitrary scripts, external publishing, purchases, account changes and deletion without a human decision. Computer Use input actions are separately gated by the existing per-action approval mechanism. The Control Plane relays only Computer Use approval requests belonging to this node's FlowAuto tasks; approval or denial is still applied by the local ApprovalCenter. Configure Chrome to ask where to save downloads before pairing and choose the dedicated bot workspace; the remote task cannot use filesystem tools to move or inspect files outside that workspace.
 
 ### Current boundary
 

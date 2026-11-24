@@ -489,6 +489,7 @@ export class App {
     this.executionNode = new LocalExecutionNode({
       store: this.store,
       tasks: this.tasks,
+      approvals: this.agent.approvals,
       workspace: (botId) => path.join(config.dataDir, "workspaces", botId),
       env: process.env,
       onNotice: (level, message) => this.notice(level, message),
