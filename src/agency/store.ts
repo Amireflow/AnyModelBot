@@ -3,8 +3,12 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import type {
-  Approval, ApprovalAction, ApprovalStatus, AuditEvent, Company, ConsentRecord, Contact,
-  Evidence, Lead, LeadStage, Membership, Organization, OrganizationStatus, AgencyRole, QualificationProfile, ResearchDomain,
+  Approval, ApprovalAction, ApprovalStatus, AuditEvent, CommercialChannel, CommercialConversation,
+  CommercialRules, Company, ConsentRecord, Contact, Contract, ContractStatus, ConversationMessage,
+  ConversationStatus, DepositStatus, Evidence, Lead, LeadStage, Membership, MessageDirection,
+  NeedsQualification, Organization, OrganizationStatus, AgencyRole, QualificationProfile,
+  Quote, QuoteLineItem, QuoteStatus, QuoteTier, ResearchDomain, ServiceCatalogItem, SolutionType,
+  CommercialSignal,
 } from "./types.js";
 
 type Row = Record<string, unknown>;
@@ -302,6 +306,164 @@ BEFORE UPDATE OF organization_id,contact_id,channel,purpose,recipient,template_n
   template_components_json,approval_id,approval_payload_hash,consent_id,idempotency_key,created_at
 ON agency_whatsapp_outbox
 BEGIN SELECT RAISE(ABORT, 'agency WhatsApp message payload is immutable'); END;
+
+CREATE TABLE IF NOT EXISTS agency_conversations (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES agency_organizations(id),
+  lead_id TEXT NOT NULL REFERENCES agency_leads(id),
+  contact_id TEXT NOT NULL DEFAULT '',
+  channel TEXT NOT NULL CHECK(channel IN ('whatsapp','email','web_form','social','phone','other')),
+  subject TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('open','awaiting_reply','handoff_human','opted_out','closed')),
+  next_follow_up_at INTEGER NOT NULL DEFAULT 0,
+  handoff_reason TEXT NOT NULL DEFAULT '',
+  last_message_at INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agency_conversations_org_lead ON agency_conversations(organization_id, lead_id, updated_at);
+CREATE TRIGGER IF NOT EXISTS agency_conversations_tenant_guard_insert
+BEFORE INSERT ON agency_conversations
+WHEN NOT EXISTS (SELECT 1 FROM agency_leads WHERE id=NEW.lead_id AND organization_id=NEW.organization_id)
+BEGIN SELECT RAISE(ABORT, 'agency conversation organization mismatch'); END;
+
+CREATE TABLE IF NOT EXISTS agency_conversation_messages (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES agency_organizations(id),
+  conversation_id TEXT NOT NULL REFERENCES agency_conversations(id),
+  direction TEXT NOT NULL CHECK(direction IN ('inbound','outbound','internal_note')),
+  body TEXT NOT NULL,
+  signal TEXT NOT NULL DEFAULT 'general',
+  author_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agency_conversation_messages_conv ON agency_conversation_messages(organization_id, conversation_id, created_at);
+CREATE TRIGGER IF NOT EXISTS agency_conversation_messages_tenant_guard
+BEFORE INSERT ON agency_conversation_messages
+WHEN NOT EXISTS (SELECT 1 FROM agency_conversations WHERE id=NEW.conversation_id AND organization_id=NEW.organization_id)
+BEGIN SELECT RAISE(ABORT, 'agency conversation message organization mismatch'); END;
+
+CREATE TABLE IF NOT EXISTS agency_needs_qualifications (
+  organization_id TEXT NOT NULL REFERENCES agency_organizations(id),
+  lead_id TEXT NOT NULL REFERENCES agency_leads(id),
+  problem_statement TEXT NOT NULL,
+  target_users TEXT NOT NULL DEFAULT '',
+  solution_type TEXT NOT NULL CHECK(solution_type IN ('vitrine','ecommerce','web_app','mobile_app','business_platform','internal_tool','automation','maintenance')),
+  must_have_json TEXT NOT NULL DEFAULT '[]',
+  nice_to_have_json TEXT NOT NULL DEFAULT '[]',
+  constraints_json TEXT NOT NULL DEFAULT '[]',
+  desired_timeline TEXT NOT NULL DEFAULT '',
+  budget_min REAL NOT NULL DEFAULT 0,
+  budget_max REAL NOT NULL DEFAULT 0,
+  assumptions_json TEXT NOT NULL DEFAULT '[]',
+  unknowns_json TEXT NOT NULL DEFAULT '[]',
+  risks_json TEXT NOT NULL DEFAULT '[]',
+  recommended_solution TEXT NOT NULL DEFAULT '',
+  client_confirmed INTEGER NOT NULL DEFAULT 0 CHECK(client_confirmed IN (0,1)),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(organization_id, lead_id)
+);
+CREATE TRIGGER IF NOT EXISTS agency_needs_tenant_guard
+BEFORE INSERT ON agency_needs_qualifications
+WHEN NOT EXISTS (SELECT 1 FROM agency_leads WHERE id=NEW.lead_id AND organization_id=NEW.organization_id)
+BEGIN SELECT RAISE(ABORT, 'agency needs qualification organization mismatch'); END;
+
+CREATE TABLE IF NOT EXISTS agency_service_catalog (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES agency_organizations(id),
+  code TEXT NOT NULL,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL CHECK(category IN ('vitrine','ecommerce','web_app','mobile_app','business_platform','internal_tool','automation','maintenance')),
+  description TEXT NOT NULL,
+  default_scope TEXT NOT NULL DEFAULT '',
+  exclusions_json TEXT NOT NULL DEFAULT '[]',
+  estimated_days REAL NOT NULL,
+  price_min REAL NOT NULL,
+  price_base REAL NOT NULL,
+  price_max REAL NOT NULL,
+  estimated_cost REAL NOT NULL,
+  payment_terms TEXT NOT NULL DEFAULT '',
+  maintenance_terms TEXT NOT NULL DEFAULT '',
+  active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(organization_id, code)
+);
+CREATE INDEX IF NOT EXISTS agency_service_catalog_org ON agency_service_catalog(organization_id, active, name);
+
+CREATE TABLE IF NOT EXISTS agency_commercial_rules (
+  organization_id TEXT PRIMARY KEY REFERENCES agency_organizations(id),
+  min_margin_pct REAL NOT NULL DEFAULT 30,
+  max_autonomous_discount_pct REAL NOT NULL DEFAULT 10,
+  default_deposit_pct REAL NOT NULL DEFAULT 30,
+  require_owner_approval_above_amount REAL NOT NULL DEFAULT 0,
+  payment_terms_default TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agency_quotes (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES agency_organizations(id),
+  lead_id TEXT NOT NULL REFERENCES agency_leads(id),
+  version INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  tier TEXT NOT NULL CHECK(tier IN ('essential','standard','advanced','custom')),
+  currency TEXT NOT NULL,
+  lines_json TEXT NOT NULL,
+  exclusions_json TEXT NOT NULL DEFAULT '[]',
+  payment_terms TEXT NOT NULL DEFAULT '',
+  delivery_days REAL NOT NULL,
+  discount_pct REAL NOT NULL DEFAULT 0,
+  subtotal REAL NOT NULL,
+  discount_amount REAL NOT NULL,
+  net_total REAL NOT NULL,
+  estimated_cost REAL NOT NULL,
+  gross_margin REAL NOT NULL,
+  margin_pct REAL NOT NULL,
+  range_low REAL NOT NULL,
+  range_high REAL NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('draft','pending_approval','approved','sent','accepted','rejected','expired')),
+  approval_id TEXT NOT NULL DEFAULT '',
+  valid_until INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(organization_id, lead_id, version)
+);
+CREATE INDEX IF NOT EXISTS agency_quotes_org_lead ON agency_quotes(organization_id, lead_id, version DESC);
+CREATE TRIGGER IF NOT EXISTS agency_quotes_tenant_guard
+BEFORE INSERT ON agency_quotes
+WHEN NOT EXISTS (SELECT 1 FROM agency_leads WHERE id=NEW.lead_id AND organization_id=NEW.organization_id)
+BEGIN SELECT RAISE(ABORT, 'agency quote organization mismatch'); END;
+
+CREATE TABLE IF NOT EXISTS agency_contracts (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES agency_organizations(id),
+  lead_id TEXT NOT NULL REFERENCES agency_leads(id),
+  quote_id TEXT NOT NULL REFERENCES agency_quotes(id),
+  title TEXT NOT NULL,
+  scope_summary TEXT NOT NULL,
+  deliverables_json TEXT NOT NULL DEFAULT '[]',
+  payment_terms TEXT NOT NULL DEFAULT '',
+  total_amount REAL NOT NULL,
+  deposit_amount REAL NOT NULL DEFAULT 0,
+  deposit_status TEXT NOT NULL DEFAULT 'unpaid' CHECK(deposit_status IN ('unpaid','paid')),
+  deposit_reference TEXT NOT NULL DEFAULT '',
+  currency TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('draft','pending_approval','approved','sent','signed','cancelled')),
+  approval_id TEXT NOT NULL DEFAULT '',
+  signed_at INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agency_contracts_org_lead ON agency_contracts(organization_id, lead_id, created_at DESC);
+CREATE TRIGGER IF NOT EXISTS agency_contracts_tenant_guard
+BEFORE INSERT ON agency_contracts
+WHEN NOT EXISTS (
+  SELECT 1 FROM agency_quotes WHERE id=NEW.quote_id AND organization_id=NEW.organization_id AND lead_id=NEW.lead_id
+)
+BEGIN SELECT RAISE(ABORT, 'agency contract organization mismatch'); END;
 `;
 
 function text(row: Row, key: string): string { return String(row[key] ?? ""); }
@@ -412,6 +574,91 @@ function approvalOf(r: Row): Approval {
 function auditOf(r: Row): AuditEvent {
   return { id:text(r,"id"), organizationId:text(r,"organization_id"), sequence:number(r,"sequence"), actorId:text(r,"actor_id"), action:text(r,"action"), entityType:text(r,"entity_type"), entityId:text(r,"entity_id"), payloadJson:text(r,"payload_json"), previousHash:text(r,"previous_hash"), hash:text(r,"hash"), createdAt:number(r,"created_at") };
 }
+function conversationOf(r: Row): CommercialConversation {
+  return {
+    id:text(r,"id"), organizationId:text(r,"organization_id"), leadId:text(r,"lead_id"),
+    contactId:text(r,"contact_id"), channel:text(r,"channel") as CommercialChannel,
+    subject:text(r,"subject"), status:text(r,"status") as ConversationStatus,
+    nextFollowUpAt:number(r,"next_follow_up_at"), handoffReason:text(r,"handoff_reason"),
+    lastMessageAt:number(r,"last_message_at"), createdAt:number(r,"created_at"), updatedAt:number(r,"updated_at"),
+  };
+}
+function conversationMessageOf(r: Row): ConversationMessage {
+  return {
+    id:text(r,"id"), organizationId:text(r,"organization_id"), conversationId:text(r,"conversation_id"),
+    direction:text(r,"direction") as MessageDirection, body:text(r,"body"),
+    signal:text(r,"signal") as CommercialSignal, authorId:text(r,"author_id"), createdAt:number(r,"created_at"),
+  };
+}
+function needsQualificationOf(r: Row): NeedsQualification {
+  return {
+    organizationId:text(r,"organization_id"), leadId:text(r,"lead_id"),
+    problemStatement:text(r,"problem_statement"), targetUsers:text(r,"target_users"),
+    solutionType:text(r,"solution_type") as SolutionType,
+    mustHaveFeatures:jsonStringArray(text(r,"must_have_json")),
+    niceToHaveFeatures:jsonStringArray(text(r,"nice_to_have_json")),
+    constraints:jsonStringArray(text(r,"constraints_json")),
+    desiredTimeline:text(r,"desired_timeline"),
+    budgetMin:Number(r.budget_min ?? 0), budgetMax:Number(r.budget_max ?? 0),
+    assumptions:jsonStringArray(text(r,"assumptions_json")),
+    unknowns:jsonStringArray(text(r,"unknowns_json")),
+    risks:jsonStringArray(text(r,"risks_json")),
+    recommendedSolution:text(r,"recommended_solution"),
+    clientConfirmed:number(r,"client_confirmed")===1,
+    createdAt:number(r,"created_at"), updatedAt:number(r,"updated_at"),
+  };
+}
+function catalogItemOf(r: Row): ServiceCatalogItem {
+  return {
+    id:text(r,"id"), organizationId:text(r,"organization_id"), code:text(r,"code"),
+    name:text(r,"name"), category:text(r,"category") as SolutionType,
+    description:text(r,"description"), defaultScope:text(r,"default_scope"),
+    exclusions:jsonStringArray(text(r,"exclusions_json")),
+    estimatedDays:Number(r.estimated_days ?? 0), priceMin:Number(r.price_min ?? 0),
+    priceBase:Number(r.price_base ?? 0), priceMax:Number(r.price_max ?? 0),
+    estimatedCost:Number(r.estimated_cost ?? 0), paymentTerms:text(r,"payment_terms"),
+    maintenanceTerms:text(r,"maintenance_terms"), active:number(r,"active")===1,
+    createdAt:number(r,"created_at"), updatedAt:number(r,"updated_at"),
+  };
+}
+function commercialRulesOf(r: Row): CommercialRules {
+  return {
+    organizationId:text(r,"organization_id"),
+    minMarginPct:Number(r.min_margin_pct ?? 30),
+    maxAutonomousDiscountPct:Number(r.max_autonomous_discount_pct ?? 10),
+    defaultDepositPct:Number(r.default_deposit_pct ?? 30),
+    requireOwnerApprovalAboveAmount:Number(r.require_owner_approval_above_amount ?? 0),
+    paymentTermsDefault:text(r,"payment_terms_default"),
+    createdAt:number(r,"created_at"), updatedAt:number(r,"updated_at"),
+  };
+}
+function quoteOf(r: Row): Quote {
+  return {
+    id:text(r,"id"), organizationId:text(r,"organization_id"), leadId:text(r,"lead_id"),
+    version:number(r,"version"), title:text(r,"title"), tier:text(r,"tier") as QuoteTier,
+    currency:text(r,"currency"), lines:jsonArray(text(r,"lines_json")) as unknown as QuoteLineItem[],
+    exclusions:jsonStringArray(text(r,"exclusions_json")), paymentTerms:text(r,"payment_terms"),
+    deliveryDays:Number(r.delivery_days ?? 0), discountPct:Number(r.discount_pct ?? 0),
+    subtotal:Number(r.subtotal ?? 0), discountAmount:Number(r.discount_amount ?? 0),
+    netTotal:Number(r.net_total ?? 0), estimatedCost:Number(r.estimated_cost ?? 0),
+    grossMargin:Number(r.gross_margin ?? 0), marginPct:Number(r.margin_pct ?? 0),
+    rangeLow:Number(r.range_low ?? 0), rangeHigh:Number(r.range_high ?? 0),
+    status:text(r,"status") as QuoteStatus, approvalId:text(r,"approval_id"),
+    validUntil:number(r,"valid_until"), createdAt:number(r,"created_at"), updatedAt:number(r,"updated_at"),
+  };
+}
+function contractOf(r: Row): Contract {
+  return {
+    id:text(r,"id"), organizationId:text(r,"organization_id"), leadId:text(r,"lead_id"),
+    quoteId:text(r,"quote_id"), title:text(r,"title"), scopeSummary:text(r,"scope_summary"),
+    deliverables:jsonStringArray(text(r,"deliverables_json")), paymentTerms:text(r,"payment_terms"),
+    totalAmount:Number(r.total_amount ?? 0), depositAmount:Number(r.deposit_amount ?? 0),
+    depositStatus:text(r,"deposit_status") as DepositStatus, depositReference:text(r,"deposit_reference"),
+    currency:text(r,"currency"), status:text(r,"status") as ContractStatus,
+    approvalId:text(r,"approval_id"), signedAt:number(r,"signed_at"),
+    createdAt:number(r,"created_at"), updatedAt:number(r,"updated_at"),
+  };
+}
 
 export class AgencyStore {
   readonly db: DatabaseSync;
@@ -440,6 +687,8 @@ export class AgencyStore {
     if (!existingColumns.has("provider_status_at")) this.db.exec("ALTER TABLE agency_whatsapp_outbox ADD COLUMN provider_status_at INTEGER NOT NULL DEFAULT 0");
     if (!existingColumns.has("provider_error_code")) this.db.exec("ALTER TABLE agency_whatsapp_outbox ADD COLUMN provider_error_code TEXT NOT NULL DEFAULT ''");
     this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(5, ?)").run(Date.now());
+    // v6 adds commercial loop tables (conversations, needs qualification, catalog, rules, quotes, contracts).
+    this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(6, ?)").run(Date.now());
   }
 
   close(): void { this.db.close(); }
@@ -799,6 +1048,203 @@ export class AgencyStore {
       previousHash=event.hash;
     }
     return { valid:true, eventsChecked:rows.length };
+  }
+
+  insertConversation(v: CommercialConversation): CommercialConversation {
+    this.db.prepare(`
+      INSERT INTO agency_conversations(
+        id,organization_id,lead_id,contact_id,channel,subject,status,next_follow_up_at,handoff_reason,last_message_at,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(v.id,v.organizationId,v.leadId,v.contactId,v.channel,v.subject,v.status,v.nextFollowUpAt,v.handoffReason,v.lastMessageAt,v.createdAt,v.updatedAt);
+    return v;
+  }
+  getConversation(orgId: string, id: string): CommercialConversation | undefined {
+    const row=this.db.prepare("SELECT * FROM agency_conversations WHERE organization_id=? AND id=?").get(orgId,id) as Row|undefined;
+    return row ? conversationOf(row) : undefined;
+  }
+  listConversations(orgId: string, leadId?: string, limit = 100): CommercialConversation[] {
+    const rows=leadId
+      ? this.db.prepare("SELECT * FROM agency_conversations WHERE organization_id=? AND lead_id=? ORDER BY updated_at DESC, id ASC LIMIT ?").all(orgId,leadId,limit) as Row[]
+      : this.db.prepare("SELECT * FROM agency_conversations WHERE organization_id=? ORDER BY updated_at DESC, id ASC LIMIT ?").all(orgId,limit) as Row[];
+    return rows.map(conversationOf);
+  }
+  updateConversationState(orgId: string, id: string, status: ConversationStatus, nextFollowUpAt: number, handoffReason: string, lastMessageAt: number, now: number): CommercialConversation | undefined {
+    this.db.prepare(`
+      UPDATE agency_conversations
+      SET status=?,next_follow_up_at=?,handoff_reason=?,last_message_at=?,updated_at=?
+      WHERE organization_id=? AND id=?
+    `).run(status,nextFollowUpAt,handoffReason,lastMessageAt,now,orgId,id);
+    return this.getConversation(orgId,id);
+  }
+  insertConversationMessage(v: ConversationMessage): ConversationMessage {
+    this.db.prepare(`
+      INSERT INTO agency_conversation_messages(id,organization_id,conversation_id,direction,body,signal,author_id,created_at)
+      VALUES(?,?,?,?,?,?,?,?)
+    `).run(v.id,v.organizationId,v.conversationId,v.direction,v.body,v.signal,v.authorId,v.createdAt);
+    return v;
+  }
+  listConversationMessages(orgId: string, conversationId: string, limit = 200): ConversationMessage[] {
+    const rows=this.db.prepare(
+      "SELECT * FROM agency_conversation_messages WHERE organization_id=? AND conversation_id=? ORDER BY created_at ASC, rowid ASC LIMIT ?",
+    ).all(orgId,conversationId,limit) as Row[];
+    return rows.map(conversationMessageOf);
+  }
+
+  upsertNeedsQualification(v: NeedsQualification): NeedsQualification {
+    this.db.prepare(`
+      INSERT INTO agency_needs_qualifications(
+        organization_id,lead_id,problem_statement,target_users,solution_type,must_have_json,nice_to_have_json,
+        constraints_json,desired_timeline,budget_min,budget_max,assumptions_json,unknowns_json,risks_json,
+        recommended_solution,client_confirmed,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(organization_id,lead_id) DO UPDATE SET
+        problem_statement=excluded.problem_statement,target_users=excluded.target_users,solution_type=excluded.solution_type,
+        must_have_json=excluded.must_have_json,nice_to_have_json=excluded.nice_to_have_json,constraints_json=excluded.constraints_json,
+        desired_timeline=excluded.desired_timeline,budget_min=excluded.budget_min,budget_max=excluded.budget_max,
+        assumptions_json=excluded.assumptions_json,unknowns_json=excluded.unknowns_json,risks_json=excluded.risks_json,
+        recommended_solution=excluded.recommended_solution,client_confirmed=excluded.client_confirmed,updated_at=excluded.updated_at
+    `).run(
+      v.organizationId,v.leadId,v.problemStatement,v.targetUsers,v.solutionType,
+      JSON.stringify(v.mustHaveFeatures),JSON.stringify(v.niceToHaveFeatures),JSON.stringify(v.constraints),
+      v.desiredTimeline,v.budgetMin,v.budgetMax,
+      JSON.stringify(v.assumptions),JSON.stringify(v.unknowns),JSON.stringify(v.risks),
+      v.recommendedSolution,v.clientConfirmed ? 1 : 0,v.createdAt,v.updatedAt,
+    );
+    return this.getNeedsQualification(v.organizationId,v.leadId)!;
+  }
+  getNeedsQualification(orgId: string, leadId: string): NeedsQualification | undefined {
+    const row=this.db.prepare("SELECT * FROM agency_needs_qualifications WHERE organization_id=? AND lead_id=?").get(orgId,leadId) as Row|undefined;
+    return row ? needsQualificationOf(row) : undefined;
+  }
+  listNeedsQualifications(orgId: string, limit = 100): NeedsQualification[] {
+    const rows=this.db.prepare("SELECT * FROM agency_needs_qualifications WHERE organization_id=? ORDER BY updated_at DESC LIMIT ?").all(orgId,limit) as Row[];
+    return rows.map(needsQualificationOf);
+  }
+
+  insertCatalogItem(v: ServiceCatalogItem): ServiceCatalogItem {
+    this.db.prepare(`
+      INSERT INTO agency_service_catalog(
+        id,organization_id,code,name,category,description,default_scope,exclusions_json,
+        estimated_days,price_min,price_base,price_max,estimated_cost,payment_terms,maintenance_terms,active,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      v.id,v.organizationId,v.code,v.name,v.category,v.description,v.defaultScope,JSON.stringify(v.exclusions),
+      v.estimatedDays,v.priceMin,v.priceBase,v.priceMax,v.estimatedCost,v.paymentTerms,v.maintenanceTerms,
+      v.active ? 1 : 0,v.createdAt,v.updatedAt,
+    );
+    return v;
+  }
+  getCatalogItem(orgId: string, id: string): ServiceCatalogItem | undefined {
+    const row=this.db.prepare("SELECT * FROM agency_service_catalog WHERE organization_id=? AND id=?").get(orgId,id) as Row|undefined;
+    return row ? catalogItemOf(row) : undefined;
+  }
+  getCatalogItemByCode(orgId: string, code: string): ServiceCatalogItem | undefined {
+    const row=this.db.prepare("SELECT * FROM agency_service_catalog WHERE organization_id=? AND code=?").get(orgId,code) as Row|undefined;
+    return row ? catalogItemOf(row) : undefined;
+  }
+  listCatalogItems(orgId: string, activeOnly = false, limit = 100): ServiceCatalogItem[] {
+    const rows=activeOnly
+      ? this.db.prepare("SELECT * FROM agency_service_catalog WHERE organization_id=? AND active=1 ORDER BY name ASC LIMIT ?").all(orgId,limit) as Row[]
+      : this.db.prepare("SELECT * FROM agency_service_catalog WHERE organization_id=? ORDER BY active DESC, name ASC LIMIT ?").all(orgId,limit) as Row[];
+    return rows.map(catalogItemOf);
+  }
+  updateCatalogItem(v: ServiceCatalogItem): ServiceCatalogItem {
+    this.db.prepare(`
+      UPDATE agency_service_catalog
+      SET name=?,category=?,description=?,default_scope=?,exclusions_json=?,estimated_days=?,
+          price_min=?,price_base=?,price_max=?,estimated_cost=?,payment_terms=?,maintenance_terms=?,active=?,updated_at=?
+      WHERE organization_id=? AND id=?
+    `).run(
+      v.name,v.category,v.description,v.defaultScope,JSON.stringify(v.exclusions),v.estimatedDays,
+      v.priceMin,v.priceBase,v.priceMax,v.estimatedCost,v.paymentTerms,v.maintenanceTerms,v.active ? 1 : 0,v.updatedAt,
+      v.organizationId,v.id,
+    );
+    return this.getCatalogItem(v.organizationId,v.id)!;
+  }
+
+  getCommercialRules(orgId: string): CommercialRules | undefined {
+    const row=this.db.prepare("SELECT * FROM agency_commercial_rules WHERE organization_id=?").get(orgId) as Row|undefined;
+    return row ? commercialRulesOf(row) : undefined;
+  }
+  upsertCommercialRules(v: CommercialRules): CommercialRules {
+    this.db.prepare(`
+      INSERT INTO agency_commercial_rules(
+        organization_id,min_margin_pct,max_autonomous_discount_pct,default_deposit_pct,
+        require_owner_approval_above_amount,payment_terms_default,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?)
+      ON CONFLICT(organization_id) DO UPDATE SET
+        min_margin_pct=excluded.min_margin_pct,max_autonomous_discount_pct=excluded.max_autonomous_discount_pct,
+        default_deposit_pct=excluded.default_deposit_pct,require_owner_approval_above_amount=excluded.require_owner_approval_above_amount,
+        payment_terms_default=excluded.payment_terms_default,updated_at=excluded.updated_at
+    `).run(
+      v.organizationId,v.minMarginPct,v.maxAutonomousDiscountPct,v.defaultDepositPct,
+      v.requireOwnerApprovalAboveAmount,v.paymentTermsDefault,v.createdAt,v.updatedAt,
+    );
+    return this.getCommercialRules(v.organizationId)!;
+  }
+
+  nextQuoteVersion(orgId: string, leadId: string): number {
+    const row=this.db.prepare("SELECT COALESCE(MAX(version), 0) AS max_ver FROM agency_quotes WHERE organization_id=? AND lead_id=?").get(orgId,leadId) as Row;
+    return number(row,"max_ver") + 1;
+  }
+  insertQuote(v: Quote): Quote {
+    this.db.prepare(`
+      INSERT INTO agency_quotes(
+        id,organization_id,lead_id,version,title,tier,currency,lines_json,exclusions_json,payment_terms,
+        delivery_days,discount_pct,subtotal,discount_amount,net_total,estimated_cost,gross_margin,margin_pct,
+        range_low,range_high,status,approval_id,valid_until,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      v.id,v.organizationId,v.leadId,v.version,v.title,v.tier,v.currency,JSON.stringify(v.lines),JSON.stringify(v.exclusions),
+      v.paymentTerms,v.deliveryDays,v.discountPct,v.subtotal,v.discountAmount,v.netTotal,v.estimatedCost,v.grossMargin,
+      v.marginPct,v.rangeLow,v.rangeHigh,v.status,v.approvalId,v.validUntil,v.createdAt,v.updatedAt,
+    );
+    return v;
+  }
+  getQuote(orgId: string, id: string): Quote | undefined {
+    const row=this.db.prepare("SELECT * FROM agency_quotes WHERE organization_id=? AND id=?").get(orgId,id) as Row|undefined;
+    return row ? quoteOf(row) : undefined;
+  }
+  listQuotes(orgId: string, leadId?: string, limit = 100): Quote[] {
+    const rows=leadId
+      ? this.db.prepare("SELECT * FROM agency_quotes WHERE organization_id=? AND lead_id=? ORDER BY version DESC LIMIT ?").all(orgId,leadId,limit) as Row[]
+      : this.db.prepare("SELECT * FROM agency_quotes WHERE organization_id=? ORDER BY updated_at DESC, version DESC LIMIT ?").all(orgId,limit) as Row[];
+    return rows.map(quoteOf);
+  }
+  updateQuoteStatus(orgId: string, id: string, status: QuoteStatus, approvalId: string, now: number): Quote | undefined {
+    this.db.prepare("UPDATE agency_quotes SET status=?,approval_id=?,updated_at=? WHERE organization_id=? AND id=?").run(status,approvalId,now,orgId,id);
+    return this.getQuote(orgId,id);
+  }
+
+  insertContract(v: Contract): Contract {
+    this.db.prepare(`
+      INSERT INTO agency_contracts(
+        id,organization_id,lead_id,quote_id,title,scope_summary,deliverables_json,payment_terms,
+        total_amount,deposit_amount,deposit_status,deposit_reference,currency,status,approval_id,signed_at,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      v.id,v.organizationId,v.leadId,v.quoteId,v.title,v.scopeSummary,JSON.stringify(v.deliverables),v.paymentTerms,
+      v.totalAmount,v.depositAmount,v.depositStatus,v.depositReference,v.currency,v.status,v.approvalId,v.signedAt,v.createdAt,v.updatedAt,
+    );
+    return v;
+  }
+  getContract(orgId: string, id: string): Contract | undefined {
+    const row=this.db.prepare("SELECT * FROM agency_contracts WHERE organization_id=? AND id=?").get(orgId,id) as Row|undefined;
+    return row ? contractOf(row) : undefined;
+  }
+  listContracts(orgId: string, leadId?: string, limit = 100): Contract[] {
+    const rows=leadId
+      ? this.db.prepare("SELECT * FROM agency_contracts WHERE organization_id=? AND lead_id=? ORDER BY created_at DESC LIMIT ?").all(orgId,leadId,limit) as Row[]
+      : this.db.prepare("SELECT * FROM agency_contracts WHERE organization_id=? ORDER BY updated_at DESC, created_at DESC LIMIT ?").all(orgId,limit) as Row[];
+    return rows.map(contractOf);
+  }
+  updateContractStatus(orgId: string, id: string, status: ContractStatus, approvalId: string, signedAt: number, now: number): Contract | undefined {
+    this.db.prepare("UPDATE agency_contracts SET status=?,approval_id=?,signed_at=?,updated_at=? WHERE organization_id=? AND id=?").run(status,approvalId,signedAt,now,orgId,id);
+    return this.getContract(orgId,id);
+  }
+  updateContractDeposit(orgId: string, id: string, depositStatus: DepositStatus, depositReference: string, now: number): Contract | undefined {
+    this.db.prepare("UPDATE agency_contracts SET deposit_status=?,deposit_reference=?,updated_at=? WHERE organization_id=? AND id=?").run(depositStatus,depositReference,now,orgId,id);
+    return this.getContract(orgId,id);
   }
 }
 

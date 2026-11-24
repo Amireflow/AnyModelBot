@@ -340,3 +340,299 @@ export interface AgencyDashboard {
   companyCount: number; contactCount: number; leadCount: number;
   openLeadCount: number; wonLeadCount: number; stageCounts: Record<LeadStage, number>;
 }
+
+export type CommercialChannel = "whatsapp" | "email" | "web_form" | "social" | "phone" | "other";
+export type ConversationStatus = "open" | "awaiting_reply" | "handoff_human" | "opted_out" | "closed";
+export type MessageDirection = "inbound" | "outbound" | "internal_note";
+export type CommercialSignal = "general" | "interested" | "objection" | "pricing_question" | "opt_out" | "needs_human";
+
+export interface CommercialConversation {
+  id: string;
+  organizationId: string;
+  leadId: string;
+  contactId: string;
+  channel: CommercialChannel;
+  subject: string;
+  status: ConversationStatus;
+  nextFollowUpAt: number;
+  handoffReason: string;
+  lastMessageAt: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ConversationMessage {
+  id: string;
+  organizationId: string;
+  conversationId: string;
+  direction: MessageDirection;
+  body: string;
+  signal: CommercialSignal;
+  authorId: string;
+  createdAt: number;
+}
+
+export interface CreateConversationInput {
+  leadId: string;
+  contactId?: string;
+  channel: CommercialChannel;
+  subject: string;
+  nextFollowUpAt?: number;
+}
+
+export interface AddConversationMessageInput {
+  direction: MessageDirection;
+  body: string;
+  signal?: CommercialSignal;
+  nextFollowUpAt?: number;
+}
+
+export type SolutionType =
+  | "vitrine" | "ecommerce" | "web_app" | "mobile_app"
+  | "business_platform" | "internal_tool" | "automation" | "maintenance";
+
+export interface NeedsQualification {
+  organizationId: string;
+  leadId: string;
+  problemStatement: string;
+  targetUsers: string;
+  solutionType: SolutionType;
+  mustHaveFeatures: string[];
+  niceToHaveFeatures: string[];
+  constraints: string[];
+  desiredTimeline: string;
+  budgetMin: number;
+  budgetMax: number;
+  assumptions: string[];
+  unknowns: string[];
+  risks: string[];
+  recommendedSolution: string;
+  clientConfirmed: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface UpsertNeedsQualificationInput {
+  problemStatement: string;
+  targetUsers?: string;
+  solutionType: SolutionType;
+  mustHaveFeatures?: string[];
+  niceToHaveFeatures?: string[];
+  constraints?: string[];
+  desiredTimeline?: string;
+  budgetMin?: number;
+  budgetMax?: number;
+  assumptions?: string[];
+  unknowns?: string[];
+  risks?: string[];
+  recommendedSolution?: string;
+  clientConfirmed?: boolean;
+}
+
+export interface ServiceCatalogItem {
+  id: string;
+  organizationId: string;
+  code: string;
+  name: string;
+  category: SolutionType;
+  description: string;
+  defaultScope: string;
+  exclusions: string[];
+  estimatedDays: number;
+  priceMin: number;
+  priceBase: number;
+  priceMax: number;
+  estimatedCost: number;
+  paymentTerms: string;
+  maintenanceTerms: string;
+  active: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CreateCatalogItemInput {
+  code: string;
+  name: string;
+  category: SolutionType;
+  description: string;
+  defaultScope?: string;
+  exclusions?: string[];
+  estimatedDays: number;
+  priceMin: number;
+  priceBase: number;
+  priceMax: number;
+  estimatedCost: number;
+  paymentTerms?: string;
+  maintenanceTerms?: string;
+  active?: boolean;
+}
+
+export interface UpdateCatalogItemInput {
+  name?: string;
+  category?: SolutionType;
+  description?: string;
+  defaultScope?: string;
+  exclusions?: string[];
+  estimatedDays?: number;
+  priceMin?: number;
+  priceBase?: number;
+  priceMax?: number;
+  estimatedCost?: number;
+  paymentTerms?: string;
+  maintenanceTerms?: string;
+  active?: boolean;
+}
+
+export interface CommercialRules {
+  organizationId: string;
+  minMarginPct: number;
+  maxAutonomousDiscountPct: number;
+  defaultDepositPct: number;
+  requireOwnerApprovalAboveAmount: number;
+  paymentTermsDefault: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface UpdateCommercialRulesInput {
+  minMarginPct?: number;
+  maxAutonomousDiscountPct?: number;
+  defaultDepositPct?: number;
+  requireOwnerApprovalAboveAmount?: number;
+  paymentTermsDefault?: string;
+}
+
+export type QuoteTier = "essential" | "standard" | "advanced" | "custom";
+export type QuoteStatus = "draft" | "pending_approval" | "approved" | "sent" | "accepted" | "rejected" | "expired";
+
+export interface QuoteLineItem {
+  label: string;
+  description?: string;
+  quantity: number;
+  unitPrice: number;
+  unitCost: number;
+  estimatedDays: number;
+  optional?: boolean;
+}
+
+export interface QuoteTotals {
+  subtotal: number;
+  discountPct: number;
+  discountAmount: number;
+  netTotal: number;
+  estimatedCost: number;
+  grossMargin: number;
+  marginPct: number;
+  totalDays: number;
+  rangeLow: number;
+  rangeHigh: number;
+}
+
+export type NegotiationViolation =
+  | "DISCOUNT_EXCEEDS_AUTONOMOUS_LIMIT"
+  | "BELOW_MIN_MARGIN"
+  | "BELOW_PRICE_FLOOR"
+  | "EXCEEDS_OWNER_THRESHOLD";
+
+export type NegotiationAction =
+  | "reduce_scope"
+  | "phase_delivery"
+  | "adjust_payment_schedule"
+  | "request_owner_approval";
+
+export interface NegotiationEvaluation {
+  requestedDiscountPct: number;
+  priceFloor: number;
+  resultingTotal: number;
+  resultingMargin: number;
+  resultingMarginPct: number;
+  allowedAutonomously: boolean;
+  requiresOwnerApproval: boolean;
+  violations: NegotiationViolation[];
+  recommendedActions: NegotiationAction[];
+}
+
+export interface TieredProposalOption {
+  tier: "essential" | "standard" | "advanced";
+  title: string;
+  scopeSummary: string;
+  deliverables: string[];
+  exclusions: string[];
+  estimatedDays: number;
+  price: number;
+  estimatedCost: number;
+  marginPct: number;
+}
+
+export interface Quote {
+  id: string;
+  organizationId: string;
+  leadId: string;
+  version: number;
+  title: string;
+  tier: QuoteTier;
+  currency: string;
+  lines: QuoteLineItem[];
+  exclusions: string[];
+  paymentTerms: string;
+  deliveryDays: number;
+  discountPct: number;
+  subtotal: number;
+  discountAmount: number;
+  netTotal: number;
+  estimatedCost: number;
+  grossMargin: number;
+  marginPct: number;
+  rangeLow: number;
+  rangeHigh: number;
+  status: QuoteStatus;
+  approvalId: string;
+  validUntil: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CreateQuoteInput {
+  leadId: string;
+  title: string;
+  tier?: QuoteTier;
+  lines: QuoteLineItem[];
+  exclusions?: string[];
+  paymentTerms?: string;
+  discountPct?: number;
+  uncertaintyPct?: number;
+  validUntil?: number;
+}
+
+export type ContractStatus = "draft" | "pending_approval" | "approved" | "sent" | "signed" | "cancelled";
+export type DepositStatus = "unpaid" | "paid";
+
+export interface Contract {
+  id: string;
+  organizationId: string;
+  leadId: string;
+  quoteId: string;
+  title: string;
+  scopeSummary: string;
+  deliverables: string[];
+  paymentTerms: string;
+  totalAmount: number;
+  depositAmount: number;
+  depositStatus: DepositStatus;
+  depositReference: string;
+  currency: string;
+  status: ContractStatus;
+  approvalId: string;
+  signedAt: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CreateContractInput {
+  quoteId: string;
+  title?: string;
+  scopeSummary?: string;
+  deliverables?: string[];
+  paymentTerms?: string;
+  depositAmount?: number;
+}

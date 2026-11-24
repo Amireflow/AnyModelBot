@@ -5,12 +5,19 @@ import { assertLeadTransition } from "./transitions.js";
 import { assessResearchEvidence } from "./research-quality.js";
 import { assessCompanyQualification } from "./qualification.js";
 import type { CompanyResearchSource } from "./company-research-import.js";
+import {
+  buildTieredProposals, calculateQuoteTotals, classifyCommercialSignal, evaluateNegotiation,
+} from "./commercial.js";
 import type {
-  AddEvidenceInput, AgencyDashboard, Approval, ApprovalAction, AuditEvent, Company, CompanySearchFilters,
-  Contact, ContactSearchFilters, CreateCompanyInput, CreateContactInput, CreateLeadInput,
-  CreateOrganizationInput, Evidence, Lead, LeadSearchFilters, LeadStage, Organization,
-  Page, RecordConsentInput, RequestApprovalInput, AgencyRole, ResearchAssessment,
-  CompanyQualificationAssessment, QualificationProfile, ResearchDomain, UpdateQualificationProfileInput,
+  AddConversationMessageInput, AddEvidenceInput, AgencyDashboard, Approval, ApprovalAction, AuditEvent,
+  CommercialChannel, CommercialConversation, CommercialRules, Company, CompanySearchFilters,
+  Contact, ContactSearchFilters, Contract, ConversationMessage, CreateCatalogItemInput, CreateCompanyInput,
+  CreateContactInput, CreateContractInput, CreateConversationInput, CreateLeadInput, CreateOrganizationInput,
+  CreateQuoteInput, DepositStatus, Evidence, Lead, LeadSearchFilters, LeadStage, MessageDirection,
+  NeedsQualification, NegotiationEvaluation, Organization, Page, Quote, QuoteTier, RecordConsentInput,
+  RequestApprovalInput, AgencyRole, ResearchAssessment, CompanyQualificationAssessment, QualificationProfile,
+  ResearchDomain, ServiceCatalogItem, SolutionType, TieredProposalOption, UpdateCatalogItemInput,
+  UpdateCommercialRulesInput, UpdateQualificationProfileInput, UpsertNeedsQualificationInput,
   QueueWhatsAppTemplateInput, WhatsAppOutboxMessage, WhatsAppWebhookProcessResult,
 } from "./types.js";
 import { WhatsAppProviderError, type WhatsAppTemplateSender } from "./whatsapp-cloud.js";
@@ -26,6 +33,63 @@ export interface AgencyServiceOptions {
 }
 
 const WRITE_ROLES: AgencyRole[] = ["owner","admin","member"];
+const SOLUTION_TYPES: SolutionType[] = [
+  "vitrine","ecommerce","web_app","mobile_app","business_platform","internal_tool","automation","maintenance",
+];
+const COMMERCIAL_CHANNELS: CommercialChannel[] = ["whatsapp","email","web_form","social","phone","other"];
+const QUOTE_TIERS: QuoteTier[] = ["essential","standard","advanced","custom"];
+
+function stringList(value: unknown, field: string, maxItems = 50, maxLength = 300): string[] {
+  if (value == null) return [];
+  if (!Array.isArray(value)) throw new AgencyError("VALIDATION_ERROR", `${field} must be an array`);
+  if (value.length > maxItems) throw new AgencyError("VALIDATION_ERROR", `${field} exceeds ${maxItems} items`);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") throw new AgencyError("VALIDATION_ERROR", `${field} items must be text`);
+    const cleaned = item.trim();
+    if (!cleaned) continue;
+    if (cleaned.length > maxLength) throw new AgencyError("VALIDATION_ERROR", `${field} item is too long`);
+    if (!seen.has(cleaned)) { seen.add(cleaned); out.push(cleaned); }
+  }
+  return out;
+}
+
+function nonNegativeNumber(value: unknown, field: string, fallback = 0): number {
+  if (value == null) return fallback;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new AgencyError("VALIDATION_ERROR", `${field} must be a non-negative number`);
+  }
+  return value;
+}
+
+function quoteApprovalPayload(quote: Quote): Record<string, unknown> {
+  return {
+    quoteId: quote.id,
+    leadId: quote.leadId,
+    version: quote.version,
+    tier: quote.tier,
+    currency: quote.currency,
+    discountPct: quote.discountPct,
+    netTotal: quote.netTotal,
+    estimatedCost: quote.estimatedCost,
+    marginPct: quote.marginPct,
+    deliveryDays: quote.deliveryDays,
+  };
+}
+
+function contractApprovalPayload(contract: Contract): Record<string, unknown> {
+  return {
+    contractId: contract.id,
+    leadId: contract.leadId,
+    quoteId: contract.quoteId,
+    title: contract.title,
+    totalAmount: contract.totalAmount,
+    depositAmount: contract.depositAmount,
+    currency: contract.currency,
+    paymentTerms: contract.paymentTerms,
+  };
+}
 const CRITICAL_APPROVAL_ACTIONS: ApprovalAction[] = [
   "send_message","send_quote","send_contract","sign_contract","spend_money",
   "grant_access","delete_data","deploy_production","change_scope","other_external_action",
@@ -890,5 +954,509 @@ export class AgencyService {
     this.requireMember(organizationId,actorId,["owner","admin","auditor"]);
     if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new AgencyError("VALIDATION_ERROR","limit must be between 1 and 500");
     return this.store.listAudit(organizationId,limit);
+  }
+
+  // ---------- Priority 1: Commercial Conversations, Needs, Catalog, Quotes, Negotiation, Contracts ----------
+
+  createConversation(organizationId: string, actorId: string, input: CreateConversationInput): CommercialConversation {
+    this.requireMember(organizationId,actorId);
+    const leadId=requiredText(input.leadId,"leadId",100);
+    const lead=this.store.getLead(organizationId,leadId);
+    if (!lead) throw new AgencyError("NOT_FOUND","Lead not found");
+    if (!COMMERCIAL_CHANNELS.includes(input.channel)) throw new AgencyError("VALIDATION_ERROR","Unsupported conversation channel");
+    const contactId=input.contactId ? requiredText(input.contactId,"contactId",100) : lead.contactId;
+    if (contactId) {
+      const contact=this.store.getContact(organizationId,contactId);
+      if (!contact || contact.companyId!==lead.companyId) {
+        throw new AgencyError("VALIDATION_ERROR","Contact must belong to the lead's company");
+      }
+    }
+    const nextFollowUpAt=input.nextFollowUpAt == null ? 0 : positiveTimestamp(input.nextFollowUpAt,"nextFollowUpAt");
+    const now=this.now();
+    const conv: CommercialConversation={
+      id:this.id(), organizationId, leadId, contactId, channel:input.channel,
+      subject:requiredText(input.subject,"subject",240),
+      status:"open", nextFollowUpAt, handoffReason:"", lastMessageAt:now, createdAt:now, updatedAt:now,
+    };
+    return this.store.transaction(() => {
+      this.store.insertConversation(conv);
+      this.audit(organizationId,actorId,"conversation.created","conversation",conv.id,{
+        leadId:conv.leadId,channel:conv.channel,subject:conv.subject,
+      });
+      return conv;
+    });
+  }
+
+  listConversations(organizationId: string, actorId: string, leadId?: string, limit = 100): CommercialConversation[] {
+    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new AgencyError("VALIDATION_ERROR","limit must be between 1 and 200");
+    return this.store.listConversations(organizationId,leadId ? requiredText(leadId,"leadId",100) : undefined,limit);
+  }
+
+  listConversationMessages(organizationId: string, actorId: string, conversationId: string, limit = 200): ConversationMessage[] {
+    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
+    const conv=this.store.getConversation(organizationId,requiredText(conversationId,"conversationId",100));
+    if (!conv) throw new AgencyError("NOT_FOUND","Conversation not found");
+    return this.store.listConversationMessages(organizationId,conv.id,limit);
+  }
+
+  addConversationMessage(organizationId: string, actorId: string, conversationId: string, input: AddConversationMessageInput): {
+    conversation: CommercialConversation; message: ConversationMessage;
+  } {
+    this.requireMember(organizationId,actorId);
+    const conv=this.store.getConversation(organizationId,requiredText(conversationId,"conversationId",100));
+    if (!conv) throw new AgencyError("NOT_FOUND","Conversation not found");
+    const validDirections: MessageDirection[]=["inbound","outbound","internal_note"];
+    if (!validDirections.includes(input.direction)) throw new AgencyError("VALIDATION_ERROR","Invalid message direction");
+    if (conv.status==="opted_out" && input.direction==="outbound") {
+      throw new AgencyError("CONSENT_REQUIRED","This conversation has opted out; outbound messages and follow-ups are blocked");
+    }
+    if (conv.status==="closed" && input.direction==="outbound") {
+      throw new AgencyError("CONFLICT","Cannot send outbound messages on a closed conversation");
+    }
+    const body=requiredText(input.body,"body",4000);
+    const signal=input.signal ?? classifyCommercialSignal(body);
+    const now=this.now();
+    let nextStatus=conv.status;
+    let nextFollowUpAt=input.nextFollowUpAt == null ? conv.nextFollowUpAt : (input.nextFollowUpAt === 0 ? 0 : positiveTimestamp(input.nextFollowUpAt,"nextFollowUpAt"));
+    let handoffReason=conv.handoffReason;
+    if (input.direction==="inbound") {
+      if (signal==="opt_out") {
+        nextStatus="opted_out";
+        nextFollowUpAt=0;
+      } else if (signal==="needs_human") {
+        nextStatus="handoff_human";
+        handoffReason=handoffReason || "Inbound message requested human review";
+      } else if (conv.status==="awaiting_reply") {
+        nextStatus="open";
+      }
+    } else if (input.direction==="outbound") {
+      nextStatus="awaiting_reply";
+    }
+    const message: ConversationMessage={
+      id:this.id(), organizationId, conversationId:conv.id, direction:input.direction,
+      body, signal, authorId:actorId, createdAt:now,
+    };
+    return this.store.transaction(() => {
+      this.store.insertConversationMessage(message);
+      const updated=this.store.updateConversationState(organizationId,conv.id,nextStatus,nextFollowUpAt,handoffReason,now,now)!;
+      this.audit(organizationId,actorId,"conversation.message_added","conversation",conv.id,{
+        messageId:message.id,direction:message.direction,signal:message.signal,status:updated.status,
+      });
+      return { conversation:updated, message };
+    });
+  }
+
+  handoffConversation(organizationId: string, actorId: string, conversationId: string, reason: string): CommercialConversation {
+    this.requireMember(organizationId,actorId);
+    const conv=this.store.getConversation(organizationId,requiredText(conversationId,"conversationId",100));
+    if (!conv) throw new AgencyError("NOT_FOUND","Conversation not found");
+    if (conv.status==="opted_out") throw new AgencyError("CONFLICT","Opted-out conversation cannot be reopened for outreach");
+    const cleanReason=requiredText(reason,"reason",500);
+    const now=this.now();
+    return this.store.transaction(() => {
+      const updated=this.store.updateConversationState(organizationId,conv.id,"handoff_human",0,cleanReason,conv.lastMessageAt,now)!;
+      this.audit(organizationId,actorId,"conversation.handoff_human","conversation",conv.id,{reason:cleanReason});
+      return updated;
+    });
+  }
+
+  upsertNeedsQualification(organizationId: string, actorId: string, leadId: string, input: UpsertNeedsQualificationInput): NeedsQualification {
+    this.requireMember(organizationId,actorId);
+    const cleanLeadId=requiredText(leadId,"leadId",100);
+    if (!this.store.getLead(organizationId,cleanLeadId)) throw new AgencyError("NOT_FOUND","Lead not found");
+    if (!SOLUTION_TYPES.includes(input.solutionType)) throw new AgencyError("VALIDATION_ERROR","Unsupported solutionType");
+    const budgetMin=nonNegativeNumber(input.budgetMin,"budgetMin",0);
+    const budgetMax=nonNegativeNumber(input.budgetMax,"budgetMax",0);
+    if (budgetMax > 0 && budgetMax < budgetMin) throw new AgencyError("VALIDATION_ERROR","budgetMax cannot be below budgetMin");
+    const existing=this.store.getNeedsQualification(organizationId,cleanLeadId);
+    const now=this.now();
+    const record: NeedsQualification={
+      organizationId, leadId:cleanLeadId,
+      problemStatement:requiredText(input.problemStatement,"problemStatement",4000),
+      targetUsers:optionalText(input.targetUsers,"targetUsers",1000),
+      solutionType:input.solutionType,
+      mustHaveFeatures:stringList(input.mustHaveFeatures,"mustHaveFeatures"),
+      niceToHaveFeatures:stringList(input.niceToHaveFeatures,"niceToHaveFeatures"),
+      constraints:stringList(input.constraints,"constraints"),
+      desiredTimeline:optionalText(input.desiredTimeline,"desiredTimeline",200),
+      budgetMin, budgetMax,
+      assumptions:stringList(input.assumptions,"assumptions"),
+      unknowns:stringList(input.unknowns,"unknowns"),
+      risks:stringList(input.risks,"risks"),
+      recommendedSolution:optionalText(input.recommendedSolution,"recommendedSolution",2000),
+      clientConfirmed:input.clientConfirmed === true,
+      createdAt:existing?.createdAt ?? now,
+      updatedAt:now,
+    };
+    return this.store.transaction(() => {
+      const saved=this.store.upsertNeedsQualification(record);
+      this.audit(organizationId,actorId,"lead.needs_qualified","lead",cleanLeadId,{
+        solutionType:saved.solutionType,clientConfirmed:saved.clientConfirmed,
+        mustHaveCount:saved.mustHaveFeatures.length,unknownCount:saved.unknowns.length,
+      });
+      return saved;
+    });
+  }
+
+  getNeedsQualification(organizationId: string, actorId: string, leadId: string): NeedsQualification | undefined {
+    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
+    const cleanLeadId=requiredText(leadId,"leadId",100);
+    if (!this.store.getLead(organizationId,cleanLeadId)) throw new AgencyError("NOT_FOUND","Lead not found");
+    return this.store.getNeedsQualification(organizationId,cleanLeadId);
+  }
+
+  listNeedsQualifications(organizationId: string, actorId: string, limit = 100): NeedsQualification[] {
+    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
+    return this.store.listNeedsQualifications(organizationId,limit);
+  }
+
+  createCatalogItem(organizationId: string, actorId: string, input: CreateCatalogItemInput): ServiceCatalogItem {
+    this.requireMember(organizationId,actorId,["owner","admin"]);
+    const code=requiredText(input.code,"code",60).toLowerCase();
+    if (!/^[a-z0-9_-]{2,60}$/.test(code)) throw new AgencyError("VALIDATION_ERROR","Catalog code must be alphanumeric with dashes/underscores");
+    if (this.store.getCatalogItemByCode(organizationId,code)) throw new AgencyError("CONFLICT","A catalog item with this code already exists");
+    if (!SOLUTION_TYPES.includes(input.category)) throw new AgencyError("VALIDATION_ERROR","Unsupported catalog category");
+    const estimatedDays=nonNegativeNumber(input.estimatedDays,"estimatedDays");
+    if (estimatedDays <= 0) throw new AgencyError("VALIDATION_ERROR","estimatedDays must be positive");
+    const priceMin=nonNegativeNumber(input.priceMin,"priceMin");
+    const priceBase=nonNegativeNumber(input.priceBase,"priceBase");
+    const priceMax=nonNegativeNumber(input.priceMax,"priceMax");
+    const estimatedCost=nonNegativeNumber(input.estimatedCost,"estimatedCost");
+    if (priceBase < priceMin || (priceMax > 0 && priceMax < priceBase)) {
+      throw new AgencyError("VALIDATION_ERROR","Catalog prices must satisfy priceMin <= priceBase <= priceMax");
+    }
+    const now=this.now();
+    const item: ServiceCatalogItem={
+      id:this.id(), organizationId, code, name:requiredText(input.name,"name",160),
+      category:input.category, description:requiredText(input.description,"description",2000),
+      defaultScope:optionalText(input.defaultScope,"defaultScope",2000),
+      exclusions:stringList(input.exclusions,"exclusions"),
+      estimatedDays, priceMin, priceBase, priceMax, estimatedCost,
+      paymentTerms:optionalText(input.paymentTerms,"paymentTerms",500),
+      maintenanceTerms:optionalText(input.maintenanceTerms,"maintenanceTerms",500),
+      active:input.active !== false, createdAt:now, updatedAt:now,
+    };
+    return this.store.transaction(() => {
+      this.store.insertCatalogItem(item);
+      this.audit(organizationId,actorId,"catalog.item_created","catalog_item",item.id,{
+        code:item.code,name:item.name,priceBase:item.priceBase,estimatedCost:item.estimatedCost,
+      });
+      return item;
+    });
+  }
+
+  listCatalogItems(organizationId: string, actorId: string, activeOnly = false): ServiceCatalogItem[] {
+    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
+    return this.store.listCatalogItems(organizationId,activeOnly);
+  }
+
+  updateCatalogItem(organizationId: string, actorId: string, itemId: string, input: UpdateCatalogItemInput): ServiceCatalogItem {
+    this.requireMember(organizationId,actorId,["owner","admin"]);
+    const current=this.store.getCatalogItem(organizationId,requiredText(itemId,"itemId",100));
+    if (!current) throw new AgencyError("NOT_FOUND","Catalog item not found");
+    const category=input.category ?? current.category;
+    if (!SOLUTION_TYPES.includes(category)) throw new AgencyError("VALIDATION_ERROR","Unsupported catalog category");
+    const estimatedDays=input.estimatedDays == null ? current.estimatedDays : nonNegativeNumber(input.estimatedDays,"estimatedDays");
+    if (estimatedDays <= 0) throw new AgencyError("VALIDATION_ERROR","estimatedDays must be positive");
+    const priceMin=input.priceMin == null ? current.priceMin : nonNegativeNumber(input.priceMin,"priceMin");
+    const priceBase=input.priceBase == null ? current.priceBase : nonNegativeNumber(input.priceBase,"priceBase");
+    const priceMax=input.priceMax == null ? current.priceMax : nonNegativeNumber(input.priceMax,"priceMax");
+    const estimatedCost=input.estimatedCost == null ? current.estimatedCost : nonNegativeNumber(input.estimatedCost,"estimatedCost");
+    if (priceBase < priceMin || (priceMax > 0 && priceMax < priceBase)) {
+      throw new AgencyError("VALIDATION_ERROR","Catalog prices must satisfy priceMin <= priceBase <= priceMax");
+    }
+    const next: ServiceCatalogItem={
+      ...current,
+      name:input.name == null ? current.name : requiredText(input.name,"name",160),
+      category,
+      description:input.description == null ? current.description : requiredText(input.description,"description",2000),
+      defaultScope:input.defaultScope == null ? current.defaultScope : optionalText(input.defaultScope,"defaultScope",2000),
+      exclusions:input.exclusions == null ? current.exclusions : stringList(input.exclusions,"exclusions"),
+      estimatedDays, priceMin, priceBase, priceMax, estimatedCost,
+      paymentTerms:input.paymentTerms == null ? current.paymentTerms : optionalText(input.paymentTerms,"paymentTerms",500),
+      maintenanceTerms:input.maintenanceTerms == null ? current.maintenanceTerms : optionalText(input.maintenanceTerms,"maintenanceTerms",500),
+      active:input.active == null ? current.active : Boolean(input.active),
+      updatedAt:this.now(),
+    };
+    return this.store.transaction(() => {
+      const updated=this.store.updateCatalogItem(next);
+      this.audit(organizationId,actorId,"catalog.item_updated","catalog_item",updated.id,{
+        priceBase:updated.priceBase,estimatedCost:updated.estimatedCost,active:updated.active,
+      });
+      return updated;
+    });
+  }
+
+  getCommercialRules(organizationId: string, actorId: string): CommercialRules {
+    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
+    const stored=this.store.getCommercialRules(organizationId);
+    if (stored) return stored;
+    const now=this.now();
+    return {
+      organizationId, minMarginPct:30, maxAutonomousDiscountPct:10, defaultDepositPct:30,
+      requireOwnerApprovalAboveAmount:0, paymentTermsDefault:"30% acompte à la signature, 70% à la livraison",
+      createdAt:now, updatedAt:now,
+    };
+  }
+
+  updateCommercialRules(organizationId: string, actorId: string, input: UpdateCommercialRulesInput): CommercialRules {
+    this.requireMember(organizationId,actorId,["owner","admin"]);
+    const current=this.getCommercialRules(organizationId,actorId);
+    const minMarginPct=input.minMarginPct == null ? current.minMarginPct : nonNegativeNumber(input.minMarginPct,"minMarginPct");
+    if (minMarginPct > 95) throw new AgencyError("VALIDATION_ERROR","minMarginPct cannot exceed 95");
+    const maxAutonomousDiscountPct=input.maxAutonomousDiscountPct == null
+      ? current.maxAutonomousDiscountPct : nonNegativeNumber(input.maxAutonomousDiscountPct,"maxAutonomousDiscountPct");
+    if (maxAutonomousDiscountPct > 100) throw new AgencyError("VALIDATION_ERROR","maxAutonomousDiscountPct cannot exceed 100");
+    const defaultDepositPct=input.defaultDepositPct == null
+      ? current.defaultDepositPct : nonNegativeNumber(input.defaultDepositPct,"defaultDepositPct");
+    if (defaultDepositPct > 100) throw new AgencyError("VALIDATION_ERROR","defaultDepositPct cannot exceed 100");
+    const requireOwnerApprovalAboveAmount=input.requireOwnerApprovalAboveAmount == null
+      ? current.requireOwnerApprovalAboveAmount : nonNegativeNumber(input.requireOwnerApprovalAboveAmount,"requireOwnerApprovalAboveAmount");
+    const now=this.now();
+    const rules: CommercialRules={
+      organizationId, minMarginPct, maxAutonomousDiscountPct, defaultDepositPct, requireOwnerApprovalAboveAmount,
+      paymentTermsDefault:input.paymentTermsDefault == null
+        ? current.paymentTermsDefault : optionalText(input.paymentTermsDefault,"paymentTermsDefault",500),
+      createdAt:current.createdAt, updatedAt:now,
+    };
+    return this.store.transaction(() => {
+      const saved=this.store.upsertCommercialRules(rules);
+      this.audit(organizationId,actorId,"commercial_rules.updated","organization",organizationId,{
+        minMarginPct:saved.minMarginPct,maxAutonomousDiscountPct:saved.maxAutonomousDiscountPct,
+        defaultDepositPct:saved.defaultDepositPct,requireOwnerApprovalAboveAmount:saved.requireOwnerApprovalAboveAmount,
+      });
+      return saved;
+    });
+  }
+
+  previewTieredProposals(organizationId: string, actorId: string, catalogItemId: string): TieredProposalOption[] {
+    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
+    const item=this.store.getCatalogItem(organizationId,requiredText(catalogItemId,"catalogItemId",100));
+    if (!item) throw new AgencyError("NOT_FOUND","Catalog item not found");
+    return buildTieredProposals(item,this.getCommercialRules(organizationId,actorId));
+  }
+
+  createQuote(organizationId: string, actorId: string, input: CreateQuoteInput): {
+    quote: Quote; negotiation: NegotiationEvaluation;
+  } {
+    this.requireMember(organizationId,actorId);
+    const org=this.store.getOrganization(organizationId)!;
+    const leadId=requiredText(input.leadId,"leadId",100);
+    if (!this.store.getLead(organizationId,leadId)) throw new AgencyError("NOT_FOUND","Lead not found");
+    const tier=input.tier ?? "standard";
+    if (!QUOTE_TIERS.includes(tier)) throw new AgencyError("VALIDATION_ERROR","Unsupported quote tier");
+    const rules=this.getCommercialRules(organizationId,actorId);
+    const totals=calculateQuoteTotals(input.lines,input.discountPct ?? 0,input.uncertaintyPct ?? 15);
+    const negotiation=evaluateNegotiation(totals,totals.discountPct,rules);
+    const validUntil=input.validUntil == null ? this.now() + 30 * 24 * 3600_000 : positiveTimestamp(input.validUntil,"validUntil");
+    const now=this.now();
+    return this.store.transaction(() => {
+      const version=this.store.nextQuoteVersion(organizationId,leadId);
+      const quote: Quote={
+        id:this.id(), organizationId, leadId, version,
+        title:requiredText(input.title,"title",240),
+        tier, currency:org.currency, lines:input.lines,
+        exclusions:stringList(input.exclusions,"exclusions"),
+        paymentTerms:optionalText(input.paymentTerms,"paymentTerms",500) || rules.paymentTermsDefault,
+        deliveryDays:totals.totalDays,
+        discountPct:totals.discountPct, subtotal:totals.subtotal, discountAmount:totals.discountAmount,
+        netTotal:totals.netTotal, estimatedCost:totals.estimatedCost, grossMargin:totals.grossMargin,
+        marginPct:totals.marginPct, rangeLow:totals.rangeLow, rangeHigh:totals.rangeHigh,
+        status:"draft", approvalId:"", validUntil, createdAt:now, updatedAt:now,
+      };
+      this.store.insertQuote(quote);
+      this.audit(organizationId,actorId,"quote.created","quote",quote.id,{
+        leadId:quote.leadId,version:quote.version,netTotal:quote.netTotal,
+        marginPct:quote.marginPct,requiresOwnerApproval:negotiation.requiresOwnerApproval,
+      });
+      return { quote, negotiation };
+    });
+  }
+
+  listQuotes(organizationId: string, actorId: string, leadId?: string): Quote[] {
+    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
+    return this.store.listQuotes(organizationId,leadId ? requiredText(leadId,"leadId",100) : undefined);
+  }
+
+  getQuote(organizationId: string, actorId: string, quoteId: string): Quote {
+    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
+    const quote=this.store.getQuote(organizationId,requiredText(quoteId,"quoteId",100));
+    if (!quote) throw new AgencyError("NOT_FOUND","Quote not found");
+    return quote;
+  }
+
+  evaluateQuoteNegotiation(organizationId: string, actorId: string, quoteId: string, requestedDiscountPct: number): NegotiationEvaluation {
+    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
+    const quote=this.getQuote(organizationId,actorId,quoteId);
+    const rules=this.getCommercialRules(organizationId,actorId);
+    const totals=calculateQuoteTotals(quote.lines,quote.discountPct);
+    return evaluateNegotiation(totals,requestedDiscountPct,rules);
+  }
+
+  requestQuoteApproval(organizationId: string, actorId: string, quoteId: string, reason: string): {
+    quote: Quote; approval: Approval;
+  } {
+    this.requireMember(organizationId,actorId);
+    const quote=this.store.getQuote(organizationId,requiredText(quoteId,"quoteId",100));
+    if (!quote) throw new AgencyError("NOT_FOUND","Quote not found");
+    if (quote.status!=="draft" && quote.status!=="pending_approval") {
+      throw new AgencyError("CONFLICT",`Quote cannot request approval from status ${quote.status}`);
+    }
+    const approval=this.requestApproval(organizationId,actorId,{
+      action:"send_quote", resourceType:"quote", resourceId:quote.id,
+      reason:requiredText(reason,"reason",1000),
+      payload:quoteApprovalPayload(quote),
+    });
+    const updated=this.store.transaction(() => {
+      const saved=this.store.updateQuoteStatus(organizationId,quote.id,"pending_approval",approval.id,this.now())!;
+      this.audit(organizationId,actorId,"quote.approval_requested","quote",quote.id,{approvalId:approval.id});
+      return saved;
+    });
+    return { quote:updated, approval };
+  }
+
+  sendQuote(organizationId: string, actorId: string, quoteId: string): Quote {
+    this.requireMember(organizationId,actorId);
+    const quote=this.store.getQuote(organizationId,requiredText(quoteId,"quoteId",100));
+    if (!quote) throw new AgencyError("NOT_FOUND","Quote not found");
+    if (quote.status!=="pending_approval" && quote.status!=="approved" && quote.status!=="draft") {
+      throw new AgencyError("CONFLICT",`Quote cannot be sent from status ${quote.status}`);
+    }
+    if (!quote.approvalId) throw new AgencyError("FORBIDDEN","Owner approval is required before sending a quote");
+    const approval=this.store.getApproval(organizationId,quote.approvalId);
+    const expectedHash=stablePayloadHash(quoteApprovalPayload(quote)).hash;
+    if (!approval || approval.action!=="send_quote" || approval.resourceType!=="quote" || approval.resourceId!==quote.id
+      || approval.status!=="approved" || approval.payloadHash!==expectedHash || (approval.expiresAt && approval.expiresAt<=this.now())) {
+      throw new AgencyError("APPROVAL_EXPIRED","A current approved send_quote approval matching the exact quote is required");
+    }
+    return this.store.transaction(() => {
+      const updated=this.store.updateQuoteStatus(organizationId,quote.id,"sent",quote.approvalId,this.now())!;
+      this.audit(organizationId,actorId,"quote.sent","quote",quote.id,{version:quote.version,netTotal:quote.netTotal});
+      return updated;
+    });
+  }
+
+  recordQuoteDecision(organizationId: string, actorId: string, quoteId: string, decision: "accepted" | "rejected" | "expired"): Quote {
+    this.requireMember(organizationId,actorId);
+    const quote=this.store.getQuote(organizationId,requiredText(quoteId,"quoteId",100));
+    if (!quote) throw new AgencyError("NOT_FOUND","Quote not found");
+    if (quote.status!=="sent" && quote.status!=="approved") {
+      throw new AgencyError("CONFLICT",`Quote must be sent before recording decision ${decision}`);
+    }
+    if (decision!=="accepted" && decision!=="rejected" && decision!=="expired") {
+      throw new AgencyError("VALIDATION_ERROR","Invalid quote decision");
+    }
+    return this.store.transaction(() => {
+      const updated=this.store.updateQuoteStatus(organizationId,quote.id,decision,quote.approvalId,this.now())!;
+      this.audit(organizationId,actorId,`quote.${decision}`,"quote",quote.id,{version:quote.version,netTotal:quote.netTotal});
+      return updated;
+    });
+  }
+
+  createContractFromQuote(organizationId: string, actorId: string, input: CreateContractInput): Contract {
+    this.requireMember(organizationId,actorId);
+    const quote=this.store.getQuote(organizationId,requiredText(input.quoteId,"quoteId",100));
+    if (!quote) throw new AgencyError("NOT_FOUND","Quote not found");
+    if (quote.status!=="accepted") {
+      throw new AgencyError("CONFLICT","A contract can only be created from an accepted quote");
+    }
+    const rules=this.getCommercialRules(organizationId,actorId);
+    const depositAmount=input.depositAmount == null
+      ? Math.round((quote.netTotal * (rules.defaultDepositPct / 100) + Number.EPSILON) * 100) / 100
+      : nonNegativeNumber(input.depositAmount,"depositAmount");
+    if (depositAmount > quote.netTotal) throw new AgencyError("VALIDATION_ERROR","depositAmount cannot exceed contract totalAmount");
+    const deliverables=input.deliverables == null
+      ? quote.lines.map(l=>l.label)
+      : stringList(input.deliverables,"deliverables");
+    const now=this.now();
+    const contract: Contract={
+      id:this.id(), organizationId, leadId:quote.leadId, quoteId:quote.id,
+      title:optionalText(input.title,"title",240) || `Contrat — ${quote.title}`,
+      scopeSummary:optionalText(input.scopeSummary,"scopeSummary",4000) || quote.lines.map(l=>l.label).join(", "),
+      deliverables, paymentTerms:optionalText(input.paymentTerms,"paymentTerms",500) || quote.paymentTerms,
+      totalAmount:quote.netTotal, depositAmount, depositStatus:"unpaid", depositReference:"",
+      currency:quote.currency, status:"draft", approvalId:"", signedAt:0, createdAt:now, updatedAt:now,
+    };
+    return this.store.transaction(() => {
+      this.store.insertContract(contract);
+      this.audit(organizationId,actorId,"contract.draft_created","contract",contract.id,{
+        quoteId:contract.quoteId,leadId:contract.leadId,totalAmount:contract.totalAmount,depositAmount:contract.depositAmount,
+      });
+      return contract;
+    });
+  }
+
+  listContracts(organizationId: string, actorId: string, leadId?: string): Contract[] {
+    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
+    return this.store.listContracts(organizationId,leadId ? requiredText(leadId,"leadId",100) : undefined);
+  }
+
+  getContract(organizationId: string, actorId: string, contractId: string): Contract {
+    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
+    const contract=this.store.getContract(organizationId,requiredText(contractId,"contractId",100));
+    if (!contract) throw new AgencyError("NOT_FOUND","Contract not found");
+    return contract;
+  }
+
+  requestContractApproval(organizationId: string, actorId: string, contractId: string, reason: string): {
+    contract: Contract; approval: Approval;
+  } {
+    this.requireMember(organizationId,actorId);
+    const contract=this.store.getContract(organizationId,requiredText(contractId,"contractId",100));
+    if (!contract) throw new AgencyError("NOT_FOUND","Contract not found");
+    if (contract.status!=="draft" && contract.status!=="pending_approval") {
+      throw new AgencyError("CONFLICT",`Contract cannot request signature approval from status ${contract.status}`);
+    }
+    const approval=this.requestApproval(organizationId,actorId,{
+      action:"sign_contract", resourceType:"contract", resourceId:contract.id,
+      reason:requiredText(reason,"reason",1000),
+      payload:contractApprovalPayload(contract),
+    });
+    const updated=this.store.transaction(() => {
+      const saved=this.store.updateContractStatus(organizationId,contract.id,"pending_approval",approval.id,0,this.now())!;
+      this.audit(organizationId,actorId,"contract.approval_requested","contract",contract.id,{approvalId:approval.id});
+      return saved;
+    });
+    return { contract:updated, approval };
+  }
+
+  markContractSigned(organizationId: string, actorId: string, contractId: string): Contract {
+    this.requireMember(organizationId,actorId,["owner"]);
+    const contract=this.store.getContract(organizationId,requiredText(contractId,"contractId",100));
+    if (!contract) throw new AgencyError("NOT_FOUND","Contract not found");
+    if (contract.status==="signed") throw new AgencyError("CONFLICT","Contract is already signed");
+    if (contract.status==="cancelled") throw new AgencyError("CONFLICT","Cancelled contract cannot be signed");
+    if (!contract.approvalId) throw new AgencyError("FORBIDDEN","Owner sign_contract approval is required before signing");
+    const approval=this.store.getApproval(organizationId,contract.approvalId);
+    const expectedHash=stablePayloadHash(contractApprovalPayload(contract)).hash;
+    if (!approval || approval.action!=="sign_contract" || approval.resourceType!=="contract" || approval.resourceId!==contract.id
+      || approval.status!=="approved" || approval.payloadHash!==expectedHash || (approval.expiresAt && approval.expiresAt<=this.now())) {
+      throw new AgencyError("APPROVAL_EXPIRED","A current approved sign_contract approval matching the exact contract is required");
+    }
+    const now=this.now();
+    return this.store.transaction(() => {
+      const signed=this.store.updateContractStatus(organizationId,contract.id,"signed",contract.approvalId,now,now)!;
+      this.audit(organizationId,actorId,"contract.signed","contract",contract.id,{
+        quoteId:contract.quoteId,leadId:contract.leadId,totalAmount:contract.totalAmount,signedAt:now,
+      });
+      return signed;
+    });
+  }
+
+  recordContractDeposit(organizationId: string, actorId: string, contractId: string, status: DepositStatus, reference: string): Contract {
+    this.requireMember(organizationId,actorId,["owner"]);
+    const contract=this.store.getContract(organizationId,requiredText(contractId,"contractId",100));
+    if (!contract) throw new AgencyError("NOT_FOUND","Contract not found");
+    if (contract.status!=="signed") throw new AgencyError("CONFLICT","Contract must be signed before recording deposit payment");
+    if (status!=="paid" && status!=="unpaid") throw new AgencyError("VALIDATION_ERROR","Invalid deposit status");
+    const cleanRef=status==="paid" ? requiredText(reference,"reference",200) : optionalText(reference,"reference",200);
+    return this.store.transaction(() => {
+      const updated=this.store.updateContractDeposit(organizationId,contract.id,status,cleanRef,this.now())!;
+      this.audit(organizationId,actorId,"contract.deposit_updated","contract",contract.id,{
+        depositStatus:updated.depositStatus,depositReference:updated.depositReference,depositAmount:updated.depositAmount,
+      });
+      return updated;
+    });
   }
 }

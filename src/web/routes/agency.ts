@@ -4,7 +4,11 @@
  */
 import { AgencyError } from "../../agency/errors.js";
 import type { AgencyService } from "../../agency/service.js";
-import type { AddEvidenceInput, CompanySearchFilters, ContactSearchFilters, LeadSearchFilters, LeadStage, UpdateQualificationProfileInput } from "../../agency/types.js";
+import type {
+  AddEvidenceInput, CommercialChannel, CompanySearchFilters, ContactSearchFilters, ContractStatus,
+  DepositStatus, LeadSearchFilters, LeadStage, MessageDirection, QuoteLineItem, QuoteTier,
+  ServiceCatalogItem, SolutionType, UpdateQualificationProfileInput, UpsertNeedsQualificationInput,
+} from "../../agency/types.js";
 import { HttpError, readJson, send, webEvent, type Route, type WebContext } from "../http.js";
 import { CompanyResearchImportError, findActiveCompanyResearchJob, listCompanyResearchJobs, loadCompanyResearchSources } from "../../agency/company-research-import.js";
 
@@ -383,6 +387,144 @@ export function agencyRoutes(ctx: WebContext): Route {
           const leadId=decodeSegment(seg[3],"lead id");
           const body=await readObject(req);
           return send(res,200,{lead:service.transitionLead(organizationId,actor,leadId,body.stage as LeadStage)});
+        }
+        if (seg.length===5 && seg[4]==="needs") {
+          const leadId=decodeSegment(seg[3],"lead id");
+          if (method==="GET") return send(res,200,{needs:service.getNeedsQualification(organizationId,actor,leadId) ?? null});
+          if (method==="PUT") {
+            const body=await readObject(req);
+            return send(res,200,{needs:service.upsertNeedsQualification(organizationId,actor,leadId,body as unknown as UpsertNeedsQualificationInput)});
+          }
+          throw new HttpError(405,"Method not allowed");
+        }
+      }
+
+      if (seg[2]==="conversations") {
+        if (seg.length===3 && method==="GET") {
+          return send(res,200,{items:service.listConversations(organizationId,actor,url.searchParams.get("leadId") ?? undefined,queryInteger(url,"limit",100))});
+        }
+        if (seg.length===3 && method==="POST") {
+          const body=await readObject(req);
+          return send(res,201,{conversation:service.createConversation(organizationId,actor,{
+            leadId:body.leadId as string, contactId:body.contactId as string|undefined,
+            channel:body.channel as CommercialChannel, subject:body.subject as string,
+            nextFollowUpAt:body.nextFollowUpAt as number|undefined,
+          })});
+        }
+        if (seg.length===5 && seg[4]==="messages") {
+          const convId=decodeSegment(seg[3],"conversation id");
+          if (method==="GET") return send(res,200,{items:service.listConversationMessages(organizationId,actor,convId,queryInteger(url,"limit",200))});
+          if (method==="POST") {
+            const body=await readObject(req);
+            return send(res,201,service.addConversationMessage(organizationId,actor,convId,{
+              direction:body.direction as MessageDirection, body:body.body as string,
+              signal:body.signal as any, nextFollowUpAt:body.nextFollowUpAt as number|undefined,
+            }));
+          }
+        }
+        if (seg.length===5 && seg[4]==="handoff" && method==="POST") {
+          const convId=decodeSegment(seg[3],"conversation id");
+          const body=await readObject(req);
+          return send(res,200,{conversation:service.handoffConversation(organizationId,actor,convId,body.reason as string)});
+        }
+      }
+
+      if (seg[2]==="catalog") {
+        if (seg.length===3 && method==="GET") {
+          return send(res,200,{items:service.listCatalogItems(organizationId,actor,url.searchParams.get("active")==="1")});
+        }
+        if (seg.length===3 && method==="POST") {
+          const body=await readObject(req);
+          return send(res,201,{item:service.createCatalogItem(organizationId,actor,{
+            code:body.code as string, name:body.name as string, category:body.category as SolutionType,
+            description:body.description as string, defaultScope:body.defaultScope as string|undefined,
+            exclusions:body.exclusions as string[]|undefined,
+            estimatedDays:Number(body.estimatedDays), priceMin:Number(body.priceMin),
+            priceBase:Number(body.priceBase), priceMax:Number(body.priceMax),
+            estimatedCost:Number(body.estimatedCost),
+            paymentTerms:body.paymentTerms as string|undefined,
+            maintenanceTerms:body.maintenanceTerms as string|undefined,
+            active:body.active as boolean|undefined,
+          })});
+        }
+        if (seg.length===4 && method==="PATCH") {
+          const itemId=decodeSegment(seg[3],"catalog item id");
+          const body=await readObject(req);
+          return send(res,200,{item:service.updateCatalogItem(organizationId,actor,itemId,body as Partial<ServiceCatalogItem>)});
+        }
+      }
+
+      if (seg[2]==="commercial-rules" && seg.length===3) {
+        if (method==="GET") return send(res,200,{rules:service.getCommercialRules(organizationId,actor)});
+        if (method==="PUT") {
+          const body=await readObject(req);
+          return send(res,200,{rules:service.updateCommercialRules(organizationId,actor,body)});
+        }
+        throw new HttpError(405,"Method not allowed");
+      }
+
+      if (seg[2]==="quotes") {
+        if (seg.length===3 && method==="GET") {
+          return send(res,200,{items:service.listQuotes(organizationId,actor,url.searchParams.get("leadId") ?? undefined)});
+        }
+        if (seg.length===3 && method==="POST") {
+          const body=await readObject(req);
+          return send(res,201,service.createQuote(organizationId,actor,{
+            leadId:body.leadId as string, title:body.title as string, tier:body.tier as QuoteTier|undefined,
+            lines:body.lines as QuoteLineItem[], exclusions:body.exclusions as string[]|undefined,
+            paymentTerms:body.paymentTerms as string|undefined,
+            discountPct:body.discountPct == null ? 0 : Number(body.discountPct),
+            uncertaintyPct:body.uncertaintyPct == null ? 15 : Number(body.uncertaintyPct),
+            validUntil:body.validUntil as number|undefined,
+          }));
+        }
+        if (seg.length===4 && seg[3]==="tiered-preview" && method==="POST") {
+          const body=await readObject(req);
+          return send(res,200,{tiers:service.previewTieredProposals(organizationId,actor,body.catalogItemId as string)});
+        }
+        if (seg.length===5) {
+          const quoteId=decodeSegment(seg[3],"quote id");
+          const body=await readObject(req);
+          if (seg[4]==="negotiate" && method==="POST") {
+            return send(res,200,{evaluation:service.evaluateQuoteNegotiation(organizationId,actor,quoteId,Number(body.requestedDiscountPct))});
+          }
+          if (seg[4]==="request-approval" && method==="POST") {
+            return send(res,201,service.requestQuoteApproval(organizationId,actor,quoteId,body.reason as string));
+          }
+          if (seg[4]==="send" && method==="POST") {
+            return send(res,200,{quote:service.sendQuote(organizationId,actor,quoteId)});
+          }
+          if (seg[4]==="decision" && method==="POST") {
+            return send(res,200,{quote:service.recordQuoteDecision(organizationId,actor,quoteId,body.decision as "accepted"|"rejected"|"expired")});
+          }
+        }
+      }
+
+      if (seg[2]==="contracts") {
+        if (seg.length===3 && method==="GET") {
+          return send(res,200,{items:service.listContracts(organizationId,actor,url.searchParams.get("leadId") ?? undefined)});
+        }
+        if (seg.length===3 && method==="POST") {
+          const body=await readObject(req);
+          return send(res,201,{contract:service.createContractFromQuote(organizationId,actor,{
+            quoteId:body.quoteId as string, title:body.title as string|undefined,
+            scopeSummary:body.scopeSummary as string|undefined, deliverables:body.deliverables as string[]|undefined,
+            paymentTerms:body.paymentTerms as string|undefined,
+            depositAmount:body.depositAmount == null ? undefined : Number(body.depositAmount),
+          })});
+        }
+        if (seg.length===5) {
+          const contractId=decodeSegment(seg[3],"contract id");
+          const body=await readObject(req);
+          if (seg[4]==="request-approval" && method==="POST") {
+            return send(res,201,service.requestContractApproval(organizationId,actor,contractId,body.reason as string));
+          }
+          if (seg[4]==="sign" && method==="POST") {
+            return send(res,200,{contract:service.markContractSigned(organizationId,actor,contractId)});
+          }
+          if (seg[4]==="deposit" && method==="POST") {
+            return send(res,200,{contract:service.recordContractDeposit(organizationId,actor,contractId,body.status as DepositStatus,body.reference as string ?? "")});
+          }
         }
       }
 

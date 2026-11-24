@@ -8,3 +8,4 @@ export * from "./qualification.js";
 export * from "./company-research-import.js";
 export * from "./whatsapp-cloud.js";
 export * from "./whatsapp-secrets.js";
+export * from "./commercial.js";

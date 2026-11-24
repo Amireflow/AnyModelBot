@@ -141,6 +141,17 @@
 .agency-consent-history>div{display:grid;gap:var(--space-1);padding-top:var(--space-2);border-top:1px solid var(--line)}
 .agency-consent-history strong{font-size:var(--fs-xs);font-weight:var(--fw-medium)}
 .agency-consent-history small{font-size:var(--fs-xs);color:var(--muted);overflow-wrap:anywhere}
+.agency-commercial-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-4);align-items:start}
+.agency-commercial-section{display:grid;gap:var(--space-3);padding:var(--card-pad);border-radius:var(--r-card);background:var(--well);min-width:0}
+.agency-commercial-list{display:grid;gap:var(--space-2)}
+.agency-commercial-card{display:grid;gap:var(--space-2);padding:var(--space-3);border-radius:var(--r-item);background:var(--card);min-width:0}
+.agency-commercial-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2)}
+.agency-commercial-head strong{font-size:var(--fs-sm);overflow-wrap:anywhere}
+.agency-commercial-card p,.agency-commercial-card small{margin:0;color:var(--muted);font-size:var(--fs-xs);overflow-wrap:anywhere}
+.agency-commercial-actions{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
+.agency-msg-list{display:grid;gap:var(--space-1);max-height:220px;overflow:auto}
+.agency-msg-row{display:grid;gap:var(--space-0-5);padding:var(--space-2);border-radius:var(--r-item-sm);background:var(--well);font-size:var(--fs-xs)}
+@media(max-width:760px){.agency-commercial-grid{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:760px){.agency-whatsapp-workflow-grid{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:620px){.agency-consent-form{grid-template-columns:minmax(0,1fr)}.agency-contact-manage .agency-contact-row{align-items:flex-start;flex-wrap:wrap}.agency-whatsapp-item-head{align-items:flex-start;flex-direction:column}}
 }
