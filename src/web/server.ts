@@ -40,6 +40,7 @@ import { mySkillsRoutes } from "./routes/my-skills.js";
 import { FilePreviews } from "./file-previews.js";
 import { AgencyStore } from "../agency/store.js";
 import { AgencyService } from "../agency/service.js";
+import { WhatsAppCloudApiClient } from "../agency/whatsapp-cloud.js";
 import { agencyRoutes } from "./routes/agency.js";
 
 const log = logger("web");
@@ -89,7 +90,13 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
   const cfg = app.config;
   const host = opts.host ?? cfg.ui.host;
   const agencyStore = new AgencyStore(path.join(cfg.dataDir,"agency.db"));
-  const agency = new AgencyService(agencyStore);
+  const whatsappCloud = new WhatsAppCloudApiClient({
+    accessToken:process.env.AGENCY_WHATSAPP_ACCESS_TOKEN,
+    phoneNumberId:process.env.AGENCY_WHATSAPP_PHONE_NUMBER_ID,
+    businessAccountId:process.env.AGENCY_WHATSAPP_BUSINESS_ACCOUNT_ID,
+    apiVersion:process.env.AGENCY_WHATSAPP_GRAPH_VERSION ?? "v27.0",
+  });
+  const agency = new AgencyService(agencyStore,{whatsapp:whatsappCloud});
   const uiDir = path.join(findAppRoot(), "ui");
   const vendor = vendorFiles();
   const filePreviews = new FilePreviews();
