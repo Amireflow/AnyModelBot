@@ -52,8 +52,8 @@ const FLOWAUTO_POLICY = [
 
 export function buildFlowAutoBrief(instruction: string): string {
   const request = instruction.trim();
-  if (Buffer.byteLength(request, "utf8") > 800) {
-    throw new Error("FlowAuto instruction must not exceed 800 UTF-8 bytes.");
+  if (Buffer.byteLength(request, "utf8") > 500) {
+    throw new Error("FlowAuto instruction must not exceed 500 UTF-8 bytes.");
   }
   const brief = `OWNER REQUEST:\n${request}\n\n${FLOWAUTO_POLICY}`;
   // TaskService clips assistant briefs at 1,500 characters. Fail closed rather than silently
@@ -558,7 +558,7 @@ export class LocalExecutionNode {
     const kind = value.kind;
     const title = typeof value.title === "string" ? clip(value.title, 60) : "";
     const instruction = typeof value.instruction === "string" ? value.instruction.trim() : "";
-    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/.test(remoteId) || kind !== "flowauto" || !title || !instruction || Buffer.byteLength(instruction, "utf8") > 800) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/.test(remoteId) || kind !== "flowauto" || !title || !instruction || Buffer.byteLength(instruction, "utf8") > 500) {
       this.send({ type: "task.rejected", task_id: remoteId || undefined, code: "INVALID_TASK" });
       return;
     }

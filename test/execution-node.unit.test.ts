@@ -49,14 +49,14 @@ describe("LocalExecutionNode", () => {
 
 
   it("includes the FlowAuto safety policy without truncating a maximum-size request", () => {
-    const instruction = "x".repeat(800);
+    const instruction = "x".repeat(500);
     const brief = buildFlowAutoBrief(instruction);
     expect(brief).toContain(`OWNER REQUEST:\n${instruction}`);
     expect(brief).toContain("approved Computer Use");
     expect(brief).toContain("task_report(needs_you)");
     expect(brief).toContain("save only in this bot's workspace");
     expect(brief.length).toBeLessThanOrEqual(1_500);
-    expect(() => buildFlowAutoBrief("x".repeat(801))).toThrow(/800 UTF-8 bytes/);
+    expect(() => buildFlowAutoBrief("x".repeat(501))).toThrow(/500 UTF-8 bytes/);
   });
 
 
