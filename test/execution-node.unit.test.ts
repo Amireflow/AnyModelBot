@@ -147,6 +147,7 @@ describe("LocalExecutionNode", () => {
       fs.writeFileSync(path.join(taskFolder, "final.mp4"), Buffer.alloc(1_024));
       fs.writeFileSync(path.join(root, "preview.png"), Buffer.from("png"));
       fs.writeFileSync(path.join(outside, "private.txt"), "must not leave workspace");
+      fs.writeFileSync(path.join(outside, "leak.mp4"), Buffer.alloc(256));
       fs.symlinkSync(path.join(outside, "private.txt"), path.join(taskFolder, "private.txt"));
 
       const artifacts = collectRemoteArtifacts(root, taskFolder, [
@@ -159,6 +160,10 @@ describe("LocalExecutionNode", () => {
         { path: "preview.png", size: 3, kind: "image" },
       ]);
       expect(artifacts.every((item) => !path.isAbsolute(item.path))).toBe(true);
+
+      const linkedFolder = path.join(root, "tasks", "linked");
+      fs.symlinkSync(outside, linkedFolder, "dir");
+      expect(collectRemoteArtifacts(root, linkedFolder, ["leak.mp4"])).toEqual([]);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
       fs.rmSync(outside, { recursive: true, force: true });

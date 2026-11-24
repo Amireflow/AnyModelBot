@@ -115,7 +115,20 @@ export function collectRemoteArtifacts(workspace: string, folder: string | undef
   let root: string;
   try { root = fs.realpathSync(workspace); } catch { return []; }
   const candidates = requested.filter((item): item is string => typeof item === "string").slice(0, 8);
-  const verified = deliverables(root, candidates, folder ? path.resolve(root, folder) : undefined);
+  // Never let a replaced task-folder symlink expand the allow-list outside the bot workspace.
+  let safeFolder: string | undefined;
+  if (folder) {
+    try {
+      const realFolder = fs.realpathSync(folder);
+      const relative = path.relative(root, realFolder);
+      if (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(".." + path.sep)) {
+        safeFolder = realFolder;
+      }
+    } catch {
+      // A missing task folder contributes no extra allowed root.
+    }
+  }
+  const verified = deliverables(root, candidates, safeFolder);
   const result: RemoteTaskArtifact[] = [];
   for (const file of verified) {
     try {
