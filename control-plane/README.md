@@ -10,7 +10,7 @@ Minimal self-hosted Control Plane for the outbound workstation node in `src/exec
 - Provides a small administrator dashboard to submit tasks, inspect node/task state, review Computer Use approvals, pause, resume, cancel or revoke.
 - Uses separate bearer secrets for the workstation node and the administrator.
 
-The Control Plane does not see Chrome cookies, browser profiles, model credentials or local files. It receives only pending Computer Use approval metadata; decisions are revalidated by the local ApprovalCenter before application.
+The Control Plane never accesses Chrome cookies, browser profiles, model credentials or local file contents. It receives pending Computer Use approval metadata and, when a task reports output files, a bounded manifest of verified workspace-relative paths, file types and sizes. Approval decisions are revalidated by the local ApprovalCenter before application.
 
 ## Deploy
 
@@ -59,14 +59,16 @@ The Control Plane may send:
 - `task.approval.decision`: an allow/deny decision for a pending Computer Use input.
 - `task.question.answer`: a text answer to a pending FlowAuto `task_report(needs_you)` question.
 
-The node reports accepted/rejected tasks, task states, Computer Use approval requests and non-blocking FlowAuto questions. The Control Plane persists remote answers while the workstation is offline and replays them after reconnect. The local ApprovalCenter remains authoritative: it verifies that the question or approval is still pending before applying the response. A stale or rejected response is acknowledged and can be retried. Task messages are idempotent by remote task id; approval and question updates are idempotent by their local approval id.
+The node reports accepted/rejected tasks, task states, Computer Use approval requests, non-blocking FlowAuto questions and output-file metadata. A `task.update` may contain `artifacts: [{ path, size, kind }]`; paths are relative to the bot workspace, and the local node includes only existing, non-empty regular files within that workspace (maximum 8 files, 50 MiB each). Symlinks that escape the workspace are excluded. The Control Plane validates the manifest again before storing it. It exposes the manifest in `GET /api/v1/tasks` and displays it in the dashboard; this metadata is not a file transfer or download URL.
+
+The Control Plane persists remote answers while the workstation is offline and replays them after reconnect. The local ApprovalCenter remains authoritative: it verifies that the question or approval is still pending before applying the response. A stale or rejected response is acknowledged and can be retried. Task messages are idempotent by remote task id; approval and question updates are idempotent by their local approval id.
 
 ## Admin API
 
 All endpoints except `GET /healthz` and static dashboard assets require `Authorization: Bearer <admin-token>`.
 
 - `GET /api/v1/nodes`
-- `GET /api/v1/tasks?limit=50`
+- `GET /api/v1/tasks?limit=50` (includes `node_connected`, `node_state` and `node_last_seen_at`; a task's last status is retained while its workstation is offline)
 - `POST /api/v1/tasks` JSON: `{ "node_id": "...", "kind": "flowauto", "title": "...", "instruction": "..." }`
 - `POST /api/v1/tasks/:id/cancel`
 - `POST /api/v1/approvals/:id/answer` JSON: `{ "answer": "..." }` (FlowAuto `task_report` questions only)
@@ -93,8 +95,8 @@ npm install
 npm test
 ```
 
-The integration tests start the real HTTP/WebSocket server on loopback with a temporary SQLite database. The root command is also part of the main GitHub Actions CI workflow.
+The integration tests start the real HTTP/WebSocket server on loopback with a temporary SQLite database. They cover task dispatch, approval/question replay, terminal-state protection, artifact-manifest validation and workstation disconnect/reconnect visibility. The root command is also part of the main GitHub Actions CI workflow.
 
 ## Current limitation
 
-The Control Plane does not stream a live desktop video feed. Remote task-question and Computer Use approval transport are protocol-tested, but a real Chrome/Google Flow generation, download and playback-verification run is still required before treating the workflow as production-ready. Live view must be designed separately and must not bypass the per-action local approval mechanism.
+The Control Plane does not stream a live desktop video feed and does not transfer artifact contents. Remote task-question, artifact-metadata and Computer Use approval transport have integration coverage, but the complete local runtime has not yet been validated in a real Chrome/Google Flow generation, save and playback-verification run. Live view and remote artifact transfer must be designed separately and must not bypass the per-action local approval mechanism.
