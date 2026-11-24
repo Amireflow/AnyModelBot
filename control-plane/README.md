@@ -56,8 +56,10 @@ The Control Plane may send:
 - `node.ping`, `node.pause`, `node.resume`, `node.revoke`
 - `task.submit`: `{ id, kind: "flowauto", title, instruction }`
 - `task.cancel`: `{ task_id }`
+- `task.approval.decision`: an allow/deny decision for a pending Computer Use input.
+- `task.question.answer`: a text answer to a pending FlowAuto `task_report(needs_you)` question.
 
-The server persists queued tasks and retries delivery until the workstation accepts them. It sends an application-level ping every 15 seconds and drops a node that has not checked in within 45 seconds. The node reports accepted/rejected tasks and changed task states. Task messages are idempotent by remote task id.
+The node reports accepted/rejected tasks, task states, Computer Use approval requests and non-blocking FlowAuto questions. The Control Plane persists remote answers while the workstation is offline and replays them after reconnect. The local ApprovalCenter remains authoritative: it verifies that the question or approval is still pending before applying the response. A stale or rejected response is acknowledged and can be retried. Task messages are idempotent by remote task id; approval and question updates are idempotent by their local approval id.
 
 ## Admin API
 

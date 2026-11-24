@@ -100,21 +100,56 @@
   }
   function renderApprovals(items) {
     const root=$("approvals");root.replaceChildren();$("approval-count").textContent=`${items.length} demande(s)`;
-    if(!items.length){root.className="task-list empty";root.textContent="Aucune action en attente d'approbation.";return;}
+    if(!items.length){root.className="task-list empty";root.textContent="Aucune action en attente.";return;}
     root.className="task-list";
     for(const a of items){
+      const isQuestion=a.kind==="question"||a.tool==="task_report";
       const card=document.createElement("article");card.className="task-card approval-card";
       const top=document.createElement("div");top.className="card-top";
       const title=document.createElement("strong");title.textContent=a.task_title||"Tâche FlowAuto";
-      const status=document.createElement("span");status.className="status warn";status.textContent=a.decision_requested?"Décision transmise":"En attente";top.append(title,status);
-      const tool=document.createElement("p");tool.className="approval-tool";tool.textContent=a.tool;
-      const detail=document.createElement("p");detail.className="muted";detail.textContent=a.detail||a.reason||"Action Computer Use";
+      const status=document.createElement("span");status.className="status warn";status.textContent=a.decision_requested?(isQuestion?"Réponse transmise":"Décision transmise"):"En attente";top.append(title,status);
+      const detail=document.createElement("p");detail.className=isQuestion?"question-detail":"approval-tool";detail.textContent=a.detail||(isQuestion?"Question de la tâche":"Action Computer Use");
+      card.append(top,detail);
       const actions=document.createElement("div");actions.className="actions";
-      if(!a.decision_requested)for(const [label,verb,style] of [["Approuver","approve","primary small"],["Refuser","deny","danger small"]])
-        actions.append(button(label,async()=>{try{await api(`/api/v1/approvals/${encodeURIComponent(a.id)}/${verb}`,{method:"POST"});await refresh();}catch(e){setMessage("auth-message",e.message,true);}},style));
-      card.append(top,tool,detail,actions);root.append(card);
+      if(isQuestion){
+        let questionItems=[];
+        try{const parsed=JSON.parse(a.payload||"[]");if(Array.isArray(parsed))questionItems=parsed;}catch{}
+        const schema=questionItems[0]&&typeof questionItems[0]==="object"?questionItems[0]:{};
+        const answer=document.createElement("textarea");answer.className="approval-answer";answer.rows=3;answer.maxLength=2000;answer.placeholder="Saisis ta réponse ou sélectionne un choix…";
+        if(Array.isArray(schema.options)&&schema.options.length){
+          const choices=document.createElement("div");choices.className="actions";
+          for(const option of schema.options){
+            if(typeof option?.label!=="string"||!option.label.trim())continue;
+            choices.append(button(option.label,()=>{answer.value=schema.multiSelect?[answer.value.trim(),option.label].filter(Boolean).join(", "):option.label;},"secondary small"));
+          }
+          card.append(choices);
+        }
+        if(schema.default){
+          const fallback=document.createElement("p");fallback.className="muted";fallback.textContent=`Sans réponse, la tâche continuera avec le choix par défaut : ${schema.default}`;card.append(fallback);
+        }
+        if(!a.decision_requested){
+          const send=button("Envoyer la réponse",async()=>{
+            const value=answer.value.trim();if(!value)return setMessage("auth-message","Saisis une réponse avant de l’envoyer.",true);
+            send.disabled=true;
+            try{await api(`/api/v1/approvals/${encodeURIComponent(a.id)}/answer`,{method:"POST",body:JSON.stringify({answer:value})});await refresh();}
+            catch(e){send.disabled=false;setMessage("auth-message",e.message,true);}
+          },"primary small");
+          card.append(answer);actions.append(send);
+        }else{
+          const waiting=document.createElement("p");waiting.className="muted";waiting.textContent="Réponse en attente de confirmation du poste local.";card.append(waiting);
+        }
+        if(a.result){const result=document.createElement("p");result.className="hint error";result.textContent=a.result;card.append(result);}
+      }else{
+        const tool=document.createElement("p");tool.className="approval-tool";tool.textContent=a.tool;
+        const reason=document.createElement("p");reason.className="muted";reason.textContent=a.reason||"Action Computer Use";
+        card.append(tool,reason);
+        if(!a.decision_requested)for(const [label,verb,style] of [["Approuver","approve","primary small"],["Refuser","deny","danger small"]])
+          actions.append(button(label,async()=>{try{await api(`/api/v1/approvals/${encodeURIComponent(a.id)}/${verb}`,{method:"POST"});await refresh();}catch(e){setMessage("auth-message",e.message,true);}},style));
+      }
+      card.append(actions);root.append(card);
     }
   }
+
   function renderTasks(tasks) {
     const root = $("tasks");
     root.replaceChildren();

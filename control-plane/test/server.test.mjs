@@ -200,7 +200,72 @@ test("terminal tasks cancel pending approvals and late resolutions cannot reopen
   assert.equal(final.approvals.some(a=>a.id==="approval-after-terminal"),false);
 });
 
-test("tasks remain queued while the workstation is offline", async (t) => {
+
+test("FlowAuto task questions can be answered remotely and resolved locally", async (t) => {
+  const s=await setup();let node;
+  t.after(async()=>{try{node?.ws.close();}catch{}await s.close();});
+  node=await connectNode(s.wsUrl,"question-node");
+  await waitFor(async()=>{const d=await(await request(s.base,"/api/v1/nodes")).json();return d.nodes[0]?.connected?d:undefined;});
+  const created=await request(s.base,"/api/v1/tasks",ADMIN,{method:"POST",body:JSON.stringify({
+    node_id:"question-node",kind:"flowauto",title:"Publish decision",instruction:"Prepare and verify the video.",
+  })});
+  assert.equal(created.status,201);const taskId=(await created.json()).task.id;
+  await waitFor(()=>node.messages.find(m=>m.type==="task.submit"&&m.task?.id===taskId));
+  node.ws.send(JSON.stringify({type:"task.question",task_id:taskId,question:{
+    id:"invalid-question",tool:"task_report",detail:"Invalid payload",payload:"not-json",created_at:Date.now(),
+  }}));
+  await new Promise(resolve=>setTimeout(resolve,30));
+  let all=await(await request(s.base,"/api/v1/approvals?status=all")).json();
+  assert.equal(all.approvals.length,0);
+  const questionId="flowauto-question-1";
+  const payload=JSON.stringify([{id:"answer",question:"May I publish the verified video?",options:[{label:"Publish"},{label:"Keep local"}]}]);
+  node.ws.send(JSON.stringify({type:"task.question",task_id:taskId,question:{
+    id:questionId,tool:"task_report",detail:"May I publish the verified video?",payload,created_at:Date.now(),
+  }}));
+  const pending=await waitFor(async()=>{const d=await(await request(s.base,"/api/v1/approvals?status=pending")).json();return d.approvals.find(a=>a.id===questionId);});
+  assert.equal(pending.kind,"question");assert.equal(pending.payload,payload);
+  const wrongAction=await request(s.base,`/api/v1/approvals/${questionId}/approve`,ADMIN,{method:"POST"});
+  assert.equal(wrongAction.status,409);
+  const firstAnswer=await request(s.base,`/api/v1/approvals/${questionId}/answer`,ADMIN,{method:"POST",body:JSON.stringify({answer:"Publish"})});
+  assert.equal(firstAnswer.status,202);
+  await waitFor(()=>node.messages.find(m=>m.type==="task.question.answer"&&m.question_id===questionId&&m.answer==="Publish"));
+  node.ws.send(JSON.stringify({type:"task.question.answer_ack",task_id:taskId,question_id:questionId,applied:false,reason:"The local question was already closed."}));
+  await waitFor(async()=>{const d=await(await request(s.base,"/api/v1/approvals?status=pending")).json();const q=d.approvals.find(a=>a.id===questionId);return q&&!q.decision_requested&&q.result;});
+  const retry=await request(s.base,`/api/v1/approvals/${questionId}/answer`,ADMIN,{method:"POST",body:JSON.stringify({answer:"Keep local"})});
+  assert.equal(retry.status,202);
+  await waitFor(()=>node.messages.find(m=>m.type==="task.question.answer"&&m.question_id===questionId&&m.answer==="Keep local"));
+  const result=JSON.stringify({answers:[{id:"answer",selected:["Keep local"]}]});
+  node.ws.send(JSON.stringify({type:"task.approval.resolved",task_id:taskId,approval_id:questionId,status:"answered",decided_by:"control-plane",decided_at:Date.now(),result}));
+  const resolved=await waitFor(async()=>{const d=await(await request(s.base,"/api/v1/approvals?status=all")).json();return d.approvals.find(a=>a.id===questionId&&a.status==="answered");});
+  assert.equal(resolved.result,result);assert.equal(resolved.decision_requested,false);
+});
+
+test("answers to FlowAuto questions are replayed after the workstation reconnects", async (t) => {
+  const s=await setup();let first,second;
+  t.after(async()=>{try{first?.ws.close();second?.ws.close();}catch{}await s.close();});
+  first=await connectNode(s.wsUrl,"question-reconnect-node");
+  await waitFor(async()=>{const d=await(await request(s.base,"/api/v1/nodes")).json();return d.nodes[0]?.connected?d:undefined;});
+  const created=await request(s.base,"/api/v1/tasks",ADMIN,{method:"POST",body:JSON.stringify({
+    node_id:"question-reconnect-node",kind:"flowauto",title:"Reconnect question",instruction:"Prepare a publishable video.",
+  })});
+  assert.equal(created.status,201);const taskId=(await created.json()).task.id;
+  await waitFor(()=>first.messages.find(m=>m.type==="task.submit"&&m.task?.id===taskId));
+  const questionId="flowauto-question-reconnect-1";
+  first.ws.send(JSON.stringify({type:"task.question",task_id:taskId,question:{
+    id:questionId,tool:"task_report",detail:"Publish now?",payload:JSON.stringify([{id:"answer",question:"Publish now?",options:[]}]),created_at:Date.now(),
+  }}));
+  await waitFor(async()=>{const d=await(await request(s.base,"/api/v1/approvals?status=pending")).json();return d.approvals.find(a=>a.id===questionId);});
+  first.ws.close();
+  await waitFor(async()=>{const d=await(await request(s.base,"/api/v1/nodes")).json();return d.nodes[0]?.connected===false?d:undefined;});
+  const answer=await request(s.base,`/api/v1/approvals/${questionId}/answer`,ADMIN,{method:"POST",body:JSON.stringify({answer:"No, keep the file local."})});
+  assert.equal(answer.status,202);assert.equal((await answer.json()).delivery,"queued_until_reconnect");
+  second=await connectNode(s.wsUrl,"question-reconnect-node");
+  const replay=await waitFor(()=>second.messages.find(m=>m.type==="task.question.answer"&&m.question_id===questionId));
+  assert.equal(replay.answer,"No, keep the file local.");
+  assert.equal(second.messages.some(m=>m.type==="task.approval.decision"&&m.approval_id===questionId),false);
+});
+
+
   const s = await setup();
   t.after(s.close);
   const hello = await request(s.base, "/api/v1/nodes", ADMIN);

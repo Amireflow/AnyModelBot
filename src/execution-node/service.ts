@@ -21,7 +21,7 @@ type RemoteTaskStatus = "receiving" | "queued" | "running" | "needs_you" | "succ
 export interface LocalExecutionNodeOptions {
   store: Store;
   tasks: TaskService;
-  approvals?: Pick<ApprovalCenter, "listen" | "decide">;
+  approvals?: Pick<ApprovalCenter, "listen" | "decide" | "answerText" | "sweep">;
   workspace(botId: string): string;
   env?: NodeJS.ProcessEnv;
   onNotice?(level: "info" | "warn", message: string): void;
@@ -252,57 +252,66 @@ export class LocalExecutionNode {
     this.unlistenApprovals = undefined;
   }
 
-  private reportPendingApprovals(): void {
+  private reportTaskRequests(): void {
     this.o.approvals?.sweep();
-    for (const row of this.o.store.listApprovals({ status: "pending", limit: 500 })) {
-      if (row.kind !== "approval" || !row.taskId || !row.tool.startsWith("mcp__computer-use__")) continue;
+    for (const row of this.o.store.listApprovals({ limit: 500 })) {
+      if (!row.taskId) continue;
       const remote = this.db.prepare(
         "SELECT remote_task_id FROM execution_node_tasks WHERE local_task_id = ?",
       ).get(row.taskId) as { remote_task_id: string } | undefined;
       if (!remote) continue;
-      this.send({
-        type: "task.approval",
-        task_id: remote.remote_task_id,
-        approval: {
-          id: row.id,
-          tool: row.tool,
-          detail: clip(row.detail, 700),
-          reason: clip(row.reason, 300),
-          created_at: row.createdAt,
-          expires_at: row.expiresAt,
-        },
-      });
+      const isComputerApproval = row.kind === "approval" && row.tool.startsWith("mcp__computer-use__");
+      const isTaskQuestion = row.kind === "question" && row.tool === "task_report" && !row.blocking;
+      if (!isComputerApproval && !isTaskQuestion) continue;
+      if (isComputerApproval) {
+        this.send({
+          type: "task.approval",
+          task_id: remote.remote_task_id,
+          approval: {
+            id: row.id, tool: row.tool, detail: clip(row.detail, 700), reason: clip(row.reason, 300),
+            created_at: row.createdAt, expires_at: row.expiresAt,
+          },
+        });
+      } else {
+        this.send({
+          type: "task.question",
+          task_id: remote.remote_task_id,
+          question: { id: row.id, tool: row.tool, detail: clip(row.detail, 700), payload: row.payload, created_at: row.createdAt },
+        });
+      }
+      if (row.status !== "pending") {
+        this.send({
+          type: "task.approval.resolved", task_id: remote.remote_task_id, approval_id: row.id,
+          status: row.status, decided_by: row.decidedBy, decided_at: row.decidedAt, result: row.result,
+        });
+      }
     }
   }
 
   private approvalEvent(event: ApprovalEvent): void {
     const row = event.row;
-    if (row.kind !== "approval" || !row.taskId || !row.tool.startsWith("mcp__computer-use__")) return;
+    const isComputerApproval = row.kind === "approval" && row.tool.startsWith("mcp__computer-use__");
+    const isTaskQuestion = row.kind === "question" && row.tool === "task_report" && !row.blocking;
+    if ((!isComputerApproval && !isTaskQuestion) || !row.taskId) return;
     const remote = this.db.prepare(
       "SELECT remote_task_id FROM execution_node_tasks WHERE local_task_id = ?",
     ).get(row.taskId) as { remote_task_id: string } | undefined;
     if (!remote) return;
-    if (event.type === "created") {
+    if (event.type === "created" && isComputerApproval) {
       this.send({
-        type: "task.approval",
-        task_id: remote.remote_task_id,
-        approval: {
-          id: row.id,
-          tool: row.tool,
-          detail: clip(row.detail, 700),
-          reason: clip(row.reason, 300),
-          created_at: row.createdAt,
-          expires_at: row.expiresAt,
-        },
+        type: "task.approval", task_id: remote.remote_task_id,
+        approval: { id: row.id, tool: row.tool, detail: clip(row.detail, 700), reason: clip(row.reason, 300),
+          created_at: row.createdAt, expires_at: row.expiresAt },
+      });
+    } else if (event.type === "created" && isTaskQuestion) {
+      this.send({
+        type: "task.question", task_id: remote.remote_task_id,
+        question: { id: row.id, tool: row.tool, detail: clip(row.detail, 700), payload: row.payload, created_at: row.createdAt },
       });
     } else {
       this.send({
-        type: "task.approval.resolved",
-        task_id: remote.remote_task_id,
-        approval_id: row.id,
-        status: row.status,
-        decided_by: row.decidedBy,
-        decided_at: row.decidedAt,
+        type: "task.approval.resolved", task_id: remote.remote_task_id, approval_id: row.id,
+        status: row.status, decided_by: row.decidedBy, decided_at: row.decidedAt, result: row.result,
       });
     }
   }
@@ -326,6 +335,24 @@ export class LocalExecutionNode {
       approval_id: approvalId,
       applied,
       reason: applied ? "" : "Approval is no longer pending or is not part of this FlowAuto task.",
+    });
+  }
+
+
+  private applyRemoteQuestionAnswer(message: Record<string, unknown>): void {
+    const taskId = typeof message.task_id === "string" ? message.task_id : "";
+    const questionId = typeof message.question_id === "string" ? message.question_id : "";
+    const answer = typeof message.answer === "string" ? message.answer.trim() : "";
+    const remote = taskId ? this.getRemoteTask(taskId) : undefined;
+    const question = questionId ? this.o.store.getApproval(questionId) : undefined;
+    const valid = !!remote && !!question &&
+      Buffer.byteLength(answer, "utf8") > 0 && Buffer.byteLength(answer, "utf8") <= 2_000 &&
+      question.status === "pending" && question.kind === "question" && question.tool === "task_report" &&
+      question.blocking === false && question.botId === this.botId && question.taskId === remote.local_task_id;
+    const applied = valid && !!this.o.approvals?.answerText(questionId, answer, "control-plane");
+    this.send({
+      type: "task.question.answer_ack", task_id: taskId, question_id: questionId, applied,
+      reason: applied ? "" : "Question is no longer pending or is not part of this FlowAuto task.",
     });
   }
 
@@ -395,7 +422,7 @@ export class LocalExecutionNode {
       }, HEARTBEAT_MS);
       this.heartbeat.unref?.();
       void this.reportTaskStates(true);
-      this.reportPendingApprovals();
+      this.reportTaskRequests();
       this.notice("info", "Execution Node connected to the Control Plane.");
     });
     socket.on("message", (data: RawData) => {
@@ -494,6 +521,9 @@ export class LocalExecutionNode {
         return;
       case "task.approval.decision":
         this.applyRemoteApproval(message);
+        return;
+      case "task.question.answer":
+        this.applyRemoteQuestionAnswer(message);
         return;
       default:
         this.send({ type: "node.error", code: "UNKNOWN_MESSAGE" });

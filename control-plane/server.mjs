@@ -111,7 +111,8 @@ function initDatabase(db) {
       tool TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL DEFAULT 0,
       decision TEXT NOT NULL DEFAULT '', decision_requested INTEGER NOT NULL DEFAULT 0,
-      decided_at INTEGER NOT NULL DEFAULT 0, decided_by TEXT NOT NULL DEFAULT '', result TEXT NOT NULL DEFAULT ''
+      decided_at INTEGER NOT NULL DEFAULT 0, decided_by TEXT NOT NULL DEFAULT '', result TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'approval', payload TEXT NOT NULL DEFAULT ''
     );
     CREATE INDEX IF NOT EXISTS approvals_task_status ON approvals(task_id,status,created_at);
     CREATE TABLE IF NOT EXISTS events (
@@ -124,6 +125,9 @@ function initDatabase(db) {
     );
     CREATE INDEX IF NOT EXISTS events_created ON events(created_at);
   `);
+  const approvalColumns = new Set(db.prepare("PRAGMA table_info(approvals)").all().map((column) => column.name));
+  if (!approvalColumns.has("kind")) db.exec("ALTER TABLE approvals ADD COLUMN kind TEXT NOT NULL DEFAULT 'approval'");
+  if (!approvalColumns.has("payload")) db.exec("ALTER TABLE approvals ADD COLUMN payload TEXT NOT NULL DEFAULT ''");
 }
 
 function nodeView(row, connected) {
@@ -144,10 +148,22 @@ function nodeView(row, connected) {
   };
 }
 
+function validQuestionPayload(value) {
+  if (typeof value !== "string" || Buffer.byteLength(value, "utf8") > 4_000) return false;
+  let items;
+  try { items = JSON.parse(value); } catch { return false; }
+  if (!Array.isArray(items) || items.length < 1 || items.length > 4) return false;
+  return items.every((item) => item && typeof item === "object" && !Array.isArray(item) &&
+    typeof item.question === "string" && item.question.trim().length > 0 && item.question.length <= 600 &&
+    (!item.options || (Array.isArray(item.options) && item.options.length <= 8 &&
+      item.options.every((option) => option && typeof option.label === "string" && option.label.trim().length > 0 && option.label.length <= 160))) &&
+    (item.default === undefined || (typeof item.default === "string" && item.default.length <= 160)));
+}
+
 function approvalView(r) {
-  return {id:r.id,task_id:r.task_id,node_id:r.node_id,tool:r.tool,detail:r.detail,reason:r.reason,status:r.status,
-    created_at:Number(r.created_at),expires_at:Number(r.expires_at)||null,decision_requested:!!r.decision_requested,
-    decided_at:Number(r.decided_at)||null,decided_by:r.decided_by||null,result:r.result||""};
+  return {id:r.id,task_id:r.task_id,node_id:r.node_id,kind:r.kind||"approval",tool:r.tool,detail:r.detail,reason:r.reason,
+    payload:r.payload||"",status:r.status,created_at:Number(r.created_at),expires_at:Number(r.expires_at)||null,
+    decision_requested:!!r.decision_requested,decided_at:Number(r.decided_at)||null,decided_by:r.decided_by||null,result:r.result||""};
 }
 function taskView(row) {
   return {
@@ -372,19 +388,39 @@ export function createControlPlaneServer(options = {}) {
         expirePendingApprovals(now);
         return;
       }
+      case "task.question": {
+        const taskId=String(message.task_id??""), q=message.question;
+        if(!taskId||!q||typeof q!=="object"||typeof q.id!=="string"||!/^[A-Za-z0-9._:-]{1,100}$/.test(q.id)||
+          q.tool!=="task_report"||typeof q.detail!=="string"||!q.detail.trim()||q.detail.length>700||!validQuestionPayload(q.payload)||
+          !db.prepare("SELECT id FROM tasks WHERE id=? AND node_id=? AND status IN ('queued','accepted','running','needs_you')").get(taskId,nodeId)) return;
+        const createdAt=q.created_at===undefined?now:Number(q.created_at);
+        if(!Number.isSafeInteger(createdAt)||createdAt<=0)return;
+        const inserted=db.prepare("INSERT OR IGNORE INTO approvals(id,task_id,node_id,tool,detail,reason,status,created_at,expires_at,kind,payload) VALUES(?,?,?,'task_report',?,'','pending',?,0,'question',?)")
+          .run(q.id,taskId,nodeId,clip(q.detail,700),createdAt,q.payload);
+        if(Number(inserted.changes)>0)logEvent(nodeId,taskId,"task.question.created",{question_id:q.id});
+        return;
+      }
       case "task.approval.resolved": {
         const taskId=String(message.task_id??""), id=String(message.approval_id??""), status=String(message.status??"");
         if(!taskId||!id||!["allowed","rejected","expired","cancelled","answered"].includes(status))return;
         expirePendingApprovals(now);
-        const updated=db.prepare("UPDATE approvals SET status=?,decision_requested=0,decided_at=?,decided_by=? WHERE id=? AND task_id=? AND node_id=? AND status='pending'")
-          .run(status,Number(message.decided_at)||now,clip(message.decided_by,80),id,taskId,nodeId);
+        const result=typeof message.result==="string"?message.result:"";
+        const updated=db.prepare("UPDATE approvals SET status=?,decision_requested=0,decided_at=?,decided_by=?,result=? WHERE id=? AND task_id=? AND node_id=? AND status='pending' AND ((kind='question' AND ? IN ('answered','expired','cancelled')) OR (kind='approval' AND ? IN ('allowed','rejected','expired','cancelled')))")
+          .run(status,Number(message.decided_at)||now,clip(message.decided_by,80),clip(result,4_000),id,taskId,nodeId,status,status);
         if(Number(updated.changes)>0)logEvent(nodeId,taskId,"task.approval.resolved",{approval_id:id,status});
         return;
       }
       case "task.approval.decision_ack": {
         const id=String(message.approval_id??""); if(!id)return;
-        if(message.applied!==true) db.prepare("UPDATE approvals SET decision_requested=0,result=? WHERE id=? AND node_id=? AND status='pending'")
+        if(message.applied!==true) db.prepare("UPDATE approvals SET decision_requested=0,result=? WHERE id=? AND node_id=? AND status='pending' AND kind='approval'")
           .run(clip(message.reason||"Local workstation rejected the decision.",300),id,nodeId);
+        return;
+      }
+      case "task.question.answer_ack": {
+        const id=String(message.question_id??"");
+        if(!id)return;
+        if(message.applied!==true) db.prepare("UPDATE approvals SET decision_requested=0,result=? WHERE id=? AND node_id=? AND status='pending' AND kind='question'")
+          .run(clip(message.reason||"Local workstation rejected the answer.",300),id,nodeId);
         return;
       }
       case "task.cancelled": {
@@ -459,8 +495,14 @@ export function createControlPlaneServer(options = {}) {
 
     const queued = db.prepare("SELECT id FROM tasks WHERE node_id = ? AND cancel_requested = 1 AND status NOT IN ('cancelled','succeeded','failed','rejected','interrupted')").all(id);
     for (const task of queued) await send(socket, { type: "task.cancel", task_id: task.id });
-    const pending=db.prepare("SELECT id,task_id,decision FROM approvals WHERE node_id=? AND status='pending' AND decision_requested=1").all(id);
-    for(const a of pending) await send(socket,{type:"task.approval.decision",task_id:a.task_id,approval_id:a.id,allow:a.decision==="allow"});
+    const pending=db.prepare("SELECT id,task_id,decision,kind,tool FROM approvals WHERE node_id=? AND status='pending' AND decision_requested=1").all(id);
+    for(const a of pending) {
+      if(a.kind==="question"&&a.tool==="task_report") {
+        await send(socket,{type:"task.question.answer",task_id:a.task_id,question_id:a.id,answer:a.decision});
+      } else {
+        await send(socket,{type:"task.approval.decision",task_id:a.task_id,approval_id:a.id,allow:a.decision==="allow"});
+      }
+    }
   };
 
   const server = http.createServer(async (req, res) => {
@@ -517,13 +559,33 @@ export function createControlPlaneServer(options = {}) {
           expirePendingApprovals();
           const [,id,action]=dm,a=db.prepare("SELECT * FROM approvals WHERE id=?").get(id);
           if(!a)return json(res,404,{error:"Approval not found."});
+          if(a.kind==="question"||a.tool==="task_report")return json(res,409,{error:"This request needs a text answer, not approval."});
           const now=Date.now();
           const decision=action==="approve"?"allow":"deny";
-          const claimed=db.prepare("UPDATE approvals SET decision=?,decision_requested=1,decided_by='control-plane' WHERE id=? AND status='pending' AND decision_requested=0 AND (expires_at=0 OR expires_at>?)")
+          const claimed=db.prepare("UPDATE approvals SET decision=?,decision_requested=1,decided_by='control-plane' WHERE id=? AND status='pending' AND decision_requested=0 AND (expires_at=0 OR expires_at>?) AND kind='approval'")
             .run(decision,id,now);
           if(Number(claimed.changes)===0)return json(res,409,{error:"Approval is no longer actionable."});
           const delivered=await send(connections.get(a.node_id),{type:"task.approval.decision",task_id:a.task_id,approval_id:id,allow:decision==="allow"});
           logEvent(a.node_id,a.task_id,"task.approval.decision_requested",{approval_id:id,decision,delivered});
+          return json(res,202,{approval:approvalView(db.prepare("SELECT * FROM approvals WHERE id=?").get(id)),delivery:delivered?"sent":"queued_until_reconnect"});
+        }
+        const answerMatch=/^\/api\/v1\/approvals\/([A-Za-z0-9._:-]+)\/answer$/.exec(url.pathname);
+        if(answerMatch&&req.method==="POST"){
+          expirePendingApprovals();
+          const [,id]=answerMatch, a=db.prepare("SELECT * FROM approvals WHERE id=?").get(id);
+          if(!a)return json(res,404,{error:"Question not found."});
+          if(a.kind!=="question"||a.tool!=="task_report")return json(res,409,{error:"This request is not a FlowAuto question."});
+          const body=await readJson(req);
+          if(Object.keys(body).some((key)=>key!=="answer"))return json(res,400,{error:"Unsupported question answer fields."});
+          const answer=typeof body.answer==="string"?body.answer.trim():"";
+          if(!answer||Buffer.byteLength(answer,"utf8")>2_000)return json(res,400,{error:"An answer of 1 to 2,000 UTF-8 bytes is required."});
+          const task=db.prepare("SELECT status FROM tasks WHERE id=? AND node_id=?").get(a.task_id,a.node_id);
+          if(!task||TERMINAL.has(task.status))return json(res,409,{error:"The FlowAuto task is no longer active."});
+          const claimed=db.prepare("UPDATE approvals SET decision=?,decision_requested=1,decided_by='control-plane',result='' WHERE id=? AND status='pending' AND decision_requested=0 AND kind='question' AND tool='task_report'")
+            .run(answer,id);
+          if(Number(claimed.changes)===0)return json(res,409,{error:"Question is no longer awaiting an answer."});
+          const delivered=await send(connections.get(a.node_id),{type:"task.question.answer",task_id:a.task_id,question_id:id,answer});
+          logEvent(a.node_id,a.task_id,"task.question.answer_requested",{question_id:id,delivered});
           return json(res,202,{approval:approvalView(db.prepare("SELECT * FROM approvals WHERE id=?").get(id)),delivery:delivered?"sent":"queued_until_reconnect"});
         }
         const cancelMatch = /^\/api\/v1\/tasks\/([A-Za-z0-9._:-]+)\/cancel$/.exec(url.pathname);
