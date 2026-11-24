@@ -11,7 +11,7 @@ const RULES = [
   'Do not use shell, scripts, filesystem tools, browser debugging protocols, app connectors, web search, subagents, or any other tools. Those tools are unavailable by design.',
   'Every Computer Use input action is subject to the local owner approval gate. Never attempt to bypass or retry a denied action.',
   'Do not switch Chrome profiles or Google accounts, inspect credentials, change browser settings, install extensions, or open unrelated local files.',
-  'Do not publish, share, purchase credits, submit paid jobs, change account settings, or delete content. Stop and report needs_you before any such irreversible or externally visible action.',
+  'Do not publish, share, purchase credits, submit paid jobs, change account settings, or delete content unless the owner explicitly approves that exact action through task_report(needs_you). After approval, perform only the approved action; ask again if scope or cost changes.',
   'Save downloads only into the dedicated bot workspace using the browser save dialog. If Chrome downloads automatically outside that workspace or the destination cannot be confirmed, stop and ask the owner.',
   'Inspect generated images and play videos through the Flow UI before reporting success. State clearly what you actually verified and any limitation.',
   'Use task_report to report progress, ask the owner for a decision, or finish. Be precise about what was actually inspected and verified.',

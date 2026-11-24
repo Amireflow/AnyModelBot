@@ -50,6 +50,9 @@ describe("amb-execution-node-gate", () => {
     expect(task.guard?.({ name: "web_search" })).toMatch(/restricted to Computer Use/);
     expect(task.guard?.({ name: "spawn_agent" })).toMatch(/restricted to Computer Use/);
     expect(task.section).toHaveBeenCalledOnce();
+    const rules = (task.section.mock.calls[0]?.[0] as { text: () => string }).text();
+    expect(rules).toMatch(/explicitly approves that exact action through task_report\\(needs_you\\)/);
+    expect(rules).toContain("perform only the approved action");
   });
 
   it("applies the same tool boundary to nested subagents of a task", () => {

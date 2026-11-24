@@ -46,7 +46,7 @@ interface RemoteTaskRow {
 const FLOWAUTO_POLICY = [
   "Scope: FlowAuto/Google Flow only. Use the open Chrome profile; don't switch accounts, sign in, inspect credentials/session data, or change settings. Stop on login or permission prompts; ask owner.",
   "Browser: use approved Computer Use only; every click/key/input needs local approval. No scripts, shell, extension APIs, or network calls to bypass it.",
-  "Approval: before publishing, sharing, external upload, sending, spending credits, changing settings, or deleting, call task_report(needs_you) and wait for approval.",
+  "Approval: before publishing, sharing, uploading, sending, spending credits, changing settings, or deleting, request approval for that exact action via task_report(needs_you); then do only what was approved.",
   "Files/QA: save only in this bot's workspace; stop if Chrome cannot. Verify images and play final videos in UI; report verified results, limits, and relative paths."
 ].join("\n");
 
