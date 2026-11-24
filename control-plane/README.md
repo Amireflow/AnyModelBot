@@ -57,7 +57,7 @@ The Control Plane may send:
 - `task.submit`: `{ id, kind: "flowauto", title, instruction }`
 - `task.cancel`: `{ task_id }`
 
-The server persists queued tasks and retries delivery until the workstation accepts them. The node reports accepted/rejected tasks and changed task states. Task messages are idempotent by remote task id.
+The server persists queued tasks and retries delivery until the workstation accepts them. It sends an application-level ping every 15 seconds and drops a node that has not checked in within 45 seconds. The node reports accepted/rejected tasks and changed task states. Task messages are idempotent by remote task id.
 
 ## Admin API
 

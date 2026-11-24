@@ -178,6 +178,19 @@ export function createControlPlaneServer(options = {}) {
   const connections = new Map();
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_FRAME, perMessageDeflate: false });
   let closing = false;
+  const heartbeatTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [nodeId, socket] of connections) {
+      const row = db.prepare("SELECT last_seen_at FROM nodes WHERE id = ?").get(nodeId);
+      if (!row || now - Number(row.last_seen_at) > HEARTBEAT_STALE_MS) {
+        socket.terminate();
+        markNodeOffline(nodeId, socket);
+      } else {
+        void send(socket, { type: "node.ping", node_id: nodeId, at: now });
+      }
+    }
+  }, 15_000);
+  heartbeatTimer.unref?.();
 
   const logEvent = (nodeId, taskId, type, payload = {}) => {
     db.prepare("INSERT INTO events(node_id, task_id, event_type, payload, created_at) VALUES(?,?,?,?,?)")
@@ -539,10 +552,12 @@ export function createControlPlaneServer(options = {}) {
     },
     async close() {
       closing = true;
-      for (const socket of connections.values()) socket.close(1001, "control plane shutdown");
+      clearInterval(heartbeatTimer);
+      for (const socket of wss.clients) socket.terminate();
       connections.clear();
       await new Promise((resolve) => server.close(() => resolve()));
-      wss.close();
+      await new Promise((resolve) => wss.close(resolve));
+      db.prepare("UPDATE nodes SET connected = 0, updated_at = ?").run(Date.now());
       db.close();
     },
   };

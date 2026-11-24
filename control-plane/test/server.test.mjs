@@ -52,7 +52,7 @@ async function connectNode(wsUrl, nodeId = "node-test-1") {
 async function waitFor(fn, timeout = 1500) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
-    const value = fn();
+    const value = await fn();
     if (value) return value;
     await new Promise((resolve) => setTimeout(resolve, 15));
   }
@@ -72,7 +72,10 @@ test("authenticated node receives persisted FlowAuto tasks and reports status", 
   const s = await setup();
   t.after(async () => { try { node.ws.close(); } catch {} await s.close(); });
   const node = await connectNode(s.wsUrl);
-  const nodeData = await (await request(s.base, "/api/v1/nodes")).json();
+  const nodeData = await waitFor(async () => {
+    const data = await (await request(s.base, "/api/v1/nodes")).json();
+    return data.nodes.length === 1 ? data : undefined;
+  });
   assert.equal(nodeData.nodes.length, 1);
   assert.equal(nodeData.nodes[0].connected, true);
 
@@ -91,7 +94,7 @@ test("authenticated node receives persisted FlowAuto tasks and reports status", 
   await waitFor(async () => {
     const data = await (await request(s.base, "/api/v1/tasks")).json();
     return data.tasks.find((item) => item.id === taskId)?.status === "accepted";
-  }).catch(() => new Promise((resolve, reject) => setTimeout(reject, 100)));
+  });
   node.ws.send(JSON.stringify({ type: "task.update", task_id: taskId, local_task_id: "t_123", status: "running", summary: "Opening Google Flow." }));
   await waitFor(() => node.messages.length >= 1);
   const tasks = await (await request(s.base, "/api/v1/tasks")).json();
