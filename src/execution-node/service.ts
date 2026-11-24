@@ -252,6 +252,28 @@ export class LocalExecutionNode {
     this.unlistenApprovals = undefined;
   }
 
+  private reportPendingApprovals(): void {
+    for (const row of this.o.store.listApprovals({ status: "pending", limit: 500 })) {
+      if (row.kind !== "approval" || !row.taskId || !row.tool.startsWith("mcp__computer-use__")) continue;
+      const remote = this.db.prepare(
+        "SELECT remote_task_id FROM execution_node_tasks WHERE local_task_id = ?",
+      ).get(row.taskId) as { remote_task_id: string } | undefined;
+      if (!remote) continue;
+      this.send({
+        type: "task.approval",
+        task_id: remote.remote_task_id,
+        approval: {
+          id: row.id,
+          tool: row.tool,
+          detail: clip(row.detail, 700),
+          reason: clip(row.reason, 300),
+          created_at: row.createdAt,
+          expires_at: row.expiresAt,
+        },
+      });
+    }
+  }
+
   private approvalEvent(event: ApprovalEvent): void {
     const row = event.row;
     if (row.kind !== "approval" || !row.taskId || !row.tool.startsWith("mcp__computer-use__")) return;
@@ -372,6 +394,7 @@ export class LocalExecutionNode {
       }, HEARTBEAT_MS);
       this.heartbeat.unref?.();
       void this.reportTaskStates(true);
+      this.reportPendingApprovals();
       this.notice("info", "Execution Node connected to the Control Plane.");
     });
     socket.on("message", (data: RawData) => {
