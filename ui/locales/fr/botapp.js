@@ -1,0 +1,53 @@
+// botapp · fr : bots du catalogue (Découvrir, conteneur d'interface dédié, groupes de barre latérale)
+export default {
+  sidebar: { discover: "Découvrir", mine: "Mes bots", latest: "Nouveau", new: "Nouveau" },
+  discover: {
+    title: "Découvrir",
+    lead: "Trouvez des outils utiles et voyez comment connecter vos flux métier.",
+    featured: "À la une",
+    latest: "Nouveautés",
+    empty: "Aucun résultat",
+  },
+  app: {
+    sample: "Exemple",
+    placeholder: "Dites quelque chose et la vue se met à jour",
+    uiFailed: "La vue n'a pas pu s'ouvrir. Vous pouvez continuer dans la discussion.",
+    openUrlTitle: "Ouvrir cette page ?",
+    openUrlConfirm: "Ouvrir",
+    removed: "Ce bot a été retiré du catalogue. Vos données sont toujours là.",
+    removedSecurity: "Ce bot a été retiré pour des raisons de sécurité et ses compétences sont désactivées. Vos données sont toujours là.",
+  },
+  info: { what: "Ce qu'il fait", skills: "Compétences utilisées", perms: "Autorisations" },
+  perm: {
+    "workspace-write": "Lire et écrire dans son propre dossier",
+    network: "Utiliser Internet",
+    "channel-send": "Envoyer des messages sur les canaux de discussion de façon autonome",
+    "computer-use": "Contrôler votre ordinateur",
+    accounts: "Utiliser les comptes que vous avez connectés",
+  },
+  intro: {
+    hello: "Bonjour, je suis {name}.",
+    try: "Essayez l'une de ces suggestions",
+    note: "Ou dites simplement ce que vous voulez. Je ne commence à travailler qu'après votre premier message ; tout ici est un exemple d'ici là.",
+  },
+  tip: { kept: "{name} reste dans Mes bots. Il sera encore là demain." },
+  remove: {
+    title: "Retirer {name} ?",
+    body: "Il sera retiré de la barre latérale et ses discussions, tâches et règles seront supprimées. Vous pourrez l'ajouter à nouveau depuis Découvrir.",
+    confirm: "Retirer",
+    keep: "Conserver ses fichiers et son espace de travail pour reprendre après un nouvel ajout",
+    done: "{name} retiré. Vous pouvez l'ajouter à nouveau depuis Découvrir",
+  },
+  errors: {
+    catalog_not_found: "Ce bot est introuvable.",
+    catalog_removed: "Ce bot a été retiré du catalogue.",
+    catalog_download_failed: "Impossible de charger les fichiers de ce bot. Veuillez réessayer.",
+    catalog_failed: "Une erreur s'est produite. Veuillez réessayer.",
+    file_not_found: "Ce fichier est introuvable.",
+    inbox_too_large: "Ce fichier est trop volumineux.",
+    skill_conflict: "Une compétence de cette mise à jour entre en conflit avec une compétence importée. Supprimez ou renommez d'abord la compétence importée.",
+    reserved_skill: "Ce bot contient un nom de compétence invalide et ne peut pas être installé.",
+    dev_invalid: "Ce dossier n'est pas un paquet de bot valide.",
+    dev_loopback_only: "Les dossiers locaux ne peuvent être chargés que lors d'une exécution sur cette machine.",
+  },
+};

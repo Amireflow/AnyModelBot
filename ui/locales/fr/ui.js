@@ -1,0 +1,33 @@
+// ui · fr
+export default {
+  state: {
+    disabled: "Désactivé",
+    connecting: "Connexion",
+    connected: "Connecté",
+    error: "Erreur",
+    expired: "Expiré",
+    paused: "En pause",
+    login_required: "Non connecté",
+    running: "En cours",
+    starting: "Démarrage",
+    restarting: "Redémarrage",
+    failed: "Échec",
+    stopped: "Arrêté",
+    wait: "En attente de scan",
+    scaned: "Scanné",
+    need_verifycode: "Code requis",
+    confirmed: "Confirmé",
+    already_bound: "Lié",
+    cancelled: "Annulé",
+    idle: "Inactif",
+    fetching: "Récupération",
+    pending: "En attente",
+    allowed: "Approuvé",
+    rejected: "Refusé",
+    answered: "Répondu",
+    denied: "Refusé",
+  },
+  /** "⋯" à la fin d'une ligne (MoreButton) : info-bulle au survol et nom pour lecteur d'écran */
+  more: "Plus",
+  moreFor: "Plus d'actions pour {name}",
+};

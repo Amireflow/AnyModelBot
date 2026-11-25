@@ -17,7 +17,14 @@ export function userAvatarTone(key) {
  * sub（只在菜单顶部）：名称是昵称或用户名且有邮箱时是完整邮箱，否则「Modelflare 账号」；
  * logo：没有名称时头像用 Modelflare 标志。没登录或用自己的 API Key 时是「我的账号」「本机用户」。
  */
-export function accountIdentity(account) {
+export function accountIdentity(account, authUser = null) {
+  if (authUser && authUser.email) {
+    const email = String(authUser.email).trim();
+    const real = String(authUser.displayName || "").trim();
+    const name = real || email;
+    const nameIsEmail = !real || real === email;
+    return { signedIn: true, real: true, name, sub: email, email, nameIsEmail, avatar: "", logo: false, key: authUser.id || email };
+  }
   if (account?.state !== "signed_in") return { signedIn: false, real: false, name: t("firstUse.myAccount"), sub: t("sidebar.localUser"), email: "", avatar: "", logo: false, key: "" };
   const real = account.name?.trim() || "";
   const email = account.email?.trim() || "";

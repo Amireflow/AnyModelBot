@@ -3,6 +3,7 @@ import http from "node:http";
 import crypto from "node:crypto";
 import type { App } from "../app.js";
 import type { AgencyService } from "../agency/service.js";
+import type { SupabaseAuthService } from "../auth/supabase.js";
 import type { InboundEvent, OutboundOp, ReplySession } from "../core/types.js";
 import { ApiError } from "../account/client.js";
 import { OAuthError } from "../account/oauth.js";
@@ -170,6 +171,7 @@ export interface WhatsAppConfigController {
 export interface WebContext {
   app: App;
   agency: AgencyService;
+  auth?: SupabaseAuthService;
   whatsappConfig?: WhatsAppConfigController;
   /** 监听的地址（判断是不是回环） */
   host: string;

@@ -46,7 +46,7 @@ const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
  * - 账户行和菜单顶部用同一份名称和头像（components/user-avatar.js 的 accountIdentity）：昵称 → 自设用户名 → 完整邮箱 →「Modelflare 账号」；
  *   菜单副标题是邮箱（名称是昵称或用户名时）或「Modelflare 账号」。名称、副标题单行，末尾省略，悬停看全称。
  */
-export function AccountButton({ account, onSettings, update, onUpdateChanged }) {
+export function AccountButton({ account, authUser, onLogout, onSettings, update, onUpdateChanged }) {
   // 连接应用：侧栏和设置页的账户菜单都有这一项，直接改地址（main.js 的路由）；提醒点读共享的应用状态
   const appsAttention = useStore(appsStore).attention;
   const onApps = () => {
@@ -71,7 +71,7 @@ export function AccountButton({ account, onSettings, update, onUpdateChanged }) 
   useEffect(() => { if (!update?.busy) setBlockedHint(false); }, [update?.busy]);
   const signedIn = account?.state === "signed_in";
   useEffect(() => resumeAccountLogin(account), [account?.state]);
-  const id = accountIdentity(account);
+  const id = accountIdentity(account, authUser);
   const me = id.name;
   const profileLoading = signedIn && !(account.profileCached ?? !!(account.name || account.avatar)) && (account.profileState === "loading" || (!account.profileState && !account.profileReady && !account.error));
   const profileFailed = signedIn && (account.profileState === "error" || (!account.profileState && !!account.error));
@@ -120,7 +120,7 @@ export function AccountButton({ account, onSettings, update, onUpdateChanged }) 
   const showUpdate = update?.available || ["downloading", "installing", "ready"].includes(phase);
   const updateLabel = updateActionLabel(update);
   return html`<div class="account-stack" ref=${stackRef}>
-    ${!signedIn && account && account.state !== "unavailable" && html`<${AccountLogin} inline manual=${!!account.manualLogin} />`}
+    ${!signedIn && !authUser && account && account.state !== "unavailable" && html`<${AccountLogin} inline manual=${!!account.manualLogin} />`}
     <div class=${`account-row${open ? " on" : ""}`}>
       <div class=${`account${open ? " on" : ""}`}>
         <button type="button" class="account-identity" ref=${ref} title=${me} aria-label=${t("firstUse.accountMenu", { name: me })} aria-haspopup="menu" aria-expanded=${open} onClick=${() => setOpen((v) => !v)}>
@@ -153,6 +153,8 @@ export function AccountButton({ account, onSettings, update, onUpdateChanged }) 
           <${CommunityLinks} icons role="menuitem" onPick=${() => setOpen(false)} /></div>
         <button type="button" role="menuitem" disabled=${check === "checking" || updating || updateWorking || (ready && update.busy)} title=${ready && update.busy ? t("updates.busy") : ""} onClick=${checkUpdate}>
           <span class="menu-icon"><${Icon} name="refresh" size="md" /></span><span class="menu-label" role="status">${checkLabel}${ready && update.busy && html`<small class="update-disabled-reason">${t("updates.busy")}</small>`}</span>${update?.available && html`<span class="dot new"></span>`}</button>
+        ${authUser && onLogout && html`<hr /><button type="button" role="menuitem" class="danger" onClick=${() => { setOpen(false); onLogout(); }}>
+          <span class="menu-icon"><${Icon} name="logout" size="md" /></span><span class="menu-label">${t("auth.signOut")}</span></button>`}
       </div>
     <//>`}
   </div>`;
@@ -184,7 +186,7 @@ export function SideRail(props) {
   return html`<div class="side-rail anim-fade-in"><${SideActions} collapsed ...${props} /></div>`;
 }
 
-export function Sidebar({ bots, botsError, reloadBots, selectedId, view, previews, pending, working, needs = { n: 0, bots: {} }, username, account, update, onUpdateChanged, onNew, onTemplates, onSelect, onNeeds, onDeleted, onOpenSettings, onBotSettings, onGuide, groups = [], groupsLoaded = true, groupId, onNewGroup, onSelectGroup, onEditGroup, onDeletedGroup, catalog = [], catalogId, onDiscover, onOpenCatalog, onAgency, onOpenSearch, collapsed, onToggleSide }) {
+export function Sidebar({ bots, botsError, reloadBots, selectedId, view, previews, pending, working, needs = { n: 0, bots: {} }, username, account, authUser, onLogout, update, onUpdateChanged, onNew, onTemplates, onSelect, onNeeds, onDeleted, onOpenSettings, onBotSettings, onGuide, groups = [], groupsLoaded = true, groupId, onNewGroup, onSelectGroup, onEditGroup, onDeletedGroup, catalog = [], catalogId, onDiscover, onOpenCatalog, onAgency, onOpenSearch, collapsed, onToggleSide }) {
   const lang = useLang();
   const seen = useStore(catalogSeen);
   const removedNow = useStore(locallyRemoved);
@@ -499,7 +501,7 @@ export function Sidebar({ bots, botsError, reloadBots, selectedId, view, preview
       })}
     </nav>
     ${bots && bots.length > 0 && html`<${GuidePill} onGo=${onGuide} />`}
-    <div class="side-foot"><${AccountButton} username=${username} account=${account} update=${update} onUpdateChanged=${onUpdateChanged} onSettings=${() => onOpenSettings()} onModelflare=${() => onOpenSettings("modelflare")} /></div>
+    <div class="side-foot"><${AccountButton} username=${username} account=${account} authUser=${authUser} onLogout=${onLogout} update=${update} onUpdateChanged=${onUpdateChanged} onSettings=${() => onOpenSettings()} onModelflare=${() => onOpenSettings("modelflare")} /></div>
     ${ctx && html`<${Menu} anchor=${ctx.el || { left: ctx.x, right: ctx.x, top: ctx.y, bottom: ctx.y, width: 0 }} align=${ctx.el ? "right" : undefined}
       width=${200} label=${t("sidebar.actionsFor", { name: ctx.bot.name })} onClose=${() => setCtx(null)}
       items=${[

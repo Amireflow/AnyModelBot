@@ -27,8 +27,14 @@ export interface AppConfig {
     pwshHintDismissed: boolean;
     /** 新手引导（上手清单）的进度，见 src/guide.ts */
     guide: GuideState;
-    /** 界面语言：system 跟随系统，或 zh-CN / en / ja / ko / ru / es / pt / tr；托盘菜单和机器人发出的系统消息也用它（src/i18n） */
+    /** 界面语言：system 跟随系统，或 fr / zh-CN / en / ja / ko / ru / es / pt / tr；托盘菜单和机器人发出的系统消息也用它（src/i18n） */
     lang: LangPref;
+  };
+  /** Supabase Auth configuration (URL + publishable/anon key only; never store service_role/sb_secret here). */
+  auth: {
+    provider: "supabase";
+    supabaseUrl: string;
+    supabasePublishableKey: string;
   };
   /**
    * Modelflare 线路；密钥本身只存在内置 magpie 的隔离配置里。
@@ -96,7 +102,14 @@ export function loadConfig(overrides: { dataDir?: string; env?: NodeJS.ProcessEn
       autoDownloadUpdates: file.ui?.autoDownloadUpdates !== false,
       pwshHintDismissed: file.ui?.pwshHintDismissed === true,
       guide: normalizeGuide(file.ui?.guide),
-      lang: normalizeLangPref(file.ui?.lang),
+      lang: file.ui?.lang !== undefined ? normalizeLangPref(file.ui?.lang) : "fr",
+    },
+    auth: {
+      provider: "supabase",
+      supabaseUrl: String(env.SUPABASE_URL || env.AMB_SUPABASE_URL || file.auth?.supabaseUrl || "").trim().replace(/\/+$/, ""),
+      supabasePublishableKey: String(
+        env.SUPABASE_PUBLISHABLE_KEY || env.SUPABASE_ANON_KEY || env.AMB_SUPABASE_PUBLISHABLE_KEY || file.auth?.supabasePublishableKey || "",
+      ).trim(),
     },
     modelflare: {
       line: normalizeLine(file.modelflare?.line),

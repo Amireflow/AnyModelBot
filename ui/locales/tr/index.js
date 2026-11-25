@@ -44,7 +44,9 @@ import troubleshoot from "./troubleshoot.js";
 import ui from "./ui.js";
 import folder from "./folder.js";
 import agency from "./agency.js";
-export default { agency, folder, attach, routines, routineLibrary, aboutMe, collab, feedback, skills, mySkills, skillItems, templates, scheduled, welcome, apps, firstUse, updates, search,
+import auth from "./auth.js";
+
+export default { auth, agency, folder, attach, routines, routineLibrary, aboutMe, collab, feedback, skills, mySkills, skillItems, templates, scheduled, welcome, apps, firstUse, updates, search,
   official,
   access,
   account,

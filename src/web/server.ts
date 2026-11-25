@@ -43,6 +43,8 @@ import { AgencyService } from "../agency/service.js";
 import { WhatsAppCloudApiClient, type WhatsAppCloudApiConfig } from "../agency/whatsapp-cloud.js";
 import { normalizeWhatsAppSecretConfig, type WhatsAppSecretConfig } from "../agency/whatsapp-secrets.js";
 import { agencyRoutes } from "./routes/agency.js";
+import { SupabaseAuthService } from "../auth/supabase.js";
+import { authRoutes } from "./routes/auth.js";
 import { handleWhatsAppMetaWebhook, WHATSAPP_META_WEBHOOK_PATH } from "./routes/whatsapp-webhook.js";
 
 const log = logger("web");
@@ -246,6 +248,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
     },
   };
   const agency = new AgencyService(agencyStore,{whatsapp:whatsappSender});
+  const auth = new SupabaseAuthService({ dataDir: cfg.dataDir, config: cfg });
   const uiDir = path.join(findAppRoot(), "ui");
   const vendor = vendorFiles();
   const filePreviews = new FilePreviews();
@@ -418,6 +421,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
   const ctx: WebContext = {
     app,
     agency,
+    auth,
     whatsappConfig:whatsappConfigController,
     host,
     token,
@@ -435,7 +439,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
     publicGroup,
     groupMembers,
   };
-  const routes: Route[] = [agencyRoutes(ctx), systemRoutes(ctx), modelsRoutes(ctx), accountRoutes(ctx), feedbackRoutes(ctx), settingsRoutes(ctx), aboutMeRoutes(ctx), collabRoutes(ctx), computerRoutes(ctx), channelsRoutes(ctx), connectionsRoutes(ctx), appsRoutes(ctx), tasksRoutes(ctx), routinesRoutes(ctx), chatRoutes(ctx, filePreviews), attachmentsRoutes(ctx), foldersRoutes(ctx), botsRoutes(ctx, filePreviews), skillInstallsRoutes(ctx), mySkillsRoutes(ctx)];
+  const routes: Route[] = [authRoutes(ctx), agencyRoutes(ctx), systemRoutes(ctx), modelsRoutes(ctx), accountRoutes(ctx), feedbackRoutes(ctx), settingsRoutes(ctx), aboutMeRoutes(ctx), collabRoutes(ctx), computerRoutes(ctx), channelsRoutes(ctx), connectionsRoutes(ctx), appsRoutes(ctx), tasksRoutes(ctx), routinesRoutes(ctx), chatRoutes(ctx, filePreviews), attachmentsRoutes(ctx), foldersRoutes(ctx), botsRoutes(ctx, filePreviews), skillInstallsRoutes(ctx), mySkillsRoutes(ctx)];
 
   async function api(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
     const p = url.pathname.slice("/amb/api".length);

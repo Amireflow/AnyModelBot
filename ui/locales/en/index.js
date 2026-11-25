@@ -45,5 +45,6 @@ import attach from "./attach.js";
 import skillItems from "./skillItems.json" with { type: "json" };
 import folder from "./folder.js";
 import agency from "./agency.js";
+import auth from "./auth.js";
 
-export default { agency, folder, attach, routines, routineLibrary, aboutMe, collab, feedback, skills, mySkills, skillItems, templates, scheduled, welcome, apps, firstUse, updates, search, official, botapp, group, common, app, time, settings, account, pwsh, chat, info, markdown, notify, troubleshoot, onboarding, newBot, botSettings, sidebar, avatar, models, ui, guide, activity, perms, access, tasks, needs, rules };
+export default { auth, agency, folder, attach, routines, routineLibrary, aboutMe, collab, feedback, skills, mySkills, skillItems, templates, scheduled, welcome, apps, firstUse, updates, search, official, botapp, group, common, app, time, settings, account, pwsh, chat, info, markdown, notify, troubleshoot, onboarding, newBot, botSettings, sidebar, avatar, models, ui, guide, activity, perms, access, tasks, needs, rules };

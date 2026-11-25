@@ -16,6 +16,7 @@
 import { useEffect, useState } from "preact/hooks";
 import zhCN from "../locales/zh-CN/index.js";
 import en from "../locales/en/index.js";
+import fr from "../locales/fr/index.js";
 import manifest from "../locales/manifest.json" with { type: "json" };
 import ja from "../locales/ja/index.js";
 import ko from "../locales/ko/index.js";
@@ -28,7 +29,7 @@ export const TARGET_LANGS = manifest.locales.map((l) => l.code);
 export const LANGS = manifest.locales.filter((l) => l.ready).map((l) => l.code);
 /** 各语言用自己的文字写名字（语言菜单的惯例），不随界面语言翻译 */
 export const LANG_NAMES = Object.fromEntries(manifest.locales.map((l) => [l.code, l.name]));
-const DICTS = { "zh-CN": zhCN, en, ja, ko, ru, es, pt, tr };
+const DICTS = { "zh-CN": zhCN, en, fr, ja, ko, ru, es, pt, tr };
 const FALLBACK = "zh-CN";
 const KEY = "amb-lang";
 
@@ -37,7 +38,7 @@ export function normalizeLang(s) {
   const v = String(s || "").trim().toLowerCase();
   const base = v.split(/[-_.@]/)[0];
   if (base === "zh") return "zh-CN";
-  if (["en", "ja", "ko", "ru", "es", "pt", "tr"].includes(base)) return base;
+  if (["en", "fr", "ja", "ko", "ru", "es", "pt", "tr"].includes(base)) return base;
   return null;
 }
 export const normalizePref = (s) => (s === "system" ? "system" : normalizeLang(s) || "system");
@@ -49,14 +50,15 @@ export function systemLang() {
     const n = normalizeLang(l);
     if (n && LANGS.includes(n)) return n;
   }
-  return "en";
+  return "fr";
 }
 
 function readPref() {
   try {
-    return normalizePref(localStorage.getItem(KEY));
+    const raw = localStorage.getItem(KEY);
+    return raw ? normalizePref(raw) : "fr";
   } catch {
-    return "system";
+    return "fr";
   }
 }
 

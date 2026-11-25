@@ -133,7 +133,7 @@ function ModelStep({ models, initial, onDone, auto }) {
 }
 
 /** 语言切换：在引导列顶上靠右。新用户连接前就能换语言（按钮上是当前界面语言的名字，菜单里勾的是偏好） */
-function LangSwitch() {
+export function LangSwitch() {
   const lang = useLang();
   const pref = getLangPref();
   const [open, setOpen] = useState(false);

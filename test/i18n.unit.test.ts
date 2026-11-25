@@ -64,9 +64,13 @@ describe("界面 t()", () => {
     expect(ui.normalizeLang("zh-Hans-CN")).toBe("zh-CN");
     expect(ui.normalizeLang("zh-TW")).toBe("zh-CN");
     expect(ui.normalizeLang("en-GB")).toBe("en");
+    expect(ui.normalizeLang("fr-FR")).toBe("fr");
     expect(ui.normalizeLang("ja-JP")).toBe("ja");
-    expect(ui.normalizePref("fr")).toBe("system");
+    expect(ui.normalizePref("xx")).toBe("system");
+    expect(ui.normalizePref("fr")).toBe("fr");
     expect(ui.normalizePref("en")).toBe("en");
+    ui.setLangPref("fr");
+    expect(ui.t("common.cancel")).toBe("Annuler");
   });
 
   it("订阅：切换语言时通知，同一语言不重复通知", () => {
@@ -175,7 +179,7 @@ describe("界面接口：语言偏好", () => {
   });
 
   it("语言偏好写进 config.json；没带请求头时报错用应用语言", async () => {
-    expect((await api("/settings")).json.lang).toBe("system");
+    expect((await api("/settings")).json.lang).toBe("fr");
     const r = await api("/settings", { method: "PUT", body: { lang: "en" } });
     expect(r.status).toBe(200);
     expect(r.json.lang).toBe("en");
@@ -183,7 +187,7 @@ describe("界面接口：语言偏好", () => {
     expect(loadConfig({ dataDir: app.config.dataDir, env: {} }).ui.lang).toBe("en");
     expect(appLang()).toBe("en");
     expect((await api("/bots/nope")).json.error).toBe("Bot not found");
-    expect((await api("/settings", { method: "PUT", body: { lang: "fr" }, lang: "en" })).json.error).toBe("Unsupported language");
+    expect((await api("/settings", { method: "PUT", body: { lang: "xx" }, lang: "en" })).json.error).toBe("Unsupported language");
     expect((await api("/settings", { method: "PUT", body: { lang: "system" } })).json.lang).toBe("system");
   });
 });

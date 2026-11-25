@@ -1,0 +1,23 @@
+// needs · fr
+export default {
+  title: "A besoin de vous",
+  head: "{bot} : {what}",
+  headSpaced: "{bot} : {what}",
+  collapse: "Réduire",
+  viewTask: "Voir la tâche",
+  viewRule: "Voir la règle",
+  openChat: "Ouvrir la conversation",
+  reply: "Répondre…",
+  approveOnce: "Approuver une fois",
+  deny: "Refuser",
+  stop: "Arrêter",
+  relogin: "Scanner de nouveau",
+  answerPlaceholder: "Votre réponse",
+  send: "Envoyer",
+  none: "Rien ne requiert votre attention pour le moment",
+  dismiss: "Ne plus afficher",
+  continue: "Continuer",
+  raiseBudget: "Modifier le budget",
+  toAct: "Passer en mode action",
+  keepObserving: "Continuer l'observation",
+};

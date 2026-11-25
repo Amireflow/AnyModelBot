@@ -199,7 +199,7 @@ function NoticesSheet({ onClose }) {
 }
 
 /** 设置时的侧栏：返回应用 | 查找设置 | 分页 | 账户 */
-export function SettingsSide({ tab, query, onQuery, onTab, onBack, username, account, update, onUpdateChanged, nav }) {
+export function SettingsSide({ tab, query, onQuery, onTab, onBack, username, account, authUser, onLogout, update, onUpdateChanged, nav }) {
   const searching = !!query.trim();
   return html`<aside class="side" aria-label=${t("settings.side.label")}>
     <div class="side-top start">
@@ -219,7 +219,7 @@ export function SettingsSide({ tab, query, onQuery, onTab, onBack, username, acc
           onClick=${() => { onQuery(""); onTab(id); }}><${Icon} name=${icon} size="md" /><span>${tabLabel(label)}</span></button>`;
       })}
     </nav>
-    <div class="side-foot"><${AccountButton} username=${username} account=${account} update=${update} onUpdateChanged=${onUpdateChanged} settingsOn onSettings=${() => onTab("general")} onModelflare=${() => { onQuery(""); onTab("modelflare"); }} /></div>
+    <div class="side-foot"><${AccountButton} username=${username} account=${account} authUser=${authUser} onLogout=${onLogout} update=${update} onUpdateChanged=${onUpdateChanged} settingsOn onSettings=${() => onTab("general")} onModelflare=${() => { onQuery(""); onTab("modelflare"); }} /></div>
   </aside>`;
 }
 

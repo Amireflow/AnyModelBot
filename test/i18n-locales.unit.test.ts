@@ -22,8 +22,8 @@ describe("multi-language foundation (no database)", () => {
   it("resolves command-line and browser preference lists", () => {
     expect(envLang({ AMB_LANG: "ru-RU", LANG: "ja_JP.UTF-8" })).toBe("ru");
     expect(envLang({ AMB_LANG: "ko_KR.UTF-8" })).toBe("ko");
-    vi.stubGlobal("navigator", { languages: ["fr-FR", "ja-JP", "en"] });
-    expect(ui.systemLang()).toBe(ui.LANGS.includes("ja") ? "ja" : "en");
+    vi.stubGlobal("navigator", { languages: ["de-DE", "fr-FR", "ja-JP", "en"] });
+    expect(ui.systemLang()).toBe("fr");
   });
   it("selects Russian one/few/many forms, including 11 and 21", () => {
     ui.setLangPref("ru");
@@ -63,7 +63,7 @@ describe("multi-language foundation (no database)", () => {
   it("round-trips every new language through the existing config file without a database", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "amb-locale-config-"));
     try {
-      for (const language of ["ja", "ko", "ru", "es", "pt", "tr"] as const) {
+      for (const language of ["fr", "ja", "ko", "ru", "es", "pt", "tr"] as const) {
         saveConfigFile(dir, (file) => { file.ui = { ...(file.ui || {}), lang: language }; });
         expect(loadConfig({ dataDir: dir, env: {} }).ui.lang).toBe(language);
       }
@@ -74,7 +74,7 @@ describe("multi-language foundation (no database)", () => {
   it("validates every authored message even while catalogs are incomplete", async () => {
     const dicts = await loadDicts(TARGET_LANGS);
     const base = Object.fromEntries(Object.entries(catalogs).map(([ns, c]) => [ns, c.en]));
-    for (const lang of ["ja", "ko", "ru", "es", "pt", "tr"] as const) {
+    for (const lang of ["fr", "ja", "ko", "ru", "es", "pt", "tr"] as const) {
       expect(inspectLocale(dicts.en, dicts[lang], lang).errors.filter((e: { reason: string }) => e.reason !== "missing")).toEqual([]);
       expect(inspectLocale(base, translations[lang], lang).errors.filter((e: { reason: string }) => e.reason !== "missing")).toEqual([]);
     }

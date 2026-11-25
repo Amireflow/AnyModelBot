@@ -1,0 +1,40 @@
+export default {
+  "downloadVersion": "Télécharger la version {version}",
+  "browserVersion": "La version {version} est disponible — télécharger ↗",
+  "restartVersion": "Redémarrer pour mettre à jour vers {version}",
+  "autoDownload": "Télécharger automatiquement les mises à jour",
+  "autoDownloadHint": "Télécharge les nouvelles versions en arrière-plan, puis vous rappelle de redémarrer pour installer.",
+  "manualOnly": "Cette installation nécessite de télécharger manuellement le programme d'installation.",
+  "checking": "Recherche de mises à jour…",
+  "download": "Télécharger la mise à jour",
+  "downloadingAction": "Téléchargement…",
+  "downloading": "Téléchargement de {version} · {percent}%",
+  "ready": "{version} téléchargée ; redémarrez pour mettre à jour",
+  "restart": "Redémarrer et mettre à jour",
+  "installing": "Redémarrage pour mise à jour…",
+  "check": "Vérifier les mises à jour",
+  "busy": "Des tâches sont en cours. Vous pourrez redémarrer pour mettre à jour dès qu'elles seront terminées.",
+  "errors": {
+    "failed": "La mise à jour a échoué. Veuillez réessayer.",
+    "check_failed": "Impossible de vérifier les mises à jour. Veuillez réessayer plus tard.",
+    "download_failed": "Le téléchargement de la mise à jour a échoué. Veuillez réessayer.",
+    "install_failed": "La mise à jour n'a pas pu être installée. Veuillez réessayer.",
+    "busy": "Attendez la fin des tâches en cours avant de redémarrer pour mettre à jour.",
+    "not_ready": "Le téléchargement de la mise à jour n'est pas encore terminé.",
+    "unsupported": "Les mises à jour intégrées ne sont pas prises en charge pour cette installation."
+  },
+  "whatsNew": {
+    "title": "AnyModelBot est mis à jour vers {version}",
+    "availableTitle": "Nouveautés de la version {version}",
+    "historyTitle": "Journal des modifications",
+    "earlier": "Versions précédentes",
+    "loading": "Chargement des notes de version…",
+    "failed": "Impossible de charger les notes de version. Vous pouvez les lire sur GitHub.",
+    "viewOnGithub": "Voir sur GitHub ↗",
+    "allReleases": "Toutes les versions ↗",
+    "gotIt": "Compris",
+    "later": "Plus tard",
+    "view": "Journal des modifications",
+    "empty": "Aucune note de version pour le moment."
+  }
+};

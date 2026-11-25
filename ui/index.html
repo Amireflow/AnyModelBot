@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="fr">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -18,11 +18,11 @@
       var dark = m === "dark" || (m !== "light" && mq("(prefers-color-scheme: dark)"));
       root.setAttribute("data-theme", dark ? "dark" : "light");
       // 首帧只应用本机缓存（此时还没有界面内容）；系统语言由 i18n.js 读取就绪清单后统一解析。
-      var norm = function (s) { var base = String(s || "").trim().toLowerCase().split(/[-_.@]/)[0]; return base === "zh" ? "zh-CN" : ["en", "ja", "ko", "ru", "es", "pt"].indexOf(base) >= 0 ? base : ""; };
+      var norm = function (s) { var base = String(s || "").trim().toLowerCase().split(/[-_.@]/)[0]; return base === "zh" ? "zh-CN" : ["en", "fr", "ja", "ko", "ru", "es", "pt", "tr"].indexOf(base) >= 0 ? base : ""; };
       var lang = "";
       try { lang = norm(localStorage.getItem("amb-lang")); } catch (_) {}
       // The module resolves system languages from the shared readiness manifest before rendering any UI.
-      root.setAttribute("lang", lang || "en");
+      root.setAttribute("lang", lang || "fr");
       var p = {};
       try { p = JSON.parse(localStorage.getItem("amb-prefs") || "{}") || {}; } catch (_) {}
       var stack = function (s) {

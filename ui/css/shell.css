@@ -525,4 +525,16 @@ a.text { display: inline-flex; align-items: center; text-decoration: none; }
   .update-busy-hint { padding: var(--space-2) var(--space-3); font-size: var(--fs-xs); line-height: var(--lh-normal); }
   .update-disabled-reason { display: block; margin-top: var(--space-0-5); font-size: var(--fs-2xs); color: var(--amber); }
   .account-menu > button:disabled:has(.update-disabled-reason) { opacity: 1; color: var(--muted); }
+  .auth-col { display: grid; gap: var(--space-4); }
+  .auth-card, .auth-config { display: grid; gap: var(--space-3); padding: var(--card-pad); border-radius: var(--r-card); background: var(--card); }
+  .auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-1); padding: var(--space-1); border-radius: var(--r-ctl); background: var(--well); }
+  .auth-tabs button { min-height: var(--ctl-md); border-radius: var(--r-ctl); font-size: var(--fs-sm); color: var(--muted); background: transparent; }
+  .auth-tabs button.active { background: var(--surface); color: var(--fg); }
+  .auth-form { display: grid; gap: var(--space-3); }
+  .auth-field { display: grid; gap: var(--space-1); font-size: var(--fs-xs); color: var(--muted); }
+  .auth-config-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+  .auth-badge { padding: var(--space-0-5) var(--space-2); border-radius: var(--r-ctl); font-size: var(--fs-xs); background: var(--well); color: var(--muted); }
+  .auth-badge.ok { background: var(--green-soft); color: var(--green); }
+  .auth-badge.warn { background: var(--amber-wash); color: var(--amber); }
+  .auth-foot-hint { text-align: center; }
 }

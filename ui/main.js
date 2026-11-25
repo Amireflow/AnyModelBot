@@ -30,6 +30,7 @@ import { GroupScreen, GroupSheet } from "./screens/group.js";
 import { MessageSearchScreen, ConversationHistoryScreen } from "./screens/message-search.js";
 import { BotAvatar, MAIN_CHAR } from "./components/avatar.js";
 import { Onboarding } from "./screens/onboarding.js";
+import { AuthScreen } from "./screens/auth.js";
 import { CoachMark } from "./components/guide.js";
 import { WhatsNewHost, openWhatsNew } from "./components/whats-new.js";
 import { FeedbackHost } from "./components/feedback.js";
@@ -177,7 +178,9 @@ function App() {
   // 订阅界面语言：切换语言时整棵树跟着重渲染（子组件里的 t() 都在渲染时取）
   const lang = useLang();
   const [route, setRoute] = useState(parseHash);
-  const [mf, mfErr, reloadMf] = useLoader(() => api("/modelflare"));
+  const [authData, authErr, reloadAuth, setAuthData] = useLoader(() => api("/auth/session"));
+  const authenticated = !!authData?.authenticated;
+  const [mf, mfErr, reloadMf] = useLoader(() => (authenticated ? api("/modelflare") : Promise.resolve(null)), [authenticated]);
   const [status, , reloadStatus] = useLoader(() => api("/status"));
   // 更新检查和下载在桌面主进程进行；这里只读状态，下载时更频繁地刷新进度。
   const [update, , reloadUpdate] = useLoader(() => api("/update"));
@@ -187,7 +190,7 @@ function App() {
   useEffect(() => {
     if (settings) adoptServerLang(settings.lang);
   }, [settings && settings.lang]);
-  const connected = !!(mf && !mf.setupRequired && (mf.mode === "external" || mf.connected || mf.official));
+  const connected = authenticated;
   const [botsData, botsErr, reloadBots, setBotsData] = useLoader(() => (connected ? api("/bots") : Promise.resolve(null)), [connected]);
   const [groupsData, , reloadGroups] = useLoader(() => (connected ? api("/groups") : Promise.resolve(null)), [connected]);
   const [groupSheet, setGroupSheet] = useState(null); // 建群 / 改群的弹窗：{ group? }
@@ -197,11 +200,24 @@ function App() {
   const catalog = catalogData ? catalogData.bots : [];
   useInterval(reloadCatalog, 600_000);
   // Modelflare 账户与余额：后端每 5 分钟读一次；界面每分钟取快照，切回窗口时请后端立刻刷新
-  const [account, , , setAccount] = useLoader(() => api("/account"), [connected]);
+  const [account, , , setAccount] = useLoader(() => (connected ? api("/account") : Promise.resolve(null)), [connected]);
   // 任务库：命令面板里能搜到每条任务（界面语言变了重新取）
   const library = useStore(routines);
   useEffect(() => { if (connected) loadRoutines().catch(() => {}); }, [connected, lang]);
   const managed = !!(mf && mf.mode === "managed");
+  const logoutAuth = async () => {
+    try {
+      const next = await api("/auth/logout", { method: "POST", body: {} });
+      setAuthData(next);
+    } catch (e) {
+      failed(e);
+    }
+  };
+  useEffect(() => {
+    if (authenticated && botsData && !(botsData.bots || []).length && (!location.hash || location.hash === "#" || location.hash === "#/")) {
+      go("/agency");
+    }
+  }, [authenticated, !!(botsData?.bots || []).length]);
   // 登录 / 退出 / 回到接入配置：重新读连接状态、设置、模型和账户。用 ref 拿最新的加载函数：
   // loadModels 跟着 connected 变，事件处理里不能留着第一次渲染时的那个（那时可能还没连上，读不到模型）
   const onConnectionChange = useRef(null);
@@ -700,18 +716,18 @@ function App() {
   ];
 
   // —— 渲染 ——
-  if (!mf || restoringDrafts) {
-    return html`<main class="onboard" data-screen=${mfErr ? "error" : "loading"}>
-      ${mfErr
+  if (!authData || restoringDrafts) {
+    return html`<main class="onboard" data-screen=${authErr ? "error" : "loading"}>
+      ${authErr
         ? html`<div class="onboard-col"><div class="onboard-hero"><${BotAvatar} char=${MAIN_CHAR} size=${88} state="sleep" lively pokeable /></div>
-            <${Notice} tone="red" action=${html`<button type="button" class="btn" onClick=${reloadMf}>${t("common.retry")}</button>`}>${t("app.serviceDown", { error: mfErr })}<//></div>`
+            <${Notice} tone="red" action=${html`<button type="button" class="btn" onClick=${reloadAuth}>${t("common.retry")}</button>`}>${t("app.serviceDown", { error: authErr })}<//></div>`
         : html`<${BotAvatar} char=${MAIN_CHAR} size=${72} state="thinking" lively />`}
     </main>`;
   }
-  if (!connected) {
-    return html`<${Onboarding} gateway=${status && status.gateway} defaultModel=${settings && settings.defaultModel}
-        connection=${mf} skipModelStep=${catalog.length > 0} existingConnection=${!!mf.setupRequired && (mf.official || mf.connected)}
-        onDone=${() => { reloadMf(); reloadSettings(); go("/chat/"); }} />
+  if (!authenticated) {
+    return html`<${AuthScreen} auth=${authData}
+        onAuthenticated=${(next) => { setAuthData(next); reloadMf(); reloadSettings(); if (!location.hash || location.hash === "#/" || location.hash === "#") go("/agency"); }}
+        onConfigUpdated=${(next) => setAuthData(next)} />
       <${Toasts} />`;
   }
 
@@ -731,9 +747,9 @@ function App() {
     ${view === "settings"
       ? html`<${SettingsSide} tab=${route.tab} query=${settingsQ} onQuery=${setSettingsQ} onTab=${(t) => openSettings(t)} onBack=${() => openChat()}
           nav=${{ bots, view, onToggleSide: toggleSide, onOpenSearch: openSearch, onNew: newBot, onTemplates: () => openTemplates(), onNewGroup: () => setGroupSheet({}) }}
-          username=${status && status.username} account=${managed ? account : null} update=${update} onUpdateChanged=${reloadUpdate} />`
+          username=${status && status.username} account=${managed ? account : null} authUser=${authData?.user} onLogout=${logoutAuth} update=${update} onUpdateChanged=${reloadUpdate} />`
       : html`<${Sidebar} bots=${bots} botsError=${botsErr} reloadBots=${reloadBots} selectedId=${bot && bot.id} view=${sideView} collapsed=${sideOff} onToggleSide=${toggleSide}
-          previews=${previews} pending=${pending} working=${working} needs=${needs} username=${status && status.username} account=${managed ? account : null} update=${update} onUpdateChanged=${reloadUpdate}
+          previews=${previews} pending=${pending} working=${working} needs=${needs} username=${status && status.username} account=${managed ? account : null} authUser=${authData?.user} onLogout=${logoutAuth} update=${update} onUpdateChanged=${reloadUpdate}
           onNew=${newBot} onTemplates=${() => openTemplates()} onSelect=${openChat} onNeeds=${openNeeds} onDeleted=${onDeleted} onOpenSettings=${(tab) => openSettings(tab)} onBotSettings=${openBotSettings} onGuide=${startGuide}
           groups=${groups} groupsLoaded=${!!groupsData} groupId=${route.groupId} onNewGroup=${() => setGroupSheet({})} onSelectGroup=${openGroup} onEditGroup=${(group) => setGroupSheet({ group })} onDeletedGroup=${onDeletedGroup}
           catalog=${catalog} catalogId=${route.catalogId} onDiscover=${openDiscover} onOpenCatalog=${openCatalog}

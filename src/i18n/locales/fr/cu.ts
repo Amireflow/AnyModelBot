@@ -1,0 +1,26 @@
+import type { TranslatedCatalog } from "../../index.js";
+export default {
+  waiting: "En attente d'autorisation",
+  channelWait: "Computer Use nécessite d'abord l'autorisation « {items} » sur cet ordinateur. Activez-la dans l'application de bureau et je continuerai.",
+  codexUnavailable: "Pont Codex Computer Use : nécessite macOS 14.4+ avec Codex Computer Use installé",
+  codexOff: "{base} ({why})",
+  codexNotMac: "ce système n'est pas macOS",
+  codexOldMac: "macOS est antérieur à 14.4",
+  codexNoBridge: "le composant kimi-computer-use est absent de l'installation",
+  codexNoClient: "client Codex Computer Use introuvable",
+  codexNoLauncher: "le lanceur codex fourni avec l'application ChatGPT/Codex est introuvable",
+  codexAvailable: "Pont Codex Computer Use : disponible (macOS)",
+  codexFallback: " (Pont Codex indisponible, utilisation de Cua Driver à la place : {reason})",
+  cuaOff: "Cua Driver : indisponible ({why})",
+  cuaAvailable: "Cua Driver : disponible ({os})",
+  cuaUnsupported: "{platform} n'est pas pris en charge",
+  cuaMissing: "cua-driver {version} pour {plat} est absent de l'installation",
+  cuaNoDisplay: "aucune session graphique : ni DISPLAY ni WAYLAND_DISPLAY ne sont définis",
+  cuaAtspi: "la lecture des éléments de fenêtre nécessite AT-SPI (at-spi2-core)",
+  cuaWayland: "Session Wayland : limitée — la lecture des fenêtres repose sur AT-SPI, les saisies clavier et souris passent par XWayland et seule la fenêtre au premier plan peut être manipulée ; {atspi}",
+  cuaX11: "Session X11 ; {atspi}",
+  cuaMacNotice:
+    "Lors de la première utilisation, activez Accessibilité et Enregistrement de l'écran pour cette application dans Réglages Système → Confidentialité et sécurité. Elle s'exécute en mode --direct, les autorisations devraient donc appartenir à cette application (non encore vérifié sur un vrai Mac).",
+  cuaWinNotice: "Doit s'exécuter dans la session de bureau interactive d'un utilisateur connecté ; les fenêtres exécutées en tant qu'administrateur ne peuvent pas être manipulées (sauf si cette application s'exécute aussi en tant qu'administrateur).",
+  cuaNonInteractive: "doit s'exécuter dans la session interactive d'un utilisateur connecté (un service ou une session non interactive a été détecté)",
+} satisfies TranslatedCatalog["cu"];
