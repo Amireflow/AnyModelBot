@@ -724,5 +724,6 @@ export default {
   "notSpecified": "Non précisé",
   "notEvaluated": "Non évalué",
   "chooseOption": "Choisir une option",
-  "studioNoFileSelected": "Aucun fichier sélectionné"
+  "studioNoFileSelected": "Aucun fichier sélectionné",
+  "copilotClearConfirm": "Effacer définitivement l'historique de conversation du Copilote ?"
 };

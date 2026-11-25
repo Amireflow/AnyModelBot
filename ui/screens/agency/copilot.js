@@ -57,6 +57,28 @@ export function AgencyCopilot({ orgId, activeTab = "copilot", companyId = "", le
   const threadRef = useRef(null);
   const fileInputRef = useRef(null);
 
+  // Historique persistant côté serveur (par organisation) : survit au rechargement,
+  // au changement d'onglet et au redémarrage du daemon.
+  useEffect(() => {
+    if (!orgId) { setMessages([]); return; }
+    let cancelled = false;
+    api(`/agency/${enc(orgId)}/copilot/history`)
+      .then((res) => { if (!cancelled) setMessages(Array.isArray(res?.items) ? res.items : []); })
+      .catch(() => { if (!cancelled) setMessages([]); });
+    return () => { cancelled = true; };
+  }, [orgId]);
+
+  const clearHistory = async () => {
+    if (!orgId || busy) return;
+    if (!window.confirm(t("agency.copilotClearConfirm"))) return;
+    try {
+      await api(`/agency/${enc(orgId)}/copilot/history`, { method: "DELETE" });
+      setMessages([]);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   useEffect(() => {
     const el = threadRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -171,7 +193,7 @@ export function AgencyCopilot({ orgId, activeTab = "copilot", companyId = "", le
             ${m.actions?.length > 0 && html`<details class="agency-copilot-actions-list" open>
               <summary>${t("agency.copilotActionsTitle")} (${m.actions.length})</summary>
               ${m.actions.map((act) => html`<div class="agency-copilot-action-row">
-                <span><strong>${act.tool}</strong> — ${act.summary}</span>
+                <span class="agency-truncate" title=${`${act.tool} · ${act.summary}`}><strong>${act.tool}</strong> · ${act.summary}</span>
                 <span class=${"agency-whatsapp-state " + (act.ok ? "accepted" : "blocked")}>${act.ok ? "OK" : "ERR"}</span>
               </div>`)}
             </details>`}
@@ -199,7 +221,7 @@ export function AgencyCopilot({ orgId, activeTab = "copilot", companyId = "", le
         <${Icon} name="doc" size="sm" />${t("agency.copilotAttachBtn")}
       </button>
       <input class="field" value=${question} placeholder=${t("agency.copilotPlaceholder")} onInput=${(e) => setQuestion(e.currentTarget.value)} />
-      ${messages.length > 0 && html`<button class="text" type="button" disabled=${busy} onClick=${() => setMessages([])}>${t("agency.copilotClearBtn")}</button>`}
+      ${messages.length > 0 && html`<button class="text" type="button" disabled=${busy} onClick=${clearHistory}>${t("agency.copilotClearBtn")}</button>`}
       <button class="btn primary" type="submit" disabled=${busy || (!question.trim() && attachments.length === 0)}>
         ${busy ? html`<${Spinner} />` : html`<${Icon} name="spark" size="sm" />`}${t("agency.copilotSend")}
       </button>

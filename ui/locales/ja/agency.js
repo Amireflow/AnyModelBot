@@ -724,5 +724,6 @@ export default {
   "notEvaluated": "未評価",
   "chooseOption": "選択…",
   "studioNoFileSelected": "ファイル未選択",
-  "studio": "AI Studio"
+  "studio": "AI Studio",
+  "copilotClearConfirm": "Permanently clear the Copilot conversation history?"
 };

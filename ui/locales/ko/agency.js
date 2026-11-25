@@ -724,5 +724,6 @@ export default {
   "notEvaluated": "미평가",
   "chooseOption": "선택…",
   "studioNoFileSelected": "선택된 파일 없음",
-  "studio": "AI Studio"
+  "studio": "AI Studio",
+  "copilotClearConfirm": "Permanently clear the Copilot conversation history?"
 };

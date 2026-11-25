@@ -5,7 +5,7 @@
 import { AgencyError } from "../../agency/errors.js";
 import type { AgencyService } from "../../agency/service.js";
 import type {
-  AddEvidenceInput, AgencyAgentRole, AgencyMissionStatus, AgentAutonomyMode, CommercialChannel,
+  AddEvidenceInput, AgencyAgentRole, AgencyDeletableEntityType, AgencyMissionStatus, AgentAutonomyMode, CommercialChannel,
   CompanySearchFilters, ContactSearchFilters, ContractStatus, DepositStatus, FollowUpStatus,
   FollowUpType, InvoiceMilestoneInput, InvoiceStatus, LeadSearchFilters, LeadStage, MessageDirection, ProjectLotStatus, ProjectStatus,
   QaCategory, QaCheckStatus, QuoteLineItem, QuoteTier, ServiceCatalogItem, SolutionType,
@@ -26,6 +26,7 @@ import { bootstrapAgencyDefaults } from "../../agency/presets.js";
 import { auditWebsiteSafely, prospectWebCompanies } from "../../agency/prospecting.js";
 import { runFourAxisQaAudit } from "../../agency/qa-auditor.js";
 import { listAgencySkills, resolveSkillsPromptBlock } from "../../agency/skills.js";
+import { appendCopilotHistory, clearCopilotHistory, loadCopilotHistory } from "../../agency/copilot-history.js";
 import {
   createStudioSnapshot,
   deleteWorkspaceFile,
@@ -197,6 +198,16 @@ export function agencyRoutes(ctx: WebContext): Route {
       }
       if (seg.length<2) throw new HttpError(404,"not found");
       const organizationId=decodeSegment(seg[1],"organization id");
+      const handleDelete=async (entityType: AgencyDeletableEntityType, entityId: string) => {
+        const body=await readObject(req);
+        const deleted=service.deleteEntity(organizationId,actor,entityType,entityId,{
+          confirm:body.confirm===true,
+          confirmName:typeof body.confirmName==="string" ? body.confirmName : undefined,
+          cascade:body.cascade===true,
+          reason:typeof body.reason==="string" ? body.reason : undefined,
+        });
+        return send(res,200,{deleted});
+      };
 
       if (seg.length===3 && seg[2]==="dashboard" && method==="GET") return send(res,200,service.dashboard(organizationId,actor));
 
@@ -429,6 +440,12 @@ export function agencyRoutes(ctx: WebContext): Route {
             status:body.status as "active"|"archived"|undefined,
           })});
         }
+        if (seg.length===4 && method==="DELETE") {
+          return handleDelete("company",decodeSegment(seg[3],"company id"));
+        }
+        if (seg.length===5 && seg[4]==="delete-preview" && method==="GET") {
+          return send(res,200,{preview:service.previewDelete(organizationId,actor,"company",decodeSegment(seg[3],"company id"))});
+        }
         if (seg.length===5 && seg[4]==="website-audit" && method==="POST") {
           const companyId=decodeSegment(seg[3],"company id");
           const company=service.getCompany(organizationId,actor,companyId);
@@ -614,6 +631,21 @@ export function agencyRoutes(ctx: WebContext): Route {
             status:body.status as "active"|"archived"|undefined,
           })});
         }
+        if (seg.length===4 && method==="DELETE") {
+          return handleDelete("contact",decodeSegment(seg[3],"contact id"));
+        }
+        if (seg.length===5 && seg[4]==="delete-preview" && method==="GET") {
+          return send(res,200,{preview:service.previewDelete(organizationId,actor,"contact",decodeSegment(seg[3],"contact id"))});
+        }
+      }
+
+      if (seg[2]==="evidence") {
+        if (seg.length===4 && method==="DELETE") {
+          return handleDelete("evidence",decodeSegment(seg[3],"evidence id"));
+        }
+        if (seg.length===5 && seg[4]==="delete-preview" && method==="GET") {
+          return send(res,200,{preview:service.previewDelete(organizationId,actor,"evidence",decodeSegment(seg[3],"evidence id"))});
+        }
       }
 
       if (seg[2]==="leads") {
@@ -640,6 +672,12 @@ export function agencyRoutes(ctx: WebContext): Route {
             source:body.source as string|undefined,
             notes:body.notes as string|undefined,
           })});
+        }
+        if (seg.length===4 && method==="DELETE") {
+          return handleDelete("lead",decodeSegment(seg[3],"lead id"));
+        }
+        if (seg.length===5 && seg[4]==="delete-preview" && method==="GET") {
+          return send(res,200,{preview:service.previewDelete(organizationId,actor,"lead",decodeSegment(seg[3],"lead id"))});
         }
         if (seg.length===5 && seg[4]==="stage" && method==="PATCH") {
           const leadId=decodeSegment(seg[3],"lead id");
@@ -761,6 +799,12 @@ export function agencyRoutes(ctx: WebContext): Route {
           const body=await readObject(req);
           return send(res,200,{item:service.updateCatalogItem(organizationId,actor,itemId,body as Partial<ServiceCatalogItem>)});
         }
+        if (seg.length===4 && method==="DELETE") {
+          return handleDelete("catalog_item",decodeSegment(seg[3],"catalog item id"));
+        }
+        if (seg.length===5 && seg[4]==="delete-preview" && method==="GET") {
+          return send(res,200,{preview:service.previewDelete(organizationId,actor,"catalog_item",decodeSegment(seg[3],"catalog item id"))});
+        }
       }
 
       if (seg[2]==="commercial-rules" && seg.length===3) {
@@ -831,8 +875,14 @@ export function agencyRoutes(ctx: WebContext): Route {
             validUntil:body.validUntil as number|undefined,
           }));
         }
+        if (seg.length===4 && method==="DELETE") {
+          return handleDelete("quote",decodeSegment(seg[3],"quote id"));
+        }
         if (seg.length===5) {
           const quoteId=decodeSegment(seg[3],"quote id");
+          if (seg[4]==="delete-preview" && method==="GET") {
+            return send(res,200,{preview:service.previewDelete(organizationId,actor,"quote",quoteId)});
+          }
           if (seg[4]==="document" && method==="GET") {
             const org=service.getOrganization(organizationId,actor);
             const quote=service.getQuote(organizationId,actor,quoteId);
@@ -1576,6 +1626,12 @@ export function agencyRoutes(ctx: WebContext): Route {
           const body=await readObject(req);
           return send(res,200,{followUp:service.updateFollowUpStatus(organizationId,actor,followUpId,body.status as FollowUpStatus,body.outcome as string ?? "")});
         }
+        if (seg.length===4 && method==="DELETE") {
+          return handleDelete("followup",decodeSegment(seg[3],"follow-up id"));
+        }
+        if (seg.length===5 && seg[4]==="delete-preview" && method==="GET") {
+          return send(res,200,{preview:service.previewDelete(organizationId,actor,"followup",decodeSegment(seg[3],"follow-up id"))});
+        }
         if (seg.length===5 && seg[4]==="convert-opportunity" && method==="POST") {
           const followUpId=decodeSegment(seg[3],"follow-up id");
           const body=await readObject(req);
@@ -1583,6 +1639,16 @@ export function agencyRoutes(ctx: WebContext): Route {
             source:body.source as string|undefined,
             notes:body.notes as string|undefined,
           }));
+        }
+      }
+
+      if (seg[2]==="copilot" && seg.length===4 && seg[3]==="history") {
+        service.getOrganization(organizationId,actor);
+        const historyDir=ctx.app?.config?.dataDir ?? process.cwd();
+        if (method==="GET") return send(res,200,{items:await loadCopilotHistory(historyDir,organizationId)});
+        if (method==="DELETE") {
+          await clearCopilotHistory(historyDir,organizationId);
+          return send(res,200,{ok:true});
         }
       }
 
@@ -1837,6 +1903,24 @@ export function agencyRoutes(ctx: WebContext): Route {
           defaultModel:ctx.app?.config?.llm?.defaultModel,
           hasLlmEndpoint:isLlmConfigured(ctx),
         });
+        const askedAt=new Date().toISOString();
+        const resultRecord=result as unknown as Record<string,unknown>;
+        await appendCopilotHistory(dataDir,organizationId,[
+          {
+            role:"user",
+            text:question.trim() || attachments.map((a) => a.name).join(", "),
+            at:askedAt,
+            files:attachments.map((a) => a.name),
+          },
+          {
+            role:"assistant",
+            text:typeof resultRecord.answer==="string" ? resultRecord.answer : "",
+            at:new Date().toISOString(),
+            mode:typeof resultRecord.mode==="string" ? resultRecord.mode : undefined,
+            model:typeof resultRecord.model==="string" ? resultRecord.model : undefined,
+            actions:Array.isArray(resultRecord.actions) ? resultRecord.actions as never : undefined,
+          },
+        ]).catch(() => undefined);
         return send(res,200,result);
       }
 
@@ -1859,6 +1943,12 @@ export function agencyRoutes(ctx: WebContext): Route {
             objective:body.objective as string|undefined,
             preferredTool:body.preferredTool as string|undefined,
           })});
+        }
+        if (seg.length===4 && method==="DELETE") {
+          return handleDelete("mission",decodeSegment(seg[3],"mission id"));
+        }
+        if (seg.length===5 && seg[4]==="delete-preview" && method==="GET") {
+          return send(res,200,{preview:service.previewDelete(organizationId,actor,"mission",decodeSegment(seg[3],"mission id"))});
         }
         if (seg.length===5 && seg[4]==="status" && method==="PATCH") {
           const missionId=decodeSegment(seg[3],"mission id");

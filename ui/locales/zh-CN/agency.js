@@ -724,5 +724,6 @@ export default {
   "notEvaluated": "未评估",
   "chooseOption": "请选择…",
   "studioNoFileSelected": "未选择文件",
-  "studio": "AI Studio"
+  "studio": "AI Studio",
+  "copilotClearConfirm": "确定清空 Copilot 对话历史？此操作不可撤销。"
 };

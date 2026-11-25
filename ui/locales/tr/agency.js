@@ -724,5 +724,6 @@ export default {
   "notEvaluated": "Değerlendirilmedi",
   "chooseOption": "Seçin…",
   "studioNoFileSelected": "Dosya seçilmedi",
-  "studio": "AI Studio"
+  "studio": "AI Studio",
+  "copilotClearConfirm": "Permanently clear the Copilot conversation history?"
 };

@@ -724,5 +724,6 @@ export default {
   "notSpecified": "Not specified",
   "notEvaluated": "Not evaluated",
   "chooseOption": "Choose an option",
-  "studioNoFileSelected": "No file selected"
+  "studioNoFileSelected": "No file selected",
+  "copilotClearConfirm": "Permanently clear the Copilot conversation history?"
 };
