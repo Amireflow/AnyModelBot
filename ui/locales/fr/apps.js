@@ -4,7 +4,7 @@ export default {
   commandKeys: "apps et compétences skills bibliothèque compétences connecter apps mcp connecteur feishu lark notion github",
   attention: "Une application requiert votre attention",
   title: "Apps et compétences",
-  lead: "Connectez des applications et trouvez des compétences utiles pour que vos bots en fassent davantage pour vous.",
+  lead: "Connecteurs MCP et compétences.",
   tab: { all: "Toutes", connected: "Connectées" },
   search: "Rechercher des apps et compétences",
   tabs: { apps: "Apps {n}", skills: "Compétences {n}" },

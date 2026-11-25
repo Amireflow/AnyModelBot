@@ -381,5 +381,32 @@ export default {
   "executeLlmBtn": "AI 実行",
   "executeCliBtn": "テスト実行",
   "missionOutputLabel": "出力",
-  "missionEvidenceLabel": "証跡"
+  "missionEvidenceLabel": "証跡",
+  "allStages": "すべて",
+  "subtabConversations": "会話・要件",
+  "subtabQuotes": "見積",
+  "subtabContracts": "契約",
+  "projTabLots": "ロット",
+  "projTabScope": "スコープ",
+  "projTabQa": "QA",
+  "projTabDelivery": "納品・フォロー",
+  "prefillFromCatalog": "カタログから入力",
+  "chooseCatalogService": "サービスを選択…",
+  "cliActionLabel": "CLI コマンド",
+  "runCliBtn": "実行",
+  "agentRoleNames": {
+    "prospecting": "開拓",
+    "qualification": "適格評価",
+    "commercial": "営業",
+    "estimator": "見積",
+    "project_manager": "PM",
+    "architect": "設計",
+    "developer": "開発",
+    "ui_ux": "UI/UX",
+    "qa_functional": "機能 QA",
+    "qa_technical": "技術 QA",
+    "qa_ui_ux": "UI/UX QA",
+    "qa_security": "セキュリティ QA",
+    "retention": "フォロー"
+  }
 };

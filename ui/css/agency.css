@@ -170,6 +170,13 @@
 .agency-project-bar strong{font-size:var(--fs-md)}
 .agency-brief-details summary{cursor:pointer;font-size:var(--fs-xs);color:var(--muted)}
 .agency-brief-details pre{margin:var(--space-2) 0 0;padding:var(--space-3);border-radius:var(--r-item-sm);background:var(--well);font-size:var(--fs-xs);white-space:pre-wrap;overflow:auto}
+.agency-subtabs{display:inline-flex;align-items:center;flex-wrap:wrap;gap:var(--space-0-5);padding:var(--space-1);border-radius:var(--r-ctl);background:var(--well)}
+.agency-subtabs button{min-height:var(--ctl-md);padding:0 var(--space-3);border-radius:var(--r-ctl);color:var(--muted);font-size:var(--fs-sm)}
+.agency-subtabs button.active{background:var(--card);color:var(--fg);box-shadow:var(--shadow-float)}
+.agency-stage-filters{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1)}
+.agency-stage-filters button{min-height:var(--ctl-sm);padding:0 var(--space-3);border-radius:var(--r-ctl);background:var(--well);color:var(--muted);font-size:var(--fs-xs)}
+.agency-stage-filters button.active{background:var(--card);color:var(--fg);box-shadow:var(--shadow-float)}
+.agency-role-grid{display:flex;flex-wrap:wrap;gap:var(--space-1)}
 @media(max-width:760px){.agency-commercial-grid,.agency-projects-grid,.agency-ops-grid{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:760px){.agency-whatsapp-workflow-grid{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:620px){.agency-consent-form{grid-template-columns:minmax(0,1fr)}.agency-contact-manage .agency-contact-row{align-items:flex-start;flex-wrap:wrap}.agency-whatsapp-item-head{align-items:flex-start;flex-direction:column}}

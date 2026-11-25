@@ -36,12 +36,10 @@ import { fmtTimeOfDay } from "../lib/format.js";
 /** [id, 标题的文案键, 图标]；标题渲染时再 t()（tabLabel） */
 export const TABS = [
   ["general", "settings.tabs.general", "sliders"],
-  ["appearance", "settings.tabs.appearance", "palette"],
   ["modelflare", "settings.tabs.modelflare", "spark"],
-  ["connections", "settings.tabs.connections", "link"],
-  ["privacy", "settings.tabs.privacy", "lock"],
+  ["appearance", "settings.tabs.appearance", "palette"],
   ["network", "settings.tabs.network", "globe"],
-  ["data", "settings.tabs.data", "database"],
+  ["privacy", "settings.tabs.privacy", "lock"],
   ["about", "settings.tabs.about", "info"],
 ];
 
@@ -414,10 +412,6 @@ export function SettingsScreen({ tab, query: q, onQuery: setQ, onTab, focusRow, 
         ctl: html`<${Switch} label=${t("settings.rows.notify.name")} value=${p.notify} onChange=${toggleNotify} />` },
       desktop && { tab: "general", id: "rules-awake", name: t("scheduled.keepAwakeSetting"), sub: t("scheduled.keepAwakeHint"), keys: "schedule sleep 定时 睡眠", // i18n-ignore: multilingual command search keywords
         ctl: html`<${Switch} label=${t("scheduled.keepAwakeSetting")} value=${!!s.keepAwakeForRules} onChange=${(v) => put({ keepAwakeForRules: v }, { keepAwakeForRules: v })} />` },
-      g.loaded && { tab: "general", id: "guide", name: t("settings.rows.guide.name"),
-        sub: g.seen.includes("completed") ? t("guide.completed") : g.hidden ? t("settings.rows.guide.hidden") : t("settings.rows.guide.progress", { done: progress(g), total: guideSteps.length }),
-        keys: t("settings.rows.guide.keys"),
-        ctl: html`<button type="button" class="btn sm" onClick=${() => (g.hidden ? showGuide() : resetGuide()).catch(failed)}>${t(g.hidden ? "welcome.showAgain" : "settings.rows.guide.restart")}</button>` },
       desktop && { tab: "general", group: "desktop", id: "close", name: t("settings.rows.close.name"), sub: t("settings.rows.close.sub"), keys: t("settings.rows.close.keys"),
         ctl: html`<${Seg} label=${t("settings.rows.close.name")} value=${s.closeToTray} onChange=${(v) => put({ closeToTray: v }, { closeToTray: v })} options=${[[true, t("settings.rows.close.tray")], [false, t("settings.rows.close.quit")]]} />` },
       desktop && s.autostart.supported && { tab: "general", group: "desktop", id: "autostart", name: t("settings.rows.autostart.name"), sub: t("settings.rows.autostart.sub"), keys: t("settings.rows.autostart.keys"),
@@ -496,7 +490,6 @@ export function SettingsScreen({ tab, query: q, onQuery: setQ, onTab, focusRow, 
       { tab: "privacy", id: "sandbox", name: t("settings.rows.sandbox.name"), sub: t("settings.rows.sandbox.sub"), ctl: null, keys: t("settings.rows.sandbox.keys") },
       { tab: "privacy", id: "screens", name: t("settings.rows.screens.name"), sub: t("settings.rows.screens.sub"), ctl: null, keys: t("settings.rows.screens.keys") },
 
-      ...connectionRows(conn, bots, onOpenApps),
       { tab: "network", id: "web-search", name: t("settings.rows.webSearch.name"), sub: t("settings.rows.webSearch.sub"), keys: t("settings.rows.webSearch.keys"),
         ctl: html`<${MenuButton} label=${t("settings.rows.webSearch.name")} value=${s.webSearch.provider} width=${200} options=${SEARCH_OPTIONS()} onChange=${(v) => putSearch({ provider: v })} />` },
       s.webSearch.provider === "searxng" && { tab: "network", id: "web-search-url", name: t("settings.rows.webSearchUrl.name"), keys: t("settings.rows.webSearchUrl.keys"),
@@ -511,20 +504,15 @@ export function SettingsScreen({ tab, query: q, onQuery: setQ, onTab, focusRow, 
       { tab: "network", id: "listen", name: t("settings.rows.listen.name"), sub: t("settings.rows.listen.sub"), keys: t("settings.rows.listen.keys"),
         ctl: html`<span class="val">${s.listen.host}:${s.listen.port}</span><${CopyButton} text=${`http://${s.listen.host === "0.0.0.0" ? "127.0.0.1" : s.listen.host}:${s.listen.port}/`} label=${t("settings.rows.listen.copy")} />` },
 
-      { tab: "data", id: "data-dir", name: t("settings.rows.dataDir.name"), sub: t("settings.rows.dataDir.sub"), keys: t("settings.rows.dataDir.keys"),
+      { tab: "privacy", id: "data-dir", name: t("settings.rows.dataDir.name"), sub: t("settings.rows.dataDir.sub"), keys: t("settings.rows.dataDir.keys"),
         ctl: html`<span class="val" title=${s.dataDir}>${s.dataDir}</span><${CopyButton} text=${s.dataDir} label=${t("settings.rows.dataDir.copy")} />
           ${desktop && html`<button type="button" class="btn sm" onClick=${() => api("/desktop/open-data-dir", { method: "POST", body: {} }).catch(failed)}>${t("common.open")}</button>`}` },
 
       { tab: "about", id: "version", name: t("settings.rows.version.name"), keys: t("settings.rows.version.keys"),
         sub: updateDescription(update),
-        ctl: html`<span class="val">${status ? status.version : ""}</span>
-          <${UpdateActions} update=${update} onChanged=${onUpdateChanged} rowName=${t("settings.rows.version.name")} />` },
+        ctl: html`<span class="val">${status ? status.version : ""}</span>` },
       { tab: "about", id: "licenses", name: t("settings.rows.licenses.name"), sub: t("settings.rows.licenses.sub"), keys: t("settings.rows.licenses.keys"),
         go: () => setNotices(true) },
-      { tab: "about", id: "diagnostics", name: t("settings.rows.diagnostics.name"),
-        sub: gw ? [t("settings.rows.diagnostics.gateway"), gatewayState(gw.state), gw.restarts && t("settings.rows.diagnostics.restarts", { count: gw.restarts }), gw.lastError].filter(Boolean).join(" · ") : "",
-        keys: t("settings.rows.diagnostics.keys"),
-        go: () => onTab?.("troubleshoot") },
     ].filter(Boolean);
   }, [s, mf, mode, p, models, modelsError, cu, status, update, bots, acct, authUser, onLogout, invite, unread, g, media, lang, langPref, conn.accounts, conn.channelAccounts, effort, official, leaving, balanceRefreshing]);
 

@@ -74,6 +74,7 @@ function parseHash() {
   if (kind === "app" && a) return { view: "app", botId: a };
   if (kind === "preview" && a) return { view: "preview", catalogId: a };
   if (kind === "models") return { view: "settings", tab: "modelflare", row: "" }; // 旧链接
+  if (!kind) return { view: "agency", tab: "operations" };
   return { view: "chat", botId: kind === "chat" ? a : "", ...focus };
 }
 const go = (path) => {

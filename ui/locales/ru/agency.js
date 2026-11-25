@@ -381,5 +381,32 @@ export default {
   "executeLlmBtn": "Запустить ИИ",
   "executeCliBtn": "Тест workspace",
   "missionOutputLabel": "Результат",
-  "missionEvidenceLabel": "Доказательства"
+  "missionEvidenceLabel": "Доказательства",
+  "allStages": "Все",
+  "subtabConversations": "Диалоги и бриф",
+  "subtabQuotes": "Сметы",
+  "subtabContracts": "Договоры",
+  "projTabLots": "Этапы",
+  "projTabScope": "Объём",
+  "projTabQa": "QA",
+  "projTabDelivery": "Поставка и уход",
+  "prefillFromCatalog": "Из каталога",
+  "chooseCatalogService": "Выберите услугу…",
+  "cliActionLabel": "Команда CLI",
+  "runCliBtn": "Выполнить",
+  "agentRoleNames": {
+    "prospecting": "Поиск",
+    "qualification": "Квалификация",
+    "commercial": "Продажи",
+    "estimator": "Оценка",
+    "project_manager": "Менеджер",
+    "architect": "Архитектор",
+    "developer": "Разработчик",
+    "ui_ux": "UI / UX",
+    "qa_functional": "Функц. QA",
+    "qa_technical": "Техн. QA",
+    "qa_ui_ux": "UI/UX QA",
+    "qa_security": "Безопасность QA",
+    "retention": "Сопровождение"
+  }
 };

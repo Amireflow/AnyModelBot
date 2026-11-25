@@ -157,7 +157,7 @@ export function AccountButton({ account, authUser, onLogout, onSettings, update,
  * 顶部只保留收起、搜索、新建：收起靠左，搜索和新建靠右，新建使用常驻底色。
  * children 放在收起之后（Windows 的应用名和撑开的空白）；定时作为带文字的导航行。
  */
-export function SideActions({ collapsed, bots, onToggleSide, onOpenSearch, onNew, onTemplates, onNewGroup, children }) {
+export function SideActions({ collapsed, bots, onToggleSide, onOpenSearch, onNew, onTemplates, onNewGroup, onAgency, children }) {
   const [newMenu, setNewMenu] = useState(null); // 新建菜单的锚点
   const canGroup = !!bots && bots.length >= 2;
   return html`
@@ -168,9 +168,13 @@ export function SideActions({ collapsed, bots, onToggleSide, onOpenSearch, onNew
       onClick=${(e) => { const el = e.currentTarget; setNewMenu((m) => (m ? null : el)); }} />
     ${newMenu && html`<${Menu} anchor=${newMenu} align=${collapsed ? undefined : "right"} label=${t("sidebar.newMenu")} onClose=${() => setNewMenu(null)}
       items=${[
-        { label: t("sidebar.newBotItem"), icon: "spark", kbd: isMac ? "⌘N" : "Ctrl+N", onSelect: onNew },
-        ...(canGroup ? [{ label: t("sidebar.newGroupItem"), icon: "chat", onSelect: onNewGroup }] : []),
-        { label: t("templates.title"), icon: "compass", onSelect: onTemplates },
+        ...(onAgency ? [
+          { label: t("agency.newCompany"), icon: "folder", onSelect: () => onAgency("companies") },
+          { label: t("agency.newLead"), icon: "user", onSelect: () => onAgency("leads") },
+          { label: t("agency.missionsTitle"), icon: "spark", onSelect: () => onAgency("operations") },
+        ] : []),
+        { label: t("sidebar.newBotItem"), icon: "chat", kbd: isMac ? "⌘N" : "Ctrl+N", onSelect: onNew },
+        ...(canGroup ? [{ label: t("sidebar.newGroupItem"), icon: "chats", onSelect: onNewGroup }] : []),
       ]} />`}`;
 }
 
@@ -437,7 +441,7 @@ export function Sidebar({ bots, botsError, reloadBots, selectedId, view, agencyT
   // 收起时侧栏滑出窗口（shell.css 的 .side-off），这期间和收起之后都不让它拿到焦点
   return html`<aside class="side" ref=${root} aria-label=${t("sidebar.bots")} inert=${collapsed || undefined}>
     <div class="side-top">
-      <${SideActions} bots=${bots} view=${view} onToggleSide=${onToggleSide} onOpenSearch=${onOpenSearch} onNew=${onNew} onTemplates=${onTemplates} onNewGroup=${onNewGroup}>
+      <${SideActions} bots=${bots} view=${view} onToggleSide=${onToggleSide} onOpenSearch=${onOpenSearch} onNew=${onNew} onTemplates=${onTemplates} onNewGroup=${onNewGroup} onAgency=${onAgency}>
         <span class="side-brand"><img src="/amb/static/assets/favicon-64.png" alt="" /><span>AnyModelBot</span></span>
         <span class="grow"></span>
       <//>

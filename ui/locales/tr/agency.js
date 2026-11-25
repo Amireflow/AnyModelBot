@@ -381,5 +381,32 @@ export default {
   "executeLlmBtn": "YZ çalıştır",
   "executeCliBtn": "Çalışma alanını test et",
   "missionOutputLabel": "Çıktı",
-  "missionEvidenceLabel": "Kanıtlar"
+  "missionEvidenceLabel": "Kanıtlar",
+  "allStages": "Tümü",
+  "subtabConversations": "Görüşme & İhtiyaç",
+  "subtabQuotes": "Teklifler",
+  "subtabContracts": "Sözleşmeler",
+  "projTabLots": "Lotlar",
+  "projTabScope": "Kapsam",
+  "projTabQa": "QA",
+  "projTabDelivery": "Teslimat & Takip",
+  "prefillFromCatalog": "Katalogdan doldur",
+  "chooseCatalogService": "Hizmet seç…",
+  "cliActionLabel": "CLI komutu",
+  "runCliBtn": "Çalıştır",
+  "agentRoleNames": {
+    "prospecting": "Araştırma",
+    "qualification": "Nitelendirme",
+    "commercial": "Satış",
+    "estimator": "Tahmin",
+    "project_manager": "Proje Yöneticisi",
+    "architect": "Mimar",
+    "developer": "Geliştirici",
+    "ui_ux": "UI / UX",
+    "qa_functional": "Fonksiyonel QA",
+    "qa_technical": "Teknik QA",
+    "qa_ui_ux": "UI/UX QA",
+    "qa_security": "Güvenlik QA",
+    "retention": "Müşteri Takip"
+  }
 };

@@ -381,5 +381,32 @@ export default {
   "executeLlmBtn": "AI 실행",
   "executeCliBtn": "워크스페이스 테스트",
   "missionOutputLabel": "출력",
-  "missionEvidenceLabel": "증거"
+  "missionEvidenceLabel": "증거",
+  "allStages": "전체",
+  "subtabConversations": "대화 및 요구사항",
+  "subtabQuotes": "견적",
+  "subtabContracts": "계약",
+  "projTabLots": "작업 단위",
+  "projTabScope": "범위",
+  "projTabQa": "QA",
+  "projTabDelivery": "납품 및 관리",
+  "prefillFromCatalog": "카탈로그에서 채우기",
+  "chooseCatalogService": "서비스 선택…",
+  "cliActionLabel": "CLI 작업",
+  "runCliBtn": "실행",
+  "agentRoleNames": {
+    "prospecting": "발굴",
+    "qualification": "적합성 평가",
+    "commercial": "영업",
+    "estimator": "견적",
+    "project_manager": "PM",
+    "architect": "아키텍트",
+    "developer": "개발자",
+    "ui_ux": "UI/UX",
+    "qa_functional": "기능 QA",
+    "qa_technical": "기술 QA",
+    "qa_ui_ux": "UI/UX QA",
+    "qa_security": "보안 QA",
+    "retention": "고객 관리"
+  }
 };

@@ -381,5 +381,32 @@ export default {
   "executeLlmBtn": "AI 执行",
   "executeCliBtn": "测试工作区",
   "missionOutputLabel": "输出",
-  "missionEvidenceLabel": "证据"
+  "missionEvidenceLabel": "证据",
+  "allStages": "全部",
+  "subtabConversations": "沟通与需求",
+  "subtabQuotes": "报价",
+  "subtabContracts": "合同",
+  "projTabLots": "交付批次",
+  "projTabScope": "范围变更",
+  "projTabQa": "QA",
+  "projTabDelivery": "交付与回访",
+  "prefillFromCatalog": "从服务目录填充",
+  "chooseCatalogService": "选择服务项目…",
+  "cliActionLabel": "CLI 命令",
+  "runCliBtn": "执行",
+  "agentRoleNames": {
+    "prospecting": "拓客",
+    "qualification": "资质评估",
+    "commercial": "商务",
+    "estimator": "估算",
+    "project_manager": "项目经理",
+    "architect": "架构师",
+    "developer": "开发",
+    "ui_ux": "UI/UX",
+    "qa_functional": "功能 QA",
+    "qa_technical": "技术 QA",
+    "qa_ui_ux": "UI/UX QA",
+    "qa_security": "安全 QA",
+    "retention": "客户留存"
+  }
 };

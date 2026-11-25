@@ -381,5 +381,32 @@ export default {
   "executeLlmBtn": "Executar IA",
   "executeCliBtn": "Testar workspace",
   "missionOutputLabel": "Saída",
-  "missionEvidenceLabel": "Provas"
+  "missionEvidenceLabel": "Provas",
+  "allStages": "Todos",
+  "subtabConversations": "Conversas & Requisitos",
+  "subtabQuotes": "Orçamentos",
+  "subtabContracts": "Contratos",
+  "projTabLots": "Lotes",
+  "projTabScope": "Escopo",
+  "projTabQa": "QA",
+  "projTabDelivery": "Entrega & Acomp.",
+  "prefillFromCatalog": "Preencher do catálogo",
+  "chooseCatalogService": "Escolher serviço…",
+  "cliActionLabel": "Ação CLI",
+  "runCliBtn": "Executar",
+  "agentRoleNames": {
+    "prospecting": "Prospeção",
+    "qualification": "Qualificação",
+    "commercial": "Comercial",
+    "estimator": "Orçamentação",
+    "project_manager": "Gestor de Projeto",
+    "architect": "Arquitetura",
+    "developer": "Programador",
+    "ui_ux": "UI / UX",
+    "qa_functional": "QA Funcional",
+    "qa_technical": "QA Técnico",
+    "qa_ui_ux": "QA UI/UX",
+    "qa_security": "QA Segurança",
+    "retention": "Retenção"
+  }
 };

@@ -381,5 +381,32 @@ export default {
   "executeLlmBtn": "Run AI",
   "executeCliBtn": "Test workspace",
   "missionOutputLabel": "Output",
-  "missionEvidenceLabel": "Evidence"
+  "missionEvidenceLabel": "Evidence",
+  "allStages": "All",
+  "subtabConversations": "Thread & Needs",
+  "subtabQuotes": "Quotes",
+  "subtabContracts": "Contracts",
+  "projTabLots": "Lots",
+  "projTabScope": "Scope",
+  "projTabQa": "QA",
+  "projTabDelivery": "Delivery & Care",
+  "prefillFromCatalog": "Pre-fill from catalog",
+  "chooseCatalogService": "Select a service…",
+  "cliActionLabel": "CLI action",
+  "runCliBtn": "Run",
+  "agentRoleNames": {
+    "prospecting": "Prospecting",
+    "qualification": "Qualification",
+    "commercial": "Commercial",
+    "estimator": "Estimator",
+    "project_manager": "Project Manager",
+    "architect": "Architect",
+    "developer": "Developer",
+    "ui_ux": "UI / UX",
+    "qa_functional": "Functional QA",
+    "qa_technical": "Technical QA",
+    "qa_ui_ux": "UI/UX QA",
+    "qa_security": "Security QA",
+    "retention": "Client Success"
+  }
 };
