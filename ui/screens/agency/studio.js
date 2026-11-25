@@ -120,6 +120,13 @@ export function ProjectStudio({
   const [newFilePath, setNewFilePath] = useState("");
   const [snapshots, setSnapshots] = useState([]);
   const [changedFiles, setChangedFiles] = useState([]);
+  const [diffFiles, setDiffFiles] = useState([]);
+  const [selectedChangePath, setSelectedChangePath] = useState("");
+  const [selectedChangeDiff, setSelectedChangeDiff] = useState(null);
+  const [changeSnapshot, setChangeSnapshot] = useState(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [diffError, setDiffError] = useState("");
+  const [diffListTruncated, setDiffListTruncated] = useState(false);
 
   // Conversational workbench state
   const [mode, setMode] = useState("build");
@@ -210,6 +217,71 @@ export function ProjectStudio({
     }
   };
 
+  const loadStudioFileDiff = async (filePath, snapshot = changeSnapshot, pid = project?.id, { quiet = false } = {}) => {
+    if (!filePath || !snapshot?.base || !snapshot?.head || !pid || !orgId) {
+      setSelectedChangeDiff(null);
+      return null;
+    }
+    setSelectedChangePath(filePath);
+    if (!quiet) setDiffLoading(true);
+    setDiffError("");
+    try {
+      const query = `base=${enc(snapshot.base)}&head=${enc(snapshot.head)}&path=${enc(filePath)}`;
+      const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/diff?${query}`);
+      setSelectedChangeDiff(res.diff || null);
+      return res.diff || null;
+    } catch (err) {
+      setSelectedChangeDiff(null);
+      setDiffError(err.message || t("agency.studioDiffUnavailable"));
+      return null;
+    } finally {
+      if (!quiet) setDiffLoading(false);
+    }
+  };
+
+  const loadStudioChanges = async (message, pid = project?.id) => {
+    const fallback = Array.isArray(message?.modifiedFiles) ? [...new Set(message.modifiedFiles)] : [];
+    const base = message?.snapshotBeforeCommit || "";
+    const head = message?.snapshotCommit || "";
+    setDiffFiles([]);
+    setDiffListTruncated(false);
+    setSelectedChangeDiff(null);
+    setDiffError("");
+    if (!base || !head || !orgId || !pid) {
+      setChangeSnapshot(null);
+      setChangedFiles(fallback);
+      setSelectedChangePath(fallback[0] || "");
+      if (fallback.length) setDiffError(t("agency.studioDiffUnavailable"));
+      return;
+    }
+
+    const snapshot = { base, head };
+    setChangeSnapshot(snapshot);
+    setDiffLoading(true);
+    try {
+      const query = `base=${enc(base)}&head=${enc(head)}`;
+      const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/diff?${query}`);
+      const entries = Array.isArray(res.files) ? res.files : [];
+      setDiffFiles(entries);
+      setDiffListTruncated(res.truncated === true);
+      const paths = entries.map((entry) => entry.path);
+      setChangedFiles(paths.length ? paths : fallback);
+      const firstPath = paths[0] || fallback[0] || "";
+      setSelectedChangePath(firstPath);
+      if (firstPath && entries.some((entry) => entry.path === firstPath)) {
+        await loadStudioFileDiff(firstPath, snapshot, pid, { quiet: true });
+      } else if (firstPath) {
+        setDiffError(t("agency.studioDiffUnavailable"));
+      }
+    } catch (err) {
+      setDiffError(err.message || t("agency.studioDiffUnavailable"));
+      setChangedFiles(fallback);
+      setSelectedChangePath(fallback[0] || "");
+    } finally {
+      setDiffLoading(false);
+    }
+  };
+
   const loadFiles = async (preferPath = "", pid = project?.id) => {
     if (!orgId || !pid) {
       setFiles([]);
@@ -246,8 +318,10 @@ export function ProjectStudio({
       const history = Array.isArray(res.messages) ? res.messages : [];
       setMessages(history);
       setPlan(res.plan || null);
-      const latestBuild = [...history].reverse().find((message) => message?.role === "assistant" && Array.isArray(message.modifiedFiles));
-      setChangedFiles(latestBuild?.modifiedFiles || []);
+      const latestBuild = [...history].reverse().find((message) =>
+        message?.role === "assistant" && message?.mode === "build" && Array.isArray(message.modifiedFiles),
+      );
+      await loadStudioChanges(latestBuild, pid);
     } catch {
       setMessages([]);
       setPlan(null);
@@ -319,6 +393,14 @@ export function ProjectStudio({
     setFileQuery("");
     setCollapsedDirs({});
     setOpenTabs([]);
+    setChangedFiles([]);
+    setDiffFiles([]);
+    setSelectedChangePath("");
+    setSelectedChangeDiff(null);
+    setChangeSnapshot(null);
+    setDiffLoading(false);
+    setDiffError("");
+    setDiffListTruncated(false);
     if (!pid) {
       setFiles([]);
       setSelectedPath("");
@@ -472,7 +554,13 @@ export function ProjectStudio({
       }
 
       const modified = Array.isArray(finalPayload?.modifiedFiles) ? finalPayload.modifiedFiles : [];
-      setChangedFiles(modified);
+      if (runMode === "build") {
+        const history = Array.isArray(finalPayload?.state?.messages) ? finalPayload.state.messages : [];
+        const latestBuild = [...history].reverse().find((message) =>
+          message?.role === "assistant" && message?.mode === "build" && Array.isArray(message.modifiedFiles),
+        );
+        await loadStudioChanges(latestBuild, activeProjectId);
+      }
       await loadFiles(modified[0] || "", activeProjectId);
       const ds = await loadDevServer(activeProjectId);
       if (modified.length > 0 || runMode === "build") {
@@ -501,6 +589,12 @@ export function ProjectStudio({
       setMessages([]);
       setPlan(null);
       setChangedFiles([]);
+      setDiffFiles([]);
+      setSelectedChangePath("");
+      setSelectedChangeDiff(null);
+      setChangeSnapshot(null);
+      setDiffError("");
+      setDiffListTruncated(false);
       setLiveSteps([]);
     } catch (err) {
       setError(err.message);
@@ -817,6 +911,9 @@ export function ProjectStudio({
                 <button type="button" class="agency-studio-checkpoint-btn" onClick=${() => openFileInCode(modFiles[0] || "")}>
                   <${Icon} name="code" size="xs" /><span>${t("agency.studioTabCode")}</span>
                 </button>
+                <button type="button" class=${"agency-studio-checkpoint-btn" + (workspaceTab === "changes" ? " active" : "")} onClick=${() => { setWorkspaceTab("changes"); void loadStudioChanges(m); }}>
+                  <${Icon} name="file" size="xs" /><span>${t("agency.studioTabChanges")}</span>
+                </button>
                 <button
                   type="button"
                   class=${"agency-studio-checkpoint-btn" + (workspaceTab === "preview" ? " active" : "")}
@@ -1081,20 +1178,56 @@ export function ProjectStudio({
         <div class="agency-studio-changes-head">
           <div>
             <strong>${t("agency.studioChangesTitle")}</strong>
-            <p>${t("agency.studioNoChanges")}</p>
+            <p>${changeSnapshot ? t("agency.studioDiffTitle") : (diffError || t("agency.studioNoChanges"))}</p>
           </div>
           <span class="agency-count-pill">${changedFiles.length}</span>
         </div>
         ${changedFiles.length > 0
-          ? html`<div class="agency-studio-changes-list">
-              ${changedFiles.map((filePath) => {
-                const exists = files.some((f) => f.path === filePath);
-                return html`<button type="button" class="agency-studio-change-row" disabled=${!exists} onClick=${() => openFileInCode(filePath)} title=${filePath}>
-                  <${Icon} name=${exists ? "file" : "trash"} size="sm" />
-                  <span class="agency-truncate">${filePath}</span>
-                  <small>${exists ? t("agency.studioTabCode") : t("agency.studioFileRemoved")}</small>
-                </button>`;
-              })}
+          ? html`<div class="agency-studio-changes-layout">
+              <div class="agency-studio-changes-list" role="list" aria-label=${t("agency.studioChangesTitle")}>
+                ${changedFiles.map((filePath) => {
+                  const metadata = diffFiles.find((entry) => entry.path === filePath);
+                  const exists = files.some((f) => f.path === filePath);
+                  const status = metadata?.status || (exists ? "modified" : "deleted");
+                  const statusKey = status === "added" ? "studioDiffAdded" : status === "deleted" ? "studioDiffDeleted" : "studioDiffModified";
+                  const selected = selectedChangePath === filePath;
+                  return html`<button type="button" class=${"agency-studio-change-row" + (selected ? " active" : "")} aria-pressed=${selected} onClick=${() => void loadStudioFileDiff(filePath)} title=${filePath}>
+                    <${Icon} name=${status === "deleted" ? "trash" : status === "added" ? "plus" : "file"} size="sm" />
+                    <span class="agency-studio-change-main">
+                      <span class="agency-truncate">${filePath}</span>
+                      <small>${t(`agency.${statusKey}`)}</small>
+                    </span>
+                    ${metadata && !metadata.binary && html`<span class="agency-studio-diff-stats"><b>+${metadata.additions}</b><i>−${metadata.deletions}</i></span>`}
+                  </button>`;
+                })}
+                ${diffListTruncated && html`<small class="agency-studio-diff-note">${t("agency.studioDiffListTruncated")}</small>`}
+              </div>
+              <section class="agency-studio-diff-view" aria-live="polite" aria-label=${t("agency.studioDiffTitle")}>
+                ${diffLoading
+                  ? html`<div class="agency-empty"><${Spinner} /><strong>${t("agency.studioDiffLoading")}</strong></div>`
+                  : diffError
+                    ? html`<div class="agency-empty"><${Icon} name="info" size="lg" /><strong>${diffError}</strong></div>`
+                    : selectedChangeDiff
+                      ? html`<div class="agency-studio-diff-content">
+                          <div class="agency-studio-diff-head">
+                            <div>
+                              <strong class="agency-truncate" title=${selectedChangeDiff.path}>${selectedChangeDiff.path}</strong>
+                              <small>${t(`agency.${selectedChangeDiff.status === "added" ? "studioDiffAdded" : selectedChangeDiff.status === "deleted" ? "studioDiffDeleted" : "studioDiffModified"}`)} · <span class="agency-studio-diff-stats"><b>+${selectedChangeDiff.additions}</b><i>−${selectedChangeDiff.deletions}</i></span></small>
+                            </div>
+                            ${files.some((f) => f.path === selectedChangeDiff.path) && html`<button type="button" class="btn sm" onClick=${() => openFileInCode(selectedChangeDiff.path)}><${Icon} name="code" size="xs" /><span>${t("agency.studioTabCode")}</span></button>`}
+                          </div>
+                          ${selectedChangeDiff.binary
+                            ? html`<div class="agency-empty"><${Icon} name="file" size="lg" /><strong>${t("agency.studioDiffBinary")}</strong></div>`
+                            : html`<div class="agency-studio-diff-code">
+                                ${String(selectedChangeDiff.patch || "").split(/\r?\n/).map((line, index) => {
+                                  const kind = line.startsWith("+++") || line.startsWith("---") || line.startsWith("@@") ? "meta" : line.startsWith("+") ? "add" : line.startsWith("-") ? "remove" : "context";
+                                  return html`<div key=${index} class=${"agency-studio-diff-line " + kind}><code>${line || " "}</code></div>`;
+                                })}
+                              </div>`}
+                          ${selectedChangeDiff.patchTruncated && html`<small class="agency-studio-diff-note">${t("agency.studioDiffPatchTruncated")}</small>`}
+                        </div>`
+                      : html`<div class="agency-empty"><${Icon} name="file" size="lg" /><strong>${t("agency.studioNoDiffSelected")}</strong></div>`}
+              </section>
             </div>`
           : html`<div class="agency-empty"><${Icon} name="file" size="lg" /><strong>${t("agency.studioNoChanges")}</strong></div>`}
       </div>`}
