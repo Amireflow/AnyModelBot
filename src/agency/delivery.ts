@@ -2,6 +2,7 @@ import { AgencyError } from "./errors.js";
 import type {
   AgencyMetrics,
   AgencyMission,
+  Approval,
   ClientFollowUp,
   Contract,
   Lead,
@@ -114,6 +115,7 @@ export interface ComputeAgencyMetricsInput {
   qaChecks: readonly QaCheck[];
   followUps: readonly ClientFollowUp[];
   missions: readonly AgencyMission[];
+  approvals?: readonly Approval[];
 }
 
 export function computeAgencyMetrics(input: ComputeAgencyMetricsInput): AgencyMetrics {
@@ -127,17 +129,39 @@ export function computeAgencyMetrics(input: ComputeAgencyMetricsInput): AgencyMe
     "won",
   ]);
   const leadsQualified = input.leads.filter((l) => qualifiedStages.has(l.stage)).length;
+  const leadsWon = input.leads.filter((l) => l.stage === "won").length;
 
   const sentStatuses = new Set(["sent", "negotiating", "accepted", "rejected"]);
   const quotesSent = input.quotes.filter((q) => sentStatuses.has(q.status)).length;
   const quotesAccepted = input.quotes.filter((q) => q.status === "accepted").length;
-  const contractsSigned = input.contracts.filter((c) => c.status === "signed").length;
+  const signedContracts = input.contracts.filter((c) => c.status === "signed");
+  const contractsSigned = signedContracts.length;
   const signedRevenue =
+    Math.round(signedContracts.reduce((sum, c) => sum + c.totalAmount, 0) * 100) / 100;
+  const collectedDeposits =
     Math.round(
-      input.contracts
-        .filter((c) => c.status === "signed")
-        .reduce((sum, c) => sum + c.totalAmount, 0) * 100,
+      signedContracts
+        .filter((c) => c.depositStatus === "paid")
+        .reduce((sum, c) => sum + c.depositAmount, 0) * 100,
     ) / 100;
+  const outstandingBalance = Math.max(0, Math.round((signedRevenue - collectedDeposits) * 100) / 100);
+  const avgDealSize =
+    contractsSigned > 0 ? Math.round((signedRevenue / contractsSigned) * 100) / 100 : 0;
+
+  const activeQuoteStatuses = new Set(["draft", "pending_approval", "approved", "sent"]);
+  const pipelineValue =
+    Math.round(
+      input.quotes
+        .filter((q) => activeQuoteStatuses.has(q.status))
+        .reduce((sum, q) => sum + q.netTotal, 0) * 100,
+    ) / 100;
+
+  const avgMarginPct =
+    input.quotes.length > 0
+      ? Math.round(
+          (input.quotes.reduce((sum, q) => sum + q.marginPct, 0) / input.quotes.length) * 10,
+        ) / 10
+      : 0;
 
   const projectsDelivered = input.projects.filter(
     (p) => p.deliveredAt !== null || ["delivered", "accepted", "maintenance"].includes(p.status),
@@ -153,7 +177,10 @@ export function computeAgencyMetrics(input: ComputeAgencyMetricsInput): AgencyMe
 
   const quoteAcceptanceRate =
     quotesSent > 0 ? Math.round((quotesAccepted / quotesSent) * 1000) / 10 : 0;
+  const leadToWinRate =
+    input.leads.length > 0 ? Math.round((leadsWon / input.leads.length) * 1000) / 10 : 0;
 
+  const pendingApprovalsCount = (input.approvals ?? []).filter((a) => a.status === "pending").length;
   const pendingFollowUps = input.followUps.filter(
     (f) => f.status === "scheduled" || f.status === "contacted",
   ).length;
@@ -174,6 +201,13 @@ export function computeAgencyMetrics(input: ComputeAgencyMetricsInput): AgencyMe
     quoteAcceptanceRate,
     qaFirstPassRate,
     signedRevenue,
+    pipelineValue,
+    collectedDeposits,
+    outstandingBalance,
+    avgDealSize,
+    leadToWinRate,
+    avgMarginPct,
+    pendingApprovalsCount,
     pendingFollowUps,
     openMissions,
   };

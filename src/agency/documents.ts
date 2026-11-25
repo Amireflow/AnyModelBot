@@ -1,4 +1,4 @@
-import type { Company, Contract, Organization, Quote } from "./types.js";
+import type { Company, Contract, Organization, Project, ProjectDelivery, ProjectLot, QaCheck, Quote } from "./types.js";
 
 export function escapeHtml(value: unknown): string {
   return String(value ?? "")
@@ -342,4 +342,92 @@ export function renderContractDocumentHtml(input: {
   `;
 
   return baseDocumentShell(`${contract.title} — ${contract.id}`, bannerHtml, bodyHtml, lang);
+}
+
+export function renderDeliveryReportHtml(input: {
+  organization: Organization;
+  company?: Company;
+  project: Project;
+  contract?: Contract;
+  lots: readonly ProjectLot[];
+  qaChecks: readonly QaCheck[];
+  deliveries: readonly ProjectDelivery[];
+  lang?: string;
+}): string {
+  const { organization, company, project, contract, lots, qaChecks, deliveries, lang = "fr" } = input;
+  const en = lang.startsWith("en");
+  const latest = deliveries[0];
+  const isAccepted = project.status === "accepted" || project.status === "maintenance" || latest?.status === "accepted";
+  const bannerLabel = isAccepted
+    ? (en ? "CLIENT DELIVERY REPORT — ACCEPTED" : "RAPPORT DE LIVRAISON CLIENT — VALIDÉ")
+    : `${en ? "CLIENT DELIVERY REPORT" : "RAPPORT DE LIVRAISON CLIENT"} — ${project.status.toUpperCase()}`;
+  const bannerHtml = `<div class="banner${isAccepted ? " signed" : ""}">${escapeHtml(bannerLabel)}</div>`;
+
+  const lotsHtml = lots.length
+    ? lots.map((lot) => `<tr>
+        <td><strong>#${escapeHtml(lot.lotOrder)} · ${escapeHtml(lot.title)}</strong>${lot.description ? `<br /><small>${escapeHtml(lot.description)}</small>` : ""}</td>
+        <td>${escapeHtml(lot.ownerRole)}</td>
+        <td>${escapeHtml(lot.status)}</td>
+        <td>${escapeHtml(lot.evidenceSummary || "—")}</td>
+      </tr>`).join("\n")
+    : `<tr><td colspan="4">${en ? "No project lots recorded." : "Aucun lot enregistré."}</td></tr>`;
+
+  const qaHtml = qaChecks.length
+    ? qaChecks.map((check) => `<tr>
+        <td>${escapeHtml(check.category)}</td>
+        <td><strong>${escapeHtml(check.title)}</strong>${check.findings ? `<br /><small>${escapeHtml(check.findings)}</small>` : ""}</td>
+        <td>${escapeHtml(check.status)}</td>
+        <td>${escapeHtml(check.evidence || "—")}</td>
+      </tr>`).join("\n")
+    : `<tr><td colspan="4">${en ? "No QA checks recorded." : "Aucun contrôle QA enregistré."}</td></tr>`;
+
+  const deliveriesHtml = deliveries.length
+    ? `<h2>${en ? "Release History" : "Historique des livraisons"}</h2>
+       <ul>${deliveries.map((d) => `<li><strong>v${escapeHtml(d.version)}</strong> (${escapeHtml(d.status)}) — ${escapeHtml(d.environmentUrl || "workspace")}${d.releaseNotes ? ` : ${escapeHtml(d.releaseNotes)}` : ""}${d.clientFeedback ? ` · ${en ? "Feedback" : "Retour"} : ${escapeHtml(d.clientFeedback)}` : ""}</li>`).join("")}</ul>`
+    : "";
+
+  const bodyHtml = `
+    <header>
+      <div>
+        <h1>${escapeHtml(project.title)}</h1>
+        <p>${en ? "Project" : "Projet"} <code>${escapeHtml(project.id)}</code> · ${escapeHtml(project.targetStack.join(", ") || "standard")}</p>
+      </div>
+      <div style="text-align:right">
+        <strong>${escapeHtml(organization.name)}</strong>
+        <p>${formatMoney(project.budgetAmount, project.currency)} · ${escapeHtml(project.estimatedDays)} ${en ? "d" : "j"}</p>
+        ${latest?.environmentUrl ? `<p>${escapeHtml(latest.environmentUrl)}</p>` : ""}
+      </div>
+    </header>
+    <section class="meta-grid">
+      <div class="card">
+        <strong>${en ? "Agency" : "Agence"}</strong>
+        <small>${escapeHtml(organization.name)}</small>
+        <small>${en ? "Handoff" : "Démarrage"} : ${escapeHtml(formatDate(project.handoffAt, lang))}</small>
+      </div>
+      <div class="card">
+        <strong>${en ? "Client" : "Client"}</strong>
+        <small>${escapeHtml(company?.name || project.leadId)}</small>
+        ${contract ? `<small>${en ? "Contract" : "Contrat"} : ${escapeHtml(contract.id)}</small>` : ""}
+      </div>
+    </section>
+    <h2>${en ? "Scope & Technical Summary" : "Périmètre et spécifications"}</h2>
+    <p>${escapeHtml(project.technicalSpecs || contract?.scopeSummary || "—")}</p>
+    <h2>${en ? "Verified Lots" : "Lots réalisés"}</h2>
+    <table>
+      <thead><tr><th>${en ? "Lot" : "Lot"}</th><th>${en ? "Role" : "Rôle"}</th><th>${en ? "Status" : "Statut"}</th><th>${en ? "Evidence" : "Preuve"}</th></tr></thead>
+      <tbody>${lotsHtml}</tbody>
+    </table>
+    <h2>${en ? "4-Axis QA Verification" : "Contrôle qualité 4 axes"}</h2>
+    <table>
+      <thead><tr><th>${en ? "Axis" : "Axe"}</th><th>${en ? "Check" : "Contrôle"}</th><th>${en ? "Result" : "Résultat"}</th><th>${en ? "Evidence" : "Preuve"}</th></tr></thead>
+      <tbody>${qaHtml}</tbody>
+    </table>
+    ${deliveriesHtml}
+    <footer>
+      <span>${escapeHtml(organization.name)} · ${escapeHtml(project.id)}</span>
+      <span>${en ? "Status" : "Statut"} : ${escapeHtml(project.status)}</span>
+    </footer>
+  `;
+
+  return baseDocumentShell(`${en ? "Delivery Report" : "Rapport de livraison"} — ${project.title}`, bannerHtml, bodyHtml, lang);
 }

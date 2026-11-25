@@ -168,11 +168,16 @@ export interface WhatsAppConfigController {
   clear(organizationId: string): Promise<void>;
 }
 
+export interface EmailConfigController {
+  status(): Record<string, unknown>;
+}
+
 export interface WebContext {
   app: App;
   agency: AgencyService;
   auth?: SupabaseAuthService;
   whatsappConfig?: WhatsAppConfigController;
+  emailConfig?: EmailConfigController;
   /** 监听的地址（判断是不是回环） */
   host: string;
   /** 访问令牌；回环模式下可能为空 */

@@ -201,6 +201,15 @@ export interface CreateCompanyInput {
   city?: string;
 }
 
+export interface UpdateCompanyInput {
+  name?: string;
+  website?: string;
+  industry?: string;
+  countryCode?: string;
+  city?: string;
+  status?: "active" | "archived";
+}
+
 export interface CreateContactInput {
   companyId: string;
   displayName: string;
@@ -210,8 +219,23 @@ export interface CreateContactInput {
   preferredChannel?: string;
 }
 
+export interface UpdateContactInput {
+  displayName?: string;
+  role?: string;
+  email?: string;
+  phone?: string;
+  preferredChannel?: string;
+  status?: "active" | "archived";
+}
+
 export interface CreateLeadInput {
   companyId: string;
+  contactId?: string;
+  source?: string;
+  notes?: string;
+}
+
+export interface UpdateLeadInput {
   contactId?: string;
   source?: string;
   notes?: string;
@@ -604,6 +628,73 @@ export interface CreateQuoteInput {
   validUntil?: number;
 }
 
+export interface UpdateQuoteInput {
+  title?: string;
+  tier?: QuoteTier;
+  lines?: QuoteLineItem[];
+  exclusions?: string[];
+  paymentTerms?: string;
+  discountPct?: number;
+  uncertaintyPct?: number;
+  validUntil?: number;
+}
+
+export type EmailOutboxStatus = "queued" | "sending" | "sent" | "failed" | "cancelled";
+
+export interface EmailOutboxMessage {
+  id: string;
+  organizationId: string;
+  contactId: string;
+  channel: "email";
+  purpose: string;
+  recipient: string;
+  subject: string;
+  bodyText: string;
+  approvalId: string;
+  approvalPayloadHash: string;
+  consentId: string;
+  status: EmailOutboxStatus;
+  providerMessageId: string;
+  failureCode: string;
+  idempotencyKey: string;
+  createdAt: number;
+  updatedAt: number;
+  submittedAt: number;
+}
+
+export interface QueueEmailInput {
+  approvalId: string;
+  idempotencyKey: string;
+  payload: Record<string, unknown>;
+}
+
+export interface ProspectCandidate {
+  name: string;
+  website: string;
+  domain: string;
+  snippet: string;
+  sourceUrl: string;
+  backend: string;
+  duplicateCompanyId?: string;
+}
+
+export interface WebsiteAuditResult {
+  requestedUrl: string;
+  finalUrl: string;
+  statusCode: number;
+  usesHttps: boolean;
+  responseTimeMs: number;
+  title: string;
+  metaDescription: string;
+  hasViewportMeta: boolean;
+  generatorMeta: string;
+  detectedEmails: string[];
+  detectedPhones: string[];
+  socialLinks: string[];
+  issues: string[];
+  observedAt: number;
+}
+
 export type ContractStatus = "draft" | "pending_approval" | "approved" | "sent" | "signed" | "cancelled";
 export type DepositStatus = "unpaid" | "paid";
 
@@ -844,6 +935,13 @@ export interface AgencyMetrics {
   quoteAcceptanceRate: number;
   qaFirstPassRate: number;
   signedRevenue: number;
+  pipelineValue: number;
+  collectedDeposits: number;
+  outstandingBalance: number;
+  avgDealSize: number;
+  leadToWinRate: number;
+  avgMarginPct: number;
+  pendingApprovalsCount: number;
   pendingFollowUps: number;
   openMissions: number;
 }

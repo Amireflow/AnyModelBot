@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { registerSecret } from "../log.js";
 
 export interface WhatsAppSecretConfig {
@@ -14,21 +14,90 @@ export interface WhatsAppSecretConfig {
 }
 
 export interface WhatsAppSecretBox {
+  algorithm?: "electron-safe-storage" | "local-aes-256-gcm";
   status(): Promise<{ available: boolean; backend: string; reason?: string }>;
   encrypt(plaintext: string): Promise<Buffer>;
   decrypt(ciphertext: Buffer): Promise<{ plaintext: string; shouldReEncrypt?: boolean }>;
 }
 
 export interface WhatsAppSecretsVaultStatus {
-  storage: "electron-safe-storage";
+  storage: "electron-safe-storage" | "local-aes-256-gcm";
   backend: string;
   hasStoredSecret: boolean;
 }
 
 interface FileShape {
   version: 1;
-  algorithm: "electron-safe-storage";
+  algorithm: "electron-safe-storage" | "local-aes-256-gcm";
   ciphertext: string;
+}
+
+/**
+ * Local Node AES-256-GCM fallback secret box when running in local web/CLI mode outside Electron.
+ * Uses a 256-bit random key stored separately in `<dataDir>/.whatsapp-vault.key` (mode 0600).
+ */
+export class LocalNodeSecretBox implements WhatsAppSecretBox {
+  readonly algorithm = "local-aes-256-gcm" as const;
+  private readonly keyFile: string;
+
+  constructor(dataDir: string) {
+    this.keyFile = path.join(dataDir, ".whatsapp-vault.key");
+  }
+
+  async status(): Promise<{ available: boolean; backend: string; reason?: string }> {
+    return { available: true, backend: "AES-256-GCM (local vault)" };
+  }
+
+  private getOrCreateKey(): Buffer {
+    if (fs.existsSync(this.keyFile)) {
+      const raw = fs.readFileSync(this.keyFile, "utf8").trim();
+      const key = Buffer.from(raw, "base64");
+      if (key.length !== 32) throw new Error("Local WhatsApp vault key file is corrupted");
+      registerSecret(raw);
+      return key;
+    }
+    fs.mkdirSync(path.dirname(this.keyFile), { recursive: true, mode: 0o700 });
+    const key = randomBytes(32);
+    const b64 = key.toString("base64");
+    registerSecret(b64);
+    const tmp = `${this.keyFile}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+    const fd = fs.openSync(tmp, "wx", 0o600);
+    try {
+      fs.writeFileSync(fd, `${b64}\n`, "utf8");
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, this.keyFile);
+    try { fs.chmodSync(this.keyFile, 0o600); } catch { /* Windows */ }
+    return key;
+  }
+
+  async encrypt(plaintext: string): Promise<Buffer> {
+    const key = this.getOrCreateKey();
+    const iv = randomBytes(12);
+    const cipher = createCipheriv("aes-256-gcm", key, iv);
+    const enc = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return Buffer.concat([iv, tag, enc]);
+  }
+
+  async decrypt(ciphertext: Buffer): Promise<{ plaintext: string; shouldReEncrypt?: boolean }> {
+    if (!fs.existsSync(this.keyFile)) throw new Error("Local WhatsApp vault key is missing");
+    const raw = fs.readFileSync(this.keyFile, "utf8").trim();
+    const key = Buffer.from(raw, "base64");
+    if (key.length !== 32 || ciphertext.length < 29) {
+      throw new Error("Invalid local WhatsApp ciphertext or key");
+    }
+    registerSecret(raw);
+    const iv = ciphertext.subarray(0, 12);
+    const tag = ciphertext.subarray(12, 28);
+    const enc = ciphertext.subarray(28);
+    const decipher = createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+    const plain = Buffer.concat([decipher.update(enc), decipher.final()]).toString("utf8");
+    return { plaintext: plain };
+  }
 }
 
 function requiredString(value: unknown, name: string, min: number, max: number): string {
@@ -78,17 +147,21 @@ export class WhatsAppSecretsFile {
   }
 
   status(): WhatsAppSecretsVaultStatus {
-    let backend="OS secure storage";
-    if (process.platform==="darwin") backend="macOS Keychain";
-    else if (process.platform==="win32") backend="Windows DPAPI";
-    else if (process.platform==="linux") backend="Linux Secret Service";
-    return {storage:"electron-safe-storage",backend,hasStoredSecret:fs.existsSync(this.file)};
+    const storage = this.box.algorithm ?? "electron-safe-storage";
+    let backend = storage === "local-aes-256-gcm" ? "AES-256-GCM (local vault)" : "OS secure storage";
+    if (storage === "electron-safe-storage") {
+      if (process.platform==="darwin") backend="macOS Keychain";
+      else if (process.platform==="win32") backend="Windows DPAPI";
+      else if (process.platform==="linux") backend="Linux Secret Service";
+    }
+    return {storage,backend,hasStoredSecret:fs.existsSync(this.file)};
   }
 
   async get(): Promise<WhatsAppSecretConfig | undefined> {
     if (!fs.existsSync(this.file)) return undefined;
     const raw=JSON.parse(fs.readFileSync(this.file,"utf8")) as Partial<FileShape>;
-    if (raw.version!==1 || raw.algorithm!=="electron-safe-storage" || typeof raw.ciphertext!=="string") {
+    const expectedAlg = this.box.algorithm ?? "electron-safe-storage";
+    if (raw.version!==1 || raw.algorithm!==expectedAlg || typeof raw.ciphertext!=="string") {
       throw new Error("WhatsApp secure credential file has an unsupported format");
     }
     const status=await this.box.status();
@@ -137,7 +210,7 @@ export class WhatsAppSecretsFile {
     if (!status.available) throw new Error(status.reason || "OS secure storage is unavailable; WhatsApp secrets were not saved");
     const ciphertext=await this.box.encrypt(JSON.stringify(config));
     if (!Buffer.isBuffer(ciphertext) || ciphertext.length<16) throw new Error("OS secure storage returned invalid ciphertext");
-    const shape:FileShape={version:1,algorithm:"electron-safe-storage",ciphertext:ciphertext.toString("base64")};
+    const shape:FileShape={version:1,algorithm:this.box.algorithm ?? "electron-safe-storage",ciphertext:ciphertext.toString("base64")};
     const directory=path.dirname(this.file);
     fs.mkdirSync(directory,{recursive:true,mode:0o700});
     const temporary=this.file+"."+process.pid+"."+randomBytes(6).toString("hex")+".tmp";

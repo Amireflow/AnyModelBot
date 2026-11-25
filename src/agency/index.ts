@@ -14,3 +14,8 @@ export * from "./orchestrator.js";
 export * from "./documents.js";
 export * from "./workspace-runner.js";
 export * from "./commercial-ai.js";
+export * from "./email-outbox.js";
+export * from "./prospecting.js";
+export * from "./delivery-package.js";
+export * from "./qa-auditor.js";
+export * from "./studio.js";

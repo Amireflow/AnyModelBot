@@ -13,8 +13,29 @@ import type {
 } from "../../agency/types.js";
 import { HttpError, readJson, send, webEvent, type Route, type WebContext } from "../http.js";
 import { CompanyResearchImportError, findActiveCompanyResearchJob, listCompanyResearchJobs, loadCompanyResearchSources } from "../../agency/company-research-import.js";
-import { renderContractDocumentHtml, renderQuoteDocumentHtml } from "../../agency/documents.js";
-import { suggestCommercialReply } from "../../agency/commercial-ai.js";
+import { renderContractDocumentHtml, renderDeliveryReportHtml, renderQuoteDocumentHtml } from "../../agency/documents.js";
+import {
+  estimateQuoteFromNeeds,
+  extractNeedsFromConversation,
+  runAgencyCopilot,
+  suggestCommercialReply,
+} from "../../agency/commercial-ai.js";
+import { buildProjectZipArchive } from "../../agency/delivery-package.js";
+import { auditWebsiteSafely, prospectWebCompanies } from "../../agency/prospecting.js";
+import { runFourAxisQaAudit } from "../../agency/qa-auditor.js";
+import {
+  deleteWorkspaceFile,
+  listWorkspaceFiles,
+  planProjectLotsWithAi,
+  readWorkspaceFile,
+  resolveStudioPreviewAsset,
+  runStudioAiAgent,
+  runStudioCommand,
+  scaffoldProjectTemplate,
+  writeWorkspaceFile,
+  type StudioCommandAction,
+  type StudioTemplateId,
+} from "../../agency/studio.js";
 import {
   executeAgencyMission,
   initProjectWorkspace,
@@ -29,6 +50,7 @@ const ERROR_STATUS: Record<string, number> = {
   INVALID_TRANSITION:409, CONSENT_REQUIRED:409, APPROVAL_EXPIRED:409,
   APPROVAL_ALREADY_DECIDED:409, APPROVAL_PAYLOAD_MISMATCH:409, ORGANIZATION_SUSPENDED:423,
   WHATSAPP_NOT_CONFIGURED:503, WHATSAPP_PROVIDER_ERROR:502, WHATSAPP_SUBMISSION_UNKNOWN:409,
+  EMAIL_NOT_CONFIGURED:503, EMAIL_PROVIDER_ERROR:502,
 };
 
 function routeError(error: unknown): never {
@@ -39,7 +61,8 @@ function isLlmConfigured(ctx: WebContext): boolean {
   if (!ctx.app?.models) return false;
   const ext = ctx.app.config?.magpie?.externalBaseUrl?.trim();
   if (ext) return true;
-  return Boolean(ctx.app.magpie?.modelflareInfo?.().connected);
+  if (ctx.app.magpie?.modelflareInfo?.().connected) return true;
+  return !ctx.app.magpie && !ctx.app.config?.magpie;
 }
 function sendHtmlDocument(
   res: Parameters<Route>[1],
@@ -231,7 +254,70 @@ export function agencyRoutes(ctx: WebContext): Route {
         return send(res,200,{message});
       }
 
+      if (seg[2]==="email" && seg.length===4 && seg[3]==="status" && method==="GET") {
+        service.getOrganization(organizationId,actor);
+        return send(res,200,ctx.emailConfig?.status() ?? { configured:false, provider:"none", from:"", replyTo:"" });
+      }
+      if (seg[2]==="email" && seg.length===4 && seg[3]==="outbox") {
+        if (method==="GET") return send(res,200,{items:service.listEmailOutbox(organizationId,actor,queryInteger(url,"limit",100))});
+        if (method==="POST") {
+          const body=await readObject(req);
+          if (!body.payload || typeof body.payload!=="object" || Array.isArray(body.payload)) throw new HttpError(400,"payload must be an object");
+          const message=service.queueEmailMessage(organizationId,actor,{
+            approvalId:body.approvalId as string,
+            idempotencyKey:body.idempotencyKey as string,
+            payload:body.payload as Record<string,unknown>,
+          });
+          return send(res,201,{message});
+        }
+        throw new HttpError(405,"Method not allowed");
+      }
+      if (seg[2]==="email" && seg.length===6 && seg[3]==="outbox" && seg[5]==="send" && method==="POST") {
+        const messageId=decodeSegment(seg[4],"message id");
+        const message=await service.dispatchEmailMessage(organizationId,actor,messageId);
+        return send(res,200,{message});
+      }
+
+      if (seg[2]==="audit") {
+        if (seg.length===3 && method==="GET") {
+          return send(res,200,{items:service.listAuditFiltered(organizationId,actor,{
+            action:url.searchParams.get("action")??undefined,
+            entityType:url.searchParams.get("entityType")??undefined,
+            limit:queryInteger(url,"limit",100),
+          })});
+        }
+        if (seg.length===4 && seg[3]==="verify" && method==="GET") {
+          return send(res,200,{verification:service.verifyAudit(organizationId,actor)});
+        }
+      }
+
+      if (seg[2]==="prospecting" && seg.length===4 && seg[3]==="search" && method==="POST") {
+        service.getOrganization(organizationId,actor);
+        const body=await readObject(req);
+        const query=typeof body.query==="string" ? body.query.trim() : "";
+        if (!query) throw new HttpError(400,"Prospecting search query is required");
+        const items=await prospectWebCompanies({
+          search:ctx.app?.search,
+          query,
+          industry:typeof body.industry==="string" ? body.industry : undefined,
+          city:typeof body.city==="string" ? body.city : undefined,
+          countryCode:typeof body.countryCode==="string" ? body.countryCode : undefined,
+          maxResults:body.maxResults==null ? undefined : Number(body.maxResults),
+          findDuplicate:(name,website) => service.findDuplicateCompanies(organizationId,actor,name,website)[0]?.id,
+        });
+        return send(res,200,{items,query});
+      }
+
       if (seg[2]==="companies") {
+        if (seg.length===4 && seg[3]==="duplicates" && method==="GET") {
+          const items=service.findDuplicateCompanies(
+            organizationId,
+            actor,
+            url.searchParams.get("name")??"",
+            url.searchParams.get("website")??"",
+          );
+          return send(res,200,{items});
+        }
         if (seg.length===3 && method==="GET") {
           const filters: CompanySearchFilters={
             query:url.searchParams.get("q")??undefined,industry:url.searchParams.get("industry")??undefined,
@@ -251,6 +337,40 @@ export function agencyRoutes(ctx: WebContext): Route {
         }
         if (seg.length===4 && method==="GET") {
           return send(res,200,{company:service.getCompany(organizationId,actor,decodeSegment(seg[3],"company id"))});
+        }
+        if (seg.length===4 && method==="PATCH") {
+          const companyId=decodeSegment(seg[3],"company id");
+          const body=await readObject(req);
+          return send(res,200,{company:service.updateCompany(organizationId,actor,companyId,{
+            name:body.name as string|undefined,
+            website:body.website as string|undefined,
+            industry:body.industry as string|undefined,
+            countryCode:body.countryCode as string|undefined,
+            city:body.city as string|undefined,
+            status:body.status as "active"|"archived"|undefined,
+          })});
+        }
+        if (seg.length===5 && seg[4]==="website-audit" && method==="POST") {
+          const companyId=decodeSegment(seg[3],"company id");
+          const company=service.getCompany(organizationId,actor,companyId);
+          const body=await readObject(req);
+          const targetUrl=(typeof body.url==="string" && body.url.trim()) ? body.url.trim() : company.website;
+          const audited=await auditWebsiteSafely({ url:targetUrl });
+          let evidence=null;
+          let assessment=null;
+          if (body.recordEvidence!==false) {
+            evidence=service.addEvidence(organizationId,actor,{
+              companyId,
+              evidenceType:"website_audit",
+              sourceUrl:audited.audit.finalUrl,
+              summary:audited.evidenceSummary,
+              contentHash:audited.contentHash,
+              confidence:audited.confidence,
+              observedAt:audited.audit.observedAt,
+            });
+            assessment=service.assessCompanyResearch(organizationId,actor,companyId);
+          }
+          return send(res,200,{...audited,evidence,assessment});
         }
         if (seg.length===5 && seg[4]==="qualification" && method==="GET") {
           const companyId=decodeSegment(seg[3],"company id");
@@ -396,11 +516,25 @@ export function agencyRoutes(ctx: WebContext): Route {
         }
       }
 
-      if (seg[2]==="contacts" && seg.length===3 && method==="GET") {
-        const filters: ContactSearchFilters={query:url.searchParams.get("q")??undefined,
-          status:(url.searchParams.get("status")??undefined) as ContactSearchFilters["status"],
-          limit:queryInteger(url,"limit",50),offset:queryInteger(url,"offset",0)};
-        return send(res,200,service.searchContacts(organizationId,actor,filters));
+      if (seg[2]==="contacts") {
+        if (seg.length===3 && method==="GET") {
+          const filters: ContactSearchFilters={query:url.searchParams.get("q")??undefined,
+            status:(url.searchParams.get("status")??undefined) as ContactSearchFilters["status"],
+            limit:queryInteger(url,"limit",50),offset:queryInteger(url,"offset",0)};
+          return send(res,200,service.searchContacts(organizationId,actor,filters));
+        }
+        if (seg.length===4 && method==="PATCH") {
+          const contactId=decodeSegment(seg[3],"contact id");
+          const body=await readObject(req);
+          return send(res,200,{contact:service.updateContact(organizationId,actor,contactId,{
+            displayName:body.displayName as string|undefined,
+            role:body.role as string|undefined,
+            email:body.email as string|undefined,
+            phone:body.phone as string|undefined,
+            preferredChannel:body.preferredChannel as string|undefined,
+            status:body.status as "active"|"archived"|undefined,
+          })});
+        }
       }
 
       if (seg[2]==="leads") {
@@ -418,6 +552,15 @@ export function agencyRoutes(ctx: WebContext): Route {
             source:body.source as string|undefined,notes:body.notes as string|undefined,
           });
           return send(res,201,{lead});
+        }
+        if (seg.length===4 && method==="PATCH") {
+          const leadId=decodeSegment(seg[3],"lead id");
+          const body=await readObject(req);
+          return send(res,200,{lead:service.updateLead(organizationId,actor,leadId,{
+            contactId:body.contactId as string|undefined,
+            source:body.source as string|undefined,
+            notes:body.notes as string|undefined,
+          })});
         }
         if (seg.length===5 && seg[4]==="stage" && method==="PATCH") {
           const leadId=decodeSegment(seg[3],"lead id");
@@ -489,6 +632,25 @@ export function agencyRoutes(ctx: WebContext): Route {
           });
           return send(res,200,suggestion);
         }
+        if (seg.length===5 && seg[4]==="extract-needs" && method==="POST") {
+          const convId=decodeSegment(seg[3],"conversation id");
+          const org=service.getOrganization(organizationId,actor);
+          const conversation=service.getConversation(organizationId,actor,convId);
+          const lead=service.getLead(organizationId,actor,conversation.leadId);
+          const company=service.getCompany(organizationId,actor,lead.companyId);
+          const messages=service.listConversationMessages(organizationId,actor,convId,50);
+          const result=await extractNeedsFromConversation({
+            organization:org,
+            company,
+            lead,
+            conversation,
+            messages,
+            modelClient:ctx.app?.models,
+            defaultModel:ctx.app?.config?.llm?.defaultModel,
+            hasLlmEndpoint:isLlmConfigured(ctx),
+          });
+          return send(res,200,result);
+        }
       }
 
       if (seg[2]==="catalog") {
@@ -544,6 +706,43 @@ export function agencyRoutes(ctx: WebContext): Route {
           const body=await readObject(req);
           return send(res,200,{tiers:service.previewTieredProposals(organizationId,actor,body.catalogItemId as string)});
         }
+        if (seg.length===4 && seg[3]==="estimate" && method==="POST") {
+          const body=await readObject(req);
+          const leadId=typeof body.leadId==="string" ? body.leadId.trim() : "";
+          if (!leadId) throw new HttpError(400,"leadId is required");
+          const org=service.getOrganization(organizationId,actor);
+          const lead=service.getLead(organizationId,actor,leadId);
+          const company=service.getCompany(organizationId,actor,lead.companyId);
+          const needs=service.getNeedsQualification(organizationId,actor,leadId);
+          const catalog=service.listCatalogItems(organizationId,actor,true);
+          const rules=service.getCommercialRules(organizationId,actor);
+          const estimate=await estimateQuoteFromNeeds({
+            organization:org,
+            company,
+            lead,
+            needs,
+            catalog,
+            rules,
+            modelClient:ctx.app?.models,
+            defaultModel:ctx.app?.config?.llm?.defaultModel,
+            hasLlmEndpoint:isLlmConfigured(ctx),
+          });
+          return send(res,200,estimate);
+        }
+        if (seg.length===4 && method==="PATCH") {
+          const quoteId=decodeSegment(seg[3],"quote id");
+          const body=await readObject(req);
+          return send(res,200,service.updateQuoteDraft(organizationId,actor,quoteId,{
+            title:body.title as string|undefined,
+            tier:body.tier as QuoteTier|undefined,
+            lines:body.lines as QuoteLineItem[]|undefined,
+            exclusions:body.exclusions as string[]|undefined,
+            paymentTerms:body.paymentTerms as string|undefined,
+            discountPct:body.discountPct == null ? undefined : Number(body.discountPct),
+            uncertaintyPct:body.uncertaintyPct == null ? undefined : Number(body.uncertaintyPct),
+            validUntil:body.validUntil as number|undefined,
+          }));
+        }
         if (seg.length===5) {
           const quoteId=decodeSegment(seg[3],"quote id");
           if (seg[4]==="document" && method==="GET") {
@@ -560,6 +759,18 @@ export function agencyRoutes(ctx: WebContext): Route {
             return sendHtmlDocument(res,`${quote.id}.html`,html,url.searchParams.get("download")==="1");
           }
           const body=await readObject(req);
+          if (seg[4]==="revise" && method==="POST") {
+            return send(res,201,service.reviseQuote(organizationId,actor,quoteId,{
+              title:body.title as string|undefined,
+              tier:body.tier as QuoteTier|undefined,
+              lines:body.lines as QuoteLineItem[]|undefined,
+              exclusions:body.exclusions as string[]|undefined,
+              paymentTerms:body.paymentTerms as string|undefined,
+              discountPct:body.discountPct == null ? undefined : Number(body.discountPct),
+              uncertaintyPct:body.uncertaintyPct == null ? undefined : Number(body.uncertaintyPct),
+              validUntil:body.validUntil as number|undefined,
+            }));
+          }
           if (seg[4]==="negotiate" && method==="POST") {
             return send(res,200,{evaluation:service.evaluateQuoteNegotiation(organizationId,actor,quoteId,Number(body.requestedDiscountPct))});
           }
@@ -686,6 +897,166 @@ export function agencyRoutes(ctx: WebContext): Route {
             });
             return send(res,201,{check,run});
           }
+          if (seg.length===5 && seg[4]==="auto-plan" && method==="POST") {
+            const project=service.getProject(organizationId,actor,projectId);
+            const contract=service.getContract(organizationId,actor,project.contractId);
+            const body=await readObject(req);
+            const planned=await planProjectLotsWithAi({
+              project,
+              contract,
+              modelClient:ctx.app?.models,
+              defaultModel:ctx.app?.config?.llm?.defaultModel,
+              hasLlmEndpoint:isLlmConfigured(ctx),
+            });
+            const createdLots=[];
+            if (body.apply!==false) {
+              for (const item of planned.lots) {
+                createdLots.push(service.createProjectLot(organizationId,actor,projectId,item));
+              }
+            }
+            return send(res,201,{lots:createdLots,planned:planned.lots,mode:planned.mode});
+          }
+          if (seg.length===5 && seg[4]==="qa-audit" && method==="POST") {
+            const project=service.getProject(organizationId,actor,projectId);
+            const contract=service.getContract(organizationId,actor,project.contractId);
+            const lots=service.listProjectLots(organizationId,actor,projectId);
+            const audit=await runFourAxisQaAudit({
+              dataDir:ctx.app?.config?.dataDir ?? process.cwd(),
+              project,
+              contract,
+              lots,
+            });
+            const checks=audit.items.map((item) => service.recordQaCheck(organizationId,actor,projectId,{
+              category:item.category,
+              title:item.title,
+              status:item.status,
+              evidence:item.evidence,
+              findings:item.findings,
+            }));
+            return send(res,201,{checks,reportPath:audit.reportPath,summary:audit.summary});
+          }
+          if (seg.length===5 && seg[4]==="delivery-report" && method==="GET") {
+            const org=service.getOrganization(organizationId,actor);
+            const project=service.getProject(organizationId,actor,projectId);
+            const lead=service.getLead(organizationId,actor,project.leadId);
+            const company=service.getCompany(organizationId,actor,lead.companyId);
+            const contract=service.getContract(organizationId,actor,project.contractId);
+            const lots=service.listProjectLots(organizationId,actor,projectId);
+            const qaChecks=service.listQaChecks(organizationId,actor,projectId);
+            const deliveries=service.listDeliveries(organizationId,actor,projectId);
+            const html=renderDeliveryReportHtml({
+              organization:org,
+              company,
+              project,
+              contract,
+              lots,
+              qaChecks,
+              deliveries,
+              lang:ctx.app?.config?.ui?.lang || "fr",
+            });
+            return sendHtmlDocument(res,`${project.id}-delivery-report.html`,html,url.searchParams.get("download")==="1");
+          }
+          if (seg.length===5 && seg[4]==="package.zip" && method==="GET") {
+            const org=service.getOrganization(organizationId,actor);
+            const project=service.getProject(organizationId,actor,projectId);
+            const lead=service.getLead(organizationId,actor,project.leadId);
+            const company=service.getCompany(organizationId,actor,lead.companyId);
+            const contract=service.getContract(organizationId,actor,project.contractId);
+            const lots=service.listProjectLots(organizationId,actor,projectId);
+            const qaChecks=service.listQaChecks(organizationId,actor,projectId);
+            const deliveries=service.listDeliveries(organizationId,actor,projectId);
+            const pkg=buildProjectZipArchive({
+              dataDir:ctx.app?.config?.dataDir ?? process.cwd(),
+              organization:org,
+              company,
+              project,
+              contract,
+              lots,
+              qaChecks,
+              deliveries,
+              lang:ctx.app?.config?.ui?.lang || "fr",
+            });
+            res.writeHead(200,{
+              "content-type":"application/zip",
+              "cache-control":"no-store",
+              "x-content-type-options":"nosniff",
+              "content-disposition":`attachment; filename="${pkg.filename}"`,
+            });
+            res.end(pkg.buffer);
+            return;
+          }
+          if (seg.length>=6 && seg[4]==="studio") {
+            const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
+            const project=service.getProject(organizationId,actor,projectId);
+            if (seg.length===6 && seg[5]==="files" && method==="GET") {
+              return send(res,200,{items:listWorkspaceFiles(dataDir,project)});
+            }
+            if (seg.length===6 && seg[5]==="file") {
+              if (method==="GET") {
+                const rel=url.searchParams.get("path") ?? "";
+                return send(res,200,readWorkspaceFile(dataDir,project,rel));
+              }
+              if (method==="PUT") {
+                const body=await readObject(req);
+                return send(res,200,writeWorkspaceFile(dataDir,project,String(body.path ?? ""),String(body.content ?? "")));
+              }
+              if (method==="DELETE") {
+                const rel=url.searchParams.get("path") ?? "";
+                return send(res,200,deleteWorkspaceFile(dataDir,project,rel));
+              }
+            }
+            if (seg.length===6 && seg[5]==="scaffold" && method==="POST") {
+              const body=await readObject(req);
+              const contract=service.getContract(organizationId,actor,project.contractId);
+              const lots=service.listProjectLots(organizationId,actor,projectId);
+              const resScaffold=scaffoldProjectTemplate({
+                dataDir,
+                project,
+                contract,
+                lots,
+                template:String(body.template || "vitrine-html") as StudioTemplateId,
+              });
+              return send(res,201,resScaffold);
+            }
+            if (seg.length===6 && seg[5]==="run" && method==="POST") {
+              const body=await readObject(req);
+              const resRun=await runStudioCommand({
+                dataDir,
+                project,
+                action:String(body.action || "npm_test") as StudioCommandAction,
+              });
+              return send(res,200,resRun);
+            }
+            if (seg.length===6 && seg[5]==="ai-agent" && method==="POST") {
+              const body=await readObject(req);
+              const lot=typeof body.lotId==="string" && body.lotId.trim()
+                ? service.listProjectLots(organizationId,actor,projectId).find((l) => l.id===body.lotId)
+                : undefined;
+              const agentRes=await runStudioAiAgent({
+                dataDir,
+                project,
+                instruction:String(body.instruction ?? ""),
+                lot,
+                maxSteps:body.maxSteps==null ? undefined : Number(body.maxSteps),
+                modelClient:ctx.app?.models,
+                defaultModel:ctx.app?.config?.llm?.defaultModel,
+                hasLlmEndpoint:isLlmConfigured(ctx),
+              });
+              return send(res,200,agentRes);
+            }
+            if (seg[5]==="preview" && method==="GET") {
+              const relPath=seg.length>6 ? seg.slice(6).map((s) => decodeURIComponent(s)).join("/") : "index.html";
+              const asset=resolveStudioPreviewAsset(dataDir,project,relPath);
+              res.writeHead(200,{
+                "content-type":asset.mimeType,
+                "cache-control":"no-store",
+                "x-content-type-options":"nosniff",
+                "content-security-policy":"default-src 'self' 'unsafe-inline' data: blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'",
+              });
+              res.end(asset.data);
+              return;
+            }
+          }
           if (seg.length>=5 && seg[4]==="lots") {
             if (seg.length===5 && method==="GET") {
               return send(res,200,{items:service.listProjectLots(organizationId,actor,projectId)});
@@ -809,6 +1180,54 @@ export function agencyRoutes(ctx: WebContext): Route {
           const body=await readObject(req);
           return send(res,200,{followUp:service.updateFollowUpStatus(organizationId,actor,followUpId,body.status as FollowUpStatus,body.outcome as string ?? "")});
         }
+        if (seg.length===5 && seg[4]==="convert-opportunity" && method==="POST") {
+          const followUpId=decodeSegment(seg[3],"follow-up id");
+          const body=await readObject(req);
+          return send(res,201,service.convertFollowUpToOpportunity(organizationId,actor,followUpId,{
+            source:body.source as string|undefined,
+            notes:body.notes as string|undefined,
+          }));
+        }
+      }
+
+      if (seg[2]==="copilot" && seg.length===3 && method==="POST") {
+        const org=service.getOrganization(organizationId,actor);
+        const body=await readObject(req);
+        const tab=typeof body.tab==="string" ? body.tab : "operations";
+        const question=typeof body.question==="string" ? body.question : "";
+        const companyId=typeof body.companyId==="string" ? body.companyId.trim() : "";
+        const leadId=typeof body.leadId==="string" ? body.leadId.trim() : "";
+        const projectId=typeof body.projectId==="string" ? body.projectId.trim() : "";
+        const company=companyId ? service.getCompany(organizationId,actor,companyId) : undefined;
+        const lead=leadId ? service.getLead(organizationId,actor,leadId) : undefined;
+        const needs=lead ? service.getNeedsQualification(organizationId,actor,lead.id) : undefined;
+        const quotes=lead ? service.listQuotes(organizationId,actor,lead.id) : undefined;
+        const project=projectId ? service.getProject(organizationId,actor,projectId) : undefined;
+        const lots=project ? service.listProjectLots(organizationId,actor,project.id) : undefined;
+        const qaChecks=project ? service.listQaChecks(organizationId,actor,project.id) : undefined;
+        const result=await runAgencyCopilot({
+          organization:org,
+          dashboard:service.dashboard(organizationId,actor),
+          metrics:service.getMetrics(organizationId,actor),
+          tab,
+          question,
+          company,
+          lead,
+          needs,
+          quotes,
+          project,
+          lots,
+          qaChecks,
+          modelClient:ctx.app?.models,
+          defaultModel:ctx.app?.config?.llm?.defaultModel,
+          hasLlmEndpoint:isLlmConfigured(ctx),
+        });
+        return send(res,200,result);
+      }
+
+      if (seg[2]==="execution-node" && seg.length===3 && method==="GET") {
+        service.getOrganization(organizationId,actor);
+        return send(res,200,{status:ctx.app?.executionNode?.status?.() ?? null});
       }
 
       if (seg[2]==="missions") {

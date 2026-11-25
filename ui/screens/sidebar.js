@@ -144,8 +144,6 @@ export function AccountButton({ account, authUser, onLogout, onSettings, update,
         ${profileFailed && html`<button type="button" role="menuitem" onClick=${retryProfile}><span class="menu-icon"><${Icon} name="refresh" size="md" /></span><span class="menu-label">${t("account.profile.reload")}</span></button>`}
         <button type="button" role="menuitem" onClick=${() => { setOpen(false); onSettings?.(); }}>
           <span class="menu-icon"><${Icon} name="gear" size="md" /></span><span class="menu-label">${t("sidebar.settings")}</span><kbd>${isMac ? "⌘," : "Ctrl+,"}</kbd></button>
-        <button type="button" role="menuitem" onClick=${() => { setOpen(false); onApps?.(); }}>
-          <span class="menu-icon"><${Icon} name="link" size="md" /></span><span class="menu-label">${t("apps.menu")}</span>${appsAttention && html`<span class="dot warn" title=${t("apps.attention")}></span>`}</button>
         ${authUser && onLogout && html`<hr /><button type="button" role="menuitem" class="danger" onClick=${() => { setOpen(false); onLogout(); }}>
           <span class="menu-icon"><${Icon} name="logout" size="md" /></span><span class="menu-label">${t("auth.signOut")}</span></button>`}
       </div>
@@ -167,15 +165,17 @@ export function SideActions({ collapsed, bots, onToggleSide, onOpenSearch, onNew
     <${IconButton} icon="plus" iconSize="md" class="side-new" label=${t("sidebar.newMenu")} on=${!!newMenu} aria-haspopup="menu" aria-expanded=${!!newMenu}
       onClick=${(e) => { const el = e.currentTarget; setNewMenu((m) => (m ? null : el)); }} />
     ${newMenu && html`<${Menu} anchor=${newMenu} align=${collapsed ? undefined : "right"} label=${t("sidebar.newMenu")} onClose=${() => setNewMenu(null)}
-      items=${[
-        ...(onAgency ? [
+      items=${onAgency
+        ? [
           { label: t("agency.newCompany"), icon: "folder", onSelect: () => onAgency("companies") },
           { label: t("agency.newLead"), icon: "user", onSelect: () => onAgency("leads") },
-          { label: t("agency.missionsTitle"), icon: "spark", onSelect: () => onAgency("operations") },
-        ] : []),
-        { label: t("sidebar.newBotItem"), icon: "chat", kbd: isMac ? "⌘N" : "Ctrl+N", onSelect: onNew },
-        ...(canGroup ? [{ label: t("sidebar.newGroupItem"), icon: "chats", onSelect: onNewGroup }] : []),
-      ]} />`}`;
+          { label: t("agency.newQuote"), icon: "wallet", onSelect: () => onAgency("commercial") },
+          { label: t("agency.missionsTitle"), icon: "spark", onSelect: () => onAgency("projects") },
+        ]
+        : [
+          { label: t("sidebar.newBotItem"), icon: "chat", kbd: isMac ? "⌘N" : "Ctrl+N", onSelect: onNew },
+          ...(canGroup ? [{ label: t("sidebar.newGroupItem"), icon: "chats", onSelect: onNewGroup }] : []),
+        ]} />`}`;
 }
 
 /** 侧栏收起后：三个按钮浮在主区左上角，保持展开、搜索、新建的顺序。 */
@@ -455,6 +455,7 @@ export function Sidebar({ bots, botsError, reloadBots, selectedId, view, agencyT
         ["commercial", "agency.commercial", "wallet"],
         ["catalog", "agency.catalog", "clipboardCheck"],
         ["projects", "agency.projects", "spark"],
+        ["copilot", "agency.copilot", "chat"],
       ].map(([id, key, icon]) => {
         const active = agencyOn && (agencyTab || "operations") === id;
         return html`<button type="button" key=${id} class=${`nav-item${active ? " sel" : ""}`} aria-current=${active ? "page" : undefined} onClick=${() => onAgency?.(id)}>
@@ -462,15 +463,12 @@ export function Sidebar({ bots, botsError, reloadBots, selectedId, view, agencyT
         </button>`;
       })}
       <div class="side-nav-sep" aria-hidden="true"></div>
-      <${ScheduledButton} active=${view === "scheduled"} />
-      ${onOpenApps && html`<button type="button" class=${`nav-item${view === "apps" ? " sel" : ""}`} aria-current=${view === "apps" ? "page" : undefined} onClick=${onOpenApps}>
-        <${Icon} name="link" size="md" /><span class="label">${t("apps.menu")}</span>
-      </button>`}
       <button type="button" class=${`nav-item${view === "settings" ? " sel" : ""}`} aria-current=${view === "settings" ? "page" : undefined} onClick=${() => onOpenSettings?.()}>
         <${Icon} name="gear" size="md" /><span class="label">${t("sidebar.settings")}</span>
       </button>
       <${NeedsRow} count=${needs.n} on=${view === "needs"} onClick=${onNeeds} />
     </div>
+    ${["chat", "group", "bot-settings", "new"].includes(view) && html`
     <nav class="side-list" aria-label=${t("sidebar.list")} hidden=${!((bots && bots.length > 0) || groups.length > 0 || view === "new")} style=${!((bots && bots.length > 0) || groups.length > 0 || view === "new") ? "display:none" : undefined} onDragLeave=${(e) => drag && !e.currentTarget.contains(e.relatedTarget) && setDrop(null)}>
       ${sections.map((s) => {
         const rows = rowsIn(s);
@@ -512,7 +510,8 @@ export function Sidebar({ bots, botsError, reloadBots, selectedId, view, agencyT
         </div>`;
       })}
     </nav>
-    ${bots && bots.length > 0 && html`<${GuidePill} onGo=${onGuide} />`}
+    `}
+    ${["chat", "app"].includes(view) && bots && bots.length > 0 && html`<${GuidePill} onGo=${onGuide} />`}
     <div class="side-foot"><${AccountButton} username=${username} account=${account} authUser=${authUser} onLogout=${onLogout} update=${update} onUpdateChanged=${onUpdateChanged} onSettings=${() => onOpenSettings()} onModelflare=${() => onOpenSettings("modelflare")} /></div>
     ${ctx && html`<${Menu} anchor=${ctx.el || { left: ctx.x, right: ctx.x, top: ctx.y, bottom: ctx.y, width: 0 }} align=${ctx.el ? "right" : undefined}
       width=${200} label=${t("sidebar.actionsFor", { name: ctx.bot.name })} onClose=${() => setCtx(null)}

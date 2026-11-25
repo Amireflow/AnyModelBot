@@ -40,8 +40,14 @@ import { mySkillsRoutes } from "./routes/my-skills.js";
 import { FilePreviews } from "./file-previews.js";
 import { AgencyStore } from "../agency/store.js";
 import { AgencyService } from "../agency/service.js";
+import { EnvEmailSender } from "../agency/email-outbox.js";
 import { WhatsAppCloudApiClient, type WhatsAppCloudApiConfig } from "../agency/whatsapp-cloud.js";
-import { normalizeWhatsAppSecretConfig, type WhatsAppSecretConfig } from "../agency/whatsapp-secrets.js";
+import {
+  LocalNodeSecretBox,
+  WhatsAppSecretsFile,
+  normalizeWhatsAppSecretConfig,
+  type WhatsAppSecretConfig,
+} from "../agency/whatsapp-secrets.js";
 import { agencyRoutes } from "./routes/agency.js";
 import { SupabaseAuthService } from "../auth/supabase.js";
 import { authRoutes } from "./routes/auth.js";
@@ -121,7 +127,26 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
   }
   const whatsappCloud = new WhatsAppCloudApiClient(whatsappEnvironmentConfig);
   const whatsappEnvironmentConfigured=whatsappCloud.isConfigured(whatsappEnvironmentConfig.organizationId);
-  const whatsappVault=app.desktop?.whatsappSecrets;
+  const whatsappVault=app.desktop?.whatsappSecrets ?? WhatsAppSecretsFile.at(cfg.dataDir, new LocalNodeSecretBox(cfg.dataDir));
+
+  // Read email credentials once, register secrets for log redaction, then strip from process.env.
+  const emailEnv = {
+    resendApiKey: process.env.AGENCY_EMAIL_RESEND_API_KEY || process.env.AGENCY_EMAIL_API_KEY,
+    fromAddress: process.env.AGENCY_EMAIL_FROM,
+    webhookUrl: process.env.AGENCY_EMAIL_WEBHOOK_URL,
+    webhookSecret: process.env.AGENCY_EMAIL_WEBHOOK_SECRET,
+  };
+  for (const secretName of [
+    "AGENCY_EMAIL_RESEND_API_KEY", "AGENCY_EMAIL_API_KEY", "AGENCY_EMAIL_WEBHOOK_SECRET",
+    "AGENCY_EMAIL_PROVIDER", "AGENCY_EMAIL_FROM", "AGENCY_EMAIL_REPLY_TO", "AGENCY_EMAIL_WEBHOOK_URL",
+  ]) {
+    const secret = process.env[secretName];
+    if (secret && ["AGENCY_EMAIL_RESEND_API_KEY", "AGENCY_EMAIL_API_KEY", "AGENCY_EMAIL_WEBHOOK_SECRET"].includes(secretName)) {
+      registerSecret(secret);
+    }
+    delete process.env[secretName];
+  }
+  const emailSender = new EnvEmailSender(emailEnv);
   let whatsappVaultConfig:WhatsAppSecretConfig|undefined;
   let whatsappVaultLoaded=false;
   let whatsappVaultLoading:Promise<void>|undefined;
@@ -247,7 +272,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
       whatsappConfigSource="none";
     },
   };
-  const agency = new AgencyService(agencyStore,{whatsapp:whatsappSender});
+  const agency = new AgencyService(agencyStore,{whatsapp:whatsappSender,email:emailSender});
   const auth = new SupabaseAuthService({ dataDir: cfg.dataDir, config: cfg });
   const uiDir = path.join(findAppRoot(), "ui");
   const vendor = vendorFiles();
@@ -423,6 +448,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
     agency,
     auth,
     whatsappConfig:whatsappConfigController,
+    emailConfig:{ status: () => emailSender.status() },
     host,
     token,
     usesCatalog,

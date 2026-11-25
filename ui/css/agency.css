@@ -177,6 +177,29 @@
 .agency-stage-filters button{min-height:var(--ctl-sm);padding:0 var(--space-3);border-radius:var(--r-ctl);background:var(--well);color:var(--muted);font-size:var(--fs-xs)}
 .agency-stage-filters button.active{background:var(--card);color:var(--fg);box-shadow:var(--shadow-float)}
 .agency-role-grid{display:flex;flex-wrap:wrap;gap:var(--space-1)}
+.agency-kanban{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--space-3);align-items:start}
+.agency-kanban-col{display:grid;gap:var(--space-2);padding:var(--space-3);border-radius:var(--r-card);background:var(--well);min-width:0}
+.agency-kanban-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2)}
+.agency-kanban-head strong{font-size:var(--fs-sm)}
+.agency-copilot{display:grid;gap:var(--space-3)}
+.agency-copilot-thread{display:grid;gap:var(--space-2);max-height:420px;overflow:auto}
+.agency-copilot-msg{display:grid;gap:var(--space-1);padding:var(--space-3);border-radius:var(--r-item);background:var(--card)}
+.agency-copilot-msg.user{background:var(--side-active)}
+.agency-copilot-msg pre{margin:0;white-space:pre-wrap;font-family:inherit;font-size:var(--fs-sm)}
+.agency-copilot-form{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
+.agency-copilot-form .field{flex:1;min-width:200px}
+.agency-studio{display:grid;gap:var(--space-3)}
+.agency-studio-grid{display:grid;grid-template-columns:220px minmax(0,1fr);gap:var(--space-3);align-items:start}
+.agency-studio-tree{display:grid;gap:var(--space-2);padding:var(--space-3);border-radius:var(--r-item);background:var(--card);max-height:360px;overflow:auto}
+.agency-studio-file-list{display:grid;gap:var(--space-0-5)}
+.agency-studio-file{text-align:start;padding:var(--space-1) var(--space-2);border-radius:var(--r-item-sm);font-size:var(--fs-xs);color:var(--muted);overflow-wrap:anywhere}
+.agency-studio-file.active,.agency-studio-file:hover{background:var(--well);color:var(--fg)}
+.agency-studio-editor{display:grid;gap:var(--space-2);padding:var(--space-3);border-radius:var(--r-item);background:var(--card);min-width:0}
+.agency-studio-textarea{width:100%;min-height:280px;resize:vertical;font-size:var(--fs-xs)}
+.agency-studio-preview{display:grid;gap:var(--space-2);padding:var(--space-3);border-radius:var(--r-item);background:var(--card)}
+.agency-studio-frame{width:100%;height:420px;border:0;border-radius:var(--r-item-sm);background:var(--bg)}
+.agency-studio-frame.mobile{width:390px;max-width:100%;justify-self:center}
+@media(max-width:760px){.agency-studio-grid{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:760px){.agency-commercial-grid,.agency-projects-grid,.agency-ops-grid{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:760px){.agency-whatsapp-workflow-grid{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:620px){.agency-consent-form{grid-template-columns:minmax(0,1fr)}.agency-contact-manage .agency-contact-row{align-items:flex-start;flex-wrap:wrap}.agency-whatsapp-item-head{align-items:flex-start;flex-direction:column}}

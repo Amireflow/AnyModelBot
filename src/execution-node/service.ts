@@ -30,7 +30,7 @@ export interface LocalExecutionNodeOptions {
 
 interface RemoteTaskRequest {
   id: string;
-  kind: "flowauto";
+  kind: "flowauto" | "agency_lot" | "agency_qa";
   title: string;
   instruction: string;
 }
@@ -61,6 +61,21 @@ export function buildFlowAutoBrief(instruction: string): string {
   // TaskService clips assistant briefs at 1,500 characters. Fail closed rather than silently
   // dropping the safety rules or truncating the owner's request.
   if (brief.length > 1_500) throw new Error("FlowAuto execution policy does not fit in the task brief.");
+  return brief;
+}
+
+const AGENCY_TASK_POLICY = [
+  "Scope: Agency project delivery or 4-axis QA inside the assigned workspace only.",
+  "Safety: Never read secrets/credentials outside the workspace, never bypass approvals, and record factual verification evidence.",
+].join("\n");
+
+export function buildAgencyTaskBrief(kind: "agency_lot" | "agency_qa", instruction: string): string {
+  const request = instruction.trim();
+  if (Buffer.byteLength(request, "utf8") > 1_000) {
+    throw new Error("Agency task instruction must not exceed 1000 UTF-8 bytes.");
+  }
+  const brief = `AGENCY ${kind === "agency_qa" ? "QA" : "LOT"} REQUEST:\n${request}\n\n${AGENCY_TASK_POLICY}`;
+  if (brief.length > 1_500) throw new Error("Agency execution policy does not fit in the task brief.");
   return brief;
 }
 
@@ -468,7 +483,7 @@ export class LocalExecutionNode {
         platform: process.platform,
         arch: process.arch,
         bot_id: this.botId,
-        capabilities: ["flowauto", "computer-use-approval"],
+        capabilities: ["flowauto", "computer-use-approval", "agency_lot", "agency_qa"],
         state: this.state,
         at: Date.now(),
       });
@@ -622,7 +637,9 @@ export class LocalExecutionNode {
     const kind = value.kind;
     const title = typeof value.title === "string" ? clip(value.title, 60) : "";
     const instruction = typeof value.instruction === "string" ? value.instruction.trim() : "";
-    if (!hasRemoteId || kind !== "flowauto" || !title || !instruction || Buffer.byteLength(instruction, "utf8") > 500) {
+    const supportedKind = kind === "flowauto" || kind === "agency_lot" || kind === "agency_qa";
+    const maxInstructionBytes = kind === "flowauto" ? 500 : 1_000;
+    if (!hasRemoteId || !supportedKind || !title || !instruction || Buffer.byteLength(instruction, "utf8") > maxInstructionBytes) {
       reject("INVALID_TASK");
       return;
     }
@@ -645,10 +662,10 @@ export class LocalExecutionNode {
     }
     let brief: string;
     try {
-      brief = buildFlowAutoBrief(instruction);
+      brief = kind === "flowauto" ? buildFlowAutoBrief(instruction) : buildAgencyTaskBrief(kind, instruction);
     } catch (error) {
-      const reason = clip((error as Error).message || "FlowAuto safety policy could not be assembled.", 300);
-      this.send({ type: "task.rejected", task_id: remoteId, code: "FLOWAUTO_POLICY_INVALID", message: reason });
+      const reason = clip((error as Error).message || "Execution safety policy could not be assembled.", 300);
+      this.send({ type: "task.rejected", task_id: remoteId, code: kind === "flowauto" ? "FLOWAUTO_POLICY_INVALID" : "AGENCY_POLICY_INVALID", message: reason });
       return;
     }
     const now = Date.now();
@@ -658,7 +675,8 @@ export class LocalExecutionNode {
     const workspace = path.resolve(this.o.workspace(this.botId));
     fs.mkdirSync(workspace, { recursive: true });
     const peerId = `execution-node-${crypto.createHash("sha256").update(this.id + ":" + remoteId).digest("hex").slice(0, 16)}`;
-    const conversation = this.o.store.ensureConversation(this.botId, "web", peerId, `FlowAuto · ${title}`);
+    const convPrefix = kind === "flowauto" ? "FlowAuto" : kind === "agency_qa" ? "Agency QA" : "Agency Lot";
+    const conversation = this.o.store.ensureConversation(this.botId, "web", peerId, `${convPrefix} · ${title}`);
     const marker = `[Execution Node task ${remoteId}]`;
     const alreadyRecorded = this.o.store.listMessages(conversation.id, 10).some((item) => item.role === "user" && item.content.startsWith(marker));
     if (!alreadyRecorded) this.o.store.addMessage(conversation.id, "user", `${marker}\n${instruction}`);
@@ -666,7 +684,7 @@ export class LocalExecutionNode {
       id: localId,
       botId: this.botId,
       conversationId: conversation.id,
-      title: `FlowAuto: ${title}`,
+      title: `${convPrefix}: ${title}`,
       brief,
       budgetUsd: TASK_BUDGET_USD,
       anytime: false,

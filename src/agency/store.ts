@@ -7,9 +7,9 @@ import type {
   Approval, ApprovalAction, ApprovalStatus, AuditEvent, ClientFollowUp,
   CommercialChannel, CommercialConversation, CommercialRules, CommercialSignal,
   Company, ConsentRecord, Contact, Contract, ContractStatus, ConversationMessage,
-  ConversationStatus, DeliveryStatus, DepositStatus, Evidence, FollowUpStatus,
-  FollowUpType, Lead, LeadStage, Membership, MessageDirection, NeedsQualification,
-  Organization, OrganizationStatus, Project, ProjectDelivery, ProjectLot,
+  ConversationStatus, DeliveryStatus, DepositStatus, EmailOutboxMessage, EmailOutboxStatus,
+  Evidence, FollowUpStatus, FollowUpType, Lead, LeadStage, Membership, MessageDirection,
+  NeedsQualification, Organization, OrganizationStatus, Project, ProjectDelivery, ProjectLot,
   ProjectLotStatus, ProjectStatus, QaCategory, QaCheck, QaCheckStatus,
   QualificationProfile, Quote, QuoteLineItem, QuoteStatus, QuoteTier,
   ResearchDomain, ScopeChange, ScopeChangeStatus, ServiceCatalogItem, SolutionType,
@@ -638,6 +638,62 @@ CREATE TABLE IF NOT EXISTS agency_missions (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS agency_missions_org_status ON agency_missions(organization_id, status, updated_at);
+
+CREATE TABLE IF NOT EXISTS agency_email_outbox (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES agency_organizations(id),
+  contact_id TEXT NOT NULL REFERENCES agency_contacts(id),
+  channel TEXT NOT NULL CHECK(channel='email'),
+  purpose TEXT NOT NULL,
+  recipient TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  body_text TEXT NOT NULL,
+  approval_id TEXT NOT NULL REFERENCES agency_approvals(id),
+  approval_payload_hash TEXT NOT NULL,
+  consent_id TEXT NOT NULL REFERENCES agency_consents(id),
+  status TEXT NOT NULL CHECK(status IN ('queued','sending','sent','failed','cancelled')),
+  provider_message_id TEXT NOT NULL DEFAULT '',
+  failure_code TEXT NOT NULL DEFAULT '',
+  idempotency_key TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  submitted_at INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(organization_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS agency_email_outbox_org_status ON agency_email_outbox(organization_id, status, created_at);
+CREATE TRIGGER IF NOT EXISTS agency_email_outbox_tenant_guard_insert
+BEFORE INSERT ON agency_email_outbox
+WHEN NOT EXISTS (SELECT 1 FROM agency_contacts WHERE id=NEW.contact_id AND organization_id=NEW.organization_id)
+  OR NOT EXISTS (
+    SELECT 1 FROM agency_consents
+    WHERE id=NEW.consent_id AND organization_id=NEW.organization_id AND contact_id=NEW.contact_id
+      AND channel=NEW.channel AND purpose=NEW.purpose AND status='granted'
+      AND source<>'' AND length(proof)>=8 AND text_version<>''
+      AND (expires_at=0 OR expires_at>NEW.created_at)
+      AND NOT EXISTS (
+        SELECT 1 FROM agency_consents newer
+        WHERE newer.organization_id=agency_consents.organization_id
+          AND newer.contact_id=agency_consents.contact_id
+          AND newer.channel=agency_consents.channel AND newer.purpose=agency_consents.purpose
+          AND newer.rowid>agency_consents.rowid
+      )
+  )
+  OR NOT EXISTS (
+    SELECT 1 FROM agency_approvals
+    WHERE id=NEW.approval_id AND organization_id=NEW.organization_id
+      AND action='send_message' AND resource_type='email_message' AND resource_id=NEW.contact_id
+      AND status='approved' AND payload_hash=NEW.approval_payload_hash
+      AND (expires_at=0 OR expires_at>NEW.created_at)
+  )
+BEGIN SELECT RAISE(ABORT, 'agency email outbox invariant failed'); END;
+CREATE TRIGGER IF NOT EXISTS agency_email_outbox_no_delete
+BEFORE DELETE ON agency_email_outbox
+BEGIN SELECT RAISE(ABORT, 'agency email outbox records are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS agency_email_outbox_payload_immutable
+BEFORE UPDATE OF organization_id,contact_id,channel,purpose,recipient,subject,body_text,
+  approval_id,approval_payload_hash,consent_id,idempotency_key,created_at
+ON agency_email_outbox
+BEGIN SELECT RAISE(ABORT, 'agency email message payload is immutable'); END;
 `;
 
 function text(row: Row, key: string): string { return String(row[key] ?? ""); }
@@ -971,6 +1027,29 @@ function agencyMissionOf(r: Row): AgencyMission {
   };
 }
 
+function emailOutboxOf(r: Row): EmailOutboxMessage {
+  return {
+    id: text(r, "id"),
+    organizationId: text(r, "organization_id"),
+    contactId: text(r, "contact_id"),
+    channel: "email",
+    purpose: text(r, "purpose"),
+    recipient: text(r, "recipient"),
+    subject: text(r, "subject"),
+    bodyText: text(r, "body_text"),
+    approvalId: text(r, "approval_id"),
+    approvalPayloadHash: text(r, "approval_payload_hash"),
+    consentId: text(r, "consent_id"),
+    status: text(r, "status") as EmailOutboxStatus,
+    providerMessageId: text(r, "provider_message_id"),
+    failureCode: text(r, "failure_code"),
+    idempotencyKey: text(r, "idempotency_key"),
+    createdAt: number(r, "created_at"),
+    updatedAt: number(r, "updated_at"),
+    submittedAt: number(r, "submitted_at"),
+  };
+}
+
 export class AgencyStore {
   readonly db: DatabaseSync;
 
@@ -1002,6 +1081,8 @@ export class AgencyStore {
     this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(6, ?)").run(Date.now());
     // v7 adds contract-to-production handoff, project lots, scope changes, QA checks, deliveries, follow-ups, and multi-agent missions.
     this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(7, ?)").run(Date.now());
+    // v8 adds governed outbound email outbox.
+    this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(8, ?)").run(Date.now());
   }
 
   close(): void { this.db.close(); }
@@ -1042,15 +1123,26 @@ export class AgencyStore {
     return row ? membershipOf(row) : undefined;
   }
 
-  findCompanyDuplicate(orgId: string, normalized: string, website: string): Company | undefined {
-    const row=this.db.prepare("SELECT * FROM agency_companies WHERE organization_id=? AND status='active' AND ((? <> '' AND website=? ) OR normalized_name=?) ORDER BY created_at LIMIT 1")
-      .get(orgId,website,website,normalized) as Row|undefined;
+  findCompanyDuplicate(orgId: string, normalized: string, website: string, excludeId = ""): Company | undefined {
+    const row=this.db.prepare("SELECT * FROM agency_companies WHERE organization_id=? AND status='active' AND id<>? AND ((? <> '' AND website=? ) OR (? <> '' AND normalized_name=?)) ORDER BY created_at LIMIT 1")
+      .get(orgId,excludeId,website,website,normalized,normalized) as Row|undefined;
     return row ? companyOf(row) : undefined;
+  }
+  findCompanyDuplicates(orgId: string, normalized: string, website: string): Company[] {
+    if (!normalized && !website) return [];
+    const rows=this.db.prepare("SELECT * FROM agency_companies WHERE organization_id=? AND ((? <> '' AND website=?) OR (? <> '' AND normalized_name=?)) ORDER BY updated_at DESC LIMIT 20")
+      .all(orgId,website,website,normalized,normalized) as Row[];
+    return rows.map(companyOf);
   }
   insertCompany(v: Company): Company {
     this.db.prepare("INSERT INTO agency_companies(id,organization_id,name,normalized_name,website,industry,country_code,city,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
       .run(v.id,v.organizationId,v.name,v.normalizedName,v.website,v.industry,v.countryCode,v.city,v.status,v.createdAt,v.updatedAt);
     return v;
+  }
+  updateCompany(v: Company): Company {
+    this.db.prepare("UPDATE agency_companies SET name=?,normalized_name=?,website=?,industry=?,country_code=?,city=?,status=?,updated_at=? WHERE organization_id=? AND id=?")
+      .run(v.name,v.normalizedName,v.website,v.industry,v.countryCode,v.city,v.status,v.updatedAt,v.organizationId,v.id);
+    return this.getCompany(v.organizationId,v.id)!;
   }
   getCompany(orgId: string, id: string): Company | undefined {
     const row=this.db.prepare("SELECT * FROM agency_companies WHERE organization_id=? AND id=?").get(orgId,id) as Row|undefined;
@@ -1079,6 +1171,11 @@ export class AgencyStore {
     this.db.prepare("INSERT INTO agency_contacts(id,organization_id,company_id,display_name,role,email,phone,preferred_channel,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
       .run(v.id,v.organizationId,v.companyId,v.displayName,v.role,v.email,v.phone,v.preferredChannel,v.status,v.createdAt,v.updatedAt);
     return v;
+  }
+  updateContact(v: Contact): Contact {
+    this.db.prepare("UPDATE agency_contacts SET display_name=?,role=?,email=?,phone=?,preferred_channel=?,status=?,updated_at=? WHERE organization_id=? AND id=?")
+      .run(v.displayName,v.role,v.email,v.phone,v.preferredChannel,v.status,v.updatedAt,v.organizationId,v.id);
+    return this.getContact(v.organizationId,v.id)!;
   }
   getContact(orgId: string, id: string): Contact | undefined {
     const row=this.db.prepare("SELECT * FROM agency_contacts WHERE organization_id=? AND id=?").get(orgId,id) as Row|undefined;
@@ -1140,6 +1237,11 @@ export class AgencyStore {
   updateLeadStage(orgId: string, id: string, stage: LeadStage, now: number): Lead | undefined {
     this.db.prepare("UPDATE agency_leads SET stage=?,updated_at=? WHERE organization_id=? AND id=?").run(stage,now,orgId,id);
     return this.getLead(orgId,id);
+  }
+  updateLead(v: Lead): Lead {
+    this.db.prepare("UPDATE agency_leads SET contact_id=?,source=?,notes=?,updated_at=? WHERE organization_id=? AND id=?")
+      .run(v.contactId || null,v.source,v.notes,v.updatedAt,v.organizationId,v.id);
+    return this.getLead(v.organizationId,v.id)!;
   }
 
   findEvidenceByHash(orgId: string, companyId: string, contentHash: string): Evidence | undefined {
@@ -1325,6 +1427,13 @@ export class AgencyStore {
   listAudit(orgId: string, limit = 100): AuditEvent[] {
     return (this.db.prepare("SELECT * FROM (SELECT * FROM agency_audit_events WHERE organization_id=? ORDER BY sequence DESC LIMIT ?) ORDER BY sequence ASC")
       .all(orgId,limit) as Row[]).map(auditOf);
+  }
+  listAuditFiltered(orgId: string, filters: { action?: string; entityType?: string; limit: number }): AuditEvent[] {
+    const clauses=["organization_id=?"], args: string[]=[orgId];
+    if (filters.action) { clauses.push("instr(lower(action),lower(?))>0"); args.push(filters.action); }
+    if (filters.entityType) { clauses.push("entity_type=?"); args.push(filters.entityType); }
+    return (this.db.prepare(`SELECT * FROM agency_audit_events WHERE ${clauses.join(" AND ")} ORDER BY sequence DESC LIMIT ?`)
+      .all(...args,filters.limit) as Row[]).map(auditOf);
   }
   listEntityAudit(orgId: string, filters: { entityType?: string; entityId?: string; limit: number }): AuditEvent[] {
     const clauses=["organization_id=?"], args: string[]=[orgId];
@@ -1527,6 +1636,20 @@ export class AgencyStore {
   updateQuoteStatus(orgId: string, id: string, status: QuoteStatus, approvalId: string, now: number): Quote | undefined {
     this.db.prepare("UPDATE agency_quotes SET status=?,approval_id=?,updated_at=? WHERE organization_id=? AND id=?").run(status,approvalId,now,orgId,id);
     return this.getQuote(orgId,id);
+  }
+  updateQuoteDraft(v: Quote): Quote {
+    this.db.prepare(`
+      UPDATE agency_quotes
+      SET title=?,tier=?,lines_json=?,exclusions_json=?,payment_terms=?,delivery_days=?,discount_pct=?,
+          subtotal=?,discount_amount=?,net_total=?,estimated_cost=?,gross_margin=?,margin_pct=?,
+          range_low=?,range_high=?,valid_until=?,updated_at=?
+      WHERE organization_id=? AND id=? AND status='draft'
+    `).run(
+      v.title,v.tier,JSON.stringify(v.lines),JSON.stringify(v.exclusions),v.paymentTerms,v.deliveryDays,
+      v.discountPct,v.subtotal,v.discountAmount,v.netTotal,v.estimatedCost,v.grossMargin,v.marginPct,
+      v.rangeLow,v.rangeHigh,v.validUntil,v.updatedAt,v.organizationId,v.id,
+    );
+    return this.getQuote(v.organizationId,v.id)!;
   }
 
   insertContract(v: Contract): Contract {
@@ -1832,6 +1955,44 @@ export class AgencyStore {
       id,
     );
     return this.getMission(orgId, id);
+  }
+  insertEmailOutbox(v: EmailOutboxMessage): EmailOutboxMessage {
+    this.db.prepare(`
+      INSERT INTO agency_email_outbox(
+        id,organization_id,contact_id,channel,purpose,recipient,subject,body_text,
+        approval_id,approval_payload_hash,consent_id,status,provider_message_id,failure_code,
+        idempotency_key,created_at,updated_at,submitted_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      v.id,v.organizationId,v.contactId,v.channel,v.purpose,v.recipient,v.subject,v.bodyText,
+      v.approvalId,v.approvalPayloadHash,v.consentId,v.status,v.providerMessageId,v.failureCode,
+      v.idempotencyKey,v.createdAt,v.updatedAt,v.submittedAt,
+    );
+    return v;
+  }
+  getEmailOutbox(orgId: string, id: string): EmailOutboxMessage | undefined {
+    const row=this.db.prepare("SELECT * FROM agency_email_outbox WHERE organization_id=? AND id=?").get(orgId,id) as Row|undefined;
+    return row ? emailOutboxOf(row) : undefined;
+  }
+  findEmailOutboxByIdempotency(orgId: string, key: string): EmailOutboxMessage | undefined {
+    const row=this.db.prepare("SELECT * FROM agency_email_outbox WHERE organization_id=? AND idempotency_key=?").get(orgId,key) as Row|undefined;
+    return row ? emailOutboxOf(row) : undefined;
+  }
+  listEmailOutbox(orgId: string, limit = 100): EmailOutboxMessage[] {
+    const rows=this.db.prepare("SELECT * FROM agency_email_outbox WHERE organization_id=? ORDER BY created_at DESC LIMIT ?").all(orgId,limit) as Row[];
+    return rows.map(emailOutboxOf);
+  }
+  updateEmailOutbox(
+    orgId: string, id: string, expectedStatus: EmailOutboxStatus,
+    status: EmailOutboxStatus, now: number,
+    providerMessageId = "", failureCode = "", submittedAt = 0,
+  ): boolean {
+    const result=this.db.prepare(`
+      UPDATE agency_email_outbox
+      SET status=?,provider_message_id=?,failure_code=?,updated_at=?,submitted_at=?
+      WHERE organization_id=? AND id=? AND status=?
+    `).run(status,providerMessageId,failureCode,now,submittedAt,orgId,id,expectedStatus);
+    return Number(result.changes) === 1;
   }
 }
 

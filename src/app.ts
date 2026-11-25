@@ -1050,10 +1050,14 @@ export class App {
     // 同一个数据目录只能有一个宿主（两个调度器会把规则跑两遍、两个渠道连接抢同一个微信）：桌面版另有单实例锁
     this.lock ??= lockDataDir(this.config.dataDir);
     if (this.magpie) {
-      try {
-        await this.magpie.start();
-      } catch (e) {
-        this.notice("warn", t("app.magpie_failed", { message: (e as Error).message }));
+      if (!this.magpie.binPath) {
+        log.info("magpie binary not present; skipping optional local gateway startup");
+      } else {
+        try {
+          await this.magpie.start();
+        } catch (e) {
+          this.notice("warn", t("app.magpie_failed", { message: (e as Error).message }));
+        }
       }
     }
     this.agent.start();

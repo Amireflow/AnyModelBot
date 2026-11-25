@@ -93,7 +93,7 @@ function initDatabase(db) {
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
       node_id TEXT NOT NULL REFERENCES nodes(id),
-      kind TEXT NOT NULL CHECK(kind = 'flowauto'),
+      kind TEXT NOT NULL CHECK(kind IN ('flowauto','agency_lot','agency_qa')),
       title TEXT NOT NULL,
       instruction TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'queued',
@@ -126,6 +126,36 @@ function initDatabase(db) {
     );
     CREATE INDEX IF NOT EXISTS events_created ON events(created_at);
   `);
+  const tasksSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get();
+  if (tasksSchema?.sql && String(tasksSchema.sql).includes("CHECK(kind = 'flowauto')")) {
+    db.exec(`
+      PRAGMA foreign_keys = OFF;
+      BEGIN IMMEDIATE;
+      CREATE TABLE tasks_v2 (
+        id TEXT PRIMARY KEY,
+        node_id TEXT NOT NULL REFERENCES nodes(id),
+        kind TEXT NOT NULL CHECK(kind IN ('flowauto','agency_lot','agency_qa')),
+        title TEXT NOT NULL,
+        instruction TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'queued',
+        summary TEXT NOT NULL DEFAULT '',
+        artifacts TEXT NOT NULL DEFAULT '[]',
+        local_task_id TEXT NOT NULL DEFAULT '',
+        cancel_requested INTEGER NOT NULL DEFAULT 0,
+        last_dispatch_at INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        completed_at INTEGER NOT NULL DEFAULT 0
+      );
+      INSERT INTO tasks_v2(id,node_id,kind,title,instruction,status,summary,artifacts,local_task_id,cancel_requested,last_dispatch_at,created_at,updated_at,completed_at)
+        SELECT id,node_id,kind,title,instruction,status,summary,artifacts,local_task_id,cancel_requested,last_dispatch_at,created_at,updated_at,completed_at FROM tasks;
+      DROP TABLE tasks;
+      ALTER TABLE tasks_v2 RENAME TO tasks;
+      CREATE INDEX IF NOT EXISTS tasks_node_status ON tasks(node_id, status, created_at);
+      COMMIT;
+      PRAGMA foreign_keys = ON;
+    `);
+  }
   const taskColumns = new Set(db.prepare("PRAGMA table_info(tasks)").all().map((column) => column.name));
   if (!taskColumns.has("artifacts")) db.exec("ALTER TABLE tasks ADD COLUMN artifacts TEXT NOT NULL DEFAULT '[]'");
   const approvalColumns = new Set(db.prepare("PRAGMA table_info(approvals)").all().map((column) => column.name));
@@ -594,13 +624,19 @@ export function createControlPlaneServer(options = {}) {
           const node = db.prepare("SELECT * FROM nodes WHERE id = ?").get(nodeId);
           if (!node) return json(res, 404, { error: "Execution node not found. Connect the workstation first." });
           if (node.desired_state === "revoked") return json(res, 409, { error: "This node is revoked and must be paired locally again." });
-          if (kind !== "flowauto" || !title || !instruction || Buffer.byteLength(instruction, "utf8") > 500) {
-            return json(res, 400, { error: "A FlowAuto task requires a title and an instruction of at most 500 UTF-8 bytes." });
+          const allowedKinds = new Set(["flowauto", "agency_lot", "agency_qa"]);
+          const maxBytes = kind === "flowauto" ? 500 : 1_000;
+          if (!allowedKinds.has(kind) || !title || !instruction || Buffer.byteLength(instruction, "utf8") > maxBytes) {
+            return json(res, 400, {
+              error: kind === "flowauto"
+                ? "A FlowAuto task requires a title and an instruction of at most 500 UTF-8 bytes."
+                : "An Agency task requires a title and an instruction of at most 1000 UTF-8 bytes.",
+            });
           }
           const id = crypto.randomUUID();
           const now = Date.now();
-          db.prepare("INSERT INTO tasks(id,node_id,kind,title,instruction,status,created_at,updated_at) VALUES(?,?, 'flowauto', ?, ?, 'queued', ?, ?)")
-            .run(id, nodeId, title, instruction, now, now);
+          db.prepare("INSERT INTO tasks(id,node_id,kind,title,instruction,status,created_at,updated_at) VALUES(?,?,?,?,?,'queued',?,?)")
+            .run(id, nodeId, kind, title, instruction, now, now);
           logEvent(nodeId, id, "task.created");
           void dispatchPending(nodeId, true);
           const row = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);

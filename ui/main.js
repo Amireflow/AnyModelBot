@@ -66,14 +66,11 @@ function parseHash() {
   if (kind === "new") return { view: "new", query };
   if (kind === "templates") return { view: a ? "template-preview" : "templates", catalogId: a };
   if (kind === "needs") return { view: "needs" };
-  if (kind === "agency") return { view: "agency", tab: ["operations", "companies", "leads", "commercial", "catalog", "projects"].includes(a) ? a : "operations" };
-  if (kind === "discover") return { view: "discover" };
-  if (kind === "scheduled") return { view: "scheduled", sub: a === "library" ? "library" : "" };
-  if (kind === "apps") return { view: "apps", tab: a === "connected" ? "connected" : "all" };
-  if (kind === "skills") return { view: "apps", tab: "skills" };
+  if (kind === "agency") return { view: "agency", tab: ["operations", "companies", "leads", "commercial", "catalog", "projects", "copilot"].includes(a) ? a : "operations" };
+  if (kind === "discover" || kind === "scheduled" || kind === "apps" || kind === "skills") return { view: "agency", tab: "operations" };
   if (kind === "app" && a) return { view: "app", botId: a };
   if (kind === "preview" && a) return { view: "preview", catalogId: a };
-  if (kind === "models") return { view: "settings", tab: "modelflare", row: "" }; // 旧链接
+  if (kind === "models") return { view: "settings", tab: "modelflare", row: "" };
   if (!kind) return { view: "agency", tab: "operations" };
   return { view: "chat", botId: kind === "chat" ? a : "", ...focus };
 }
@@ -689,26 +686,14 @@ function App() {
   // keys：搜索用的关键词（不显示），两种语言的词典各有一份
   const setLang = (l) => changeLang(l).then(() => toast(t("common.saved"))).catch(failed);
   const commands = [
-    { label: t("scheduled.command"), keys: "定时 规则 提醒 routine schedule rule", run: openScheduled }, // i18n-ignore: multilingual command search keywords
-    { label: t("scheduled.newRule"), keys: "新规则 new routine schedule rule", run: newRule }, // i18n-ignore: multilingual command search keywords
-    { label: t("routines.library"), keys: "任务库 定时任务 模板 library routine routines task templates", run: () => openLibrary() }, // i18n-ignore: multilingual command search keywords
-    ...library.tasks.filter((x) => !x.hidden).map((x) => ({ label: t("routines.paletteTask", { task: x.title }), keys: x.search, searchOnly: true, run: () => openRoutine(x.id) })),
-    { label: t("search.title"), kbd: isMac ? "⌘⇧F" : "Ctrl+Shift+F", keys: t("search.commandKeys"), run: () => openSearch() },
-    { label: t("app.cmd.settings"), kbd: isMac ? "⌘," : "Ctrl+,", keys: t("app.cmd.settingsKeys"), run: () => openSettings() },
-    { label: t("templates.title"), keys: "template role 模板 角色", run: () => openTemplates() }, // i18n-ignore: search aliases
-    { label: t("app.cmd.newBot"), kbd: isMac ? "⌘N" : "Ctrl+N", keys: t("app.cmd.newBotKeys"), run: newBot },
-    ...(needs.n > 0 ? [{ label: t("app.cmd.needs", { count: needs.n }), keys: t("app.cmd.needsKeys"), run: openNeeds }] : []),
-    ...(["operations", "companies", "leads", "commercial", "catalog", "projects"].map((tab) => ({
-      label: t(`agency.tabs.${tab}`),
+    ...(["operations", "companies", "leads", "commercial", "catalog", "projects", "copilot"].map((tab) => ({
+      label: t(`agency.${tab}`),
       keys: `agency ${tab}`,
       run: () => openAgency(tab),
     }))),
-    { label: t("apps.menu"), keys: t("apps.commandKeys"), run: () => openApps() },
-    ...(panelKind !== "resources" || resources.items.length ? [{ label: panelOpen ? t("app.cmd.closeInfo") : t("app.cmd.openInfo"), kbd: isMac ? "⌘⇧I" : "Ctrl+Shift+I", keys: t("app.cmd.infoKeys"), run: togglePanel }] : []),
-    // 任务和规则在当前机器人右侧面板的「任务」标签里
-    ...(bot ? [{ label: t("app.cmd.tasks"), keys: t("app.cmd.tasksKeys"), run: () => openTasks(bot) }] : []),
-    ...(bot ? [{ label: t("app.cmd.botSettings", { name: bot.name }), keys: t("app.cmd.botSettingsKeys"), run: () => openBotSettings(bot.id) }] : []),
-    { label: t("app.cmd.modelflare"), keys: t("app.cmd.modelflareKeys"), run: () => openSettings("modelflare") },
+    { label: t("search.title"), kbd: isMac ? "⌘⇧F" : "Ctrl+Shift+F", keys: t("search.commandKeys"), run: () => openSearch() },
+    { label: t("app.cmd.settings"), kbd: isMac ? "⌘," : "Ctrl+,", keys: t("app.cmd.settingsKeys"), run: () => openSettings() },
+    ...(needs.n > 0 ? [{ label: t("app.cmd.needs", { count: needs.n }), keys: t("app.cmd.needsKeys"), run: openNeeds }] : []),
     { label: t("app.cmd.appearance"), keys: t("app.cmd.appearanceKeys"), run: () => openSettings("appearance") },
     { label: t("app.cmd.themeSystem"), keys: t("app.cmd.themeKeys"), run: () => setThemeMode("system") },
     { label: t("app.cmd.themeLight"), keys: t("app.cmd.themeLightKeys"), run: () => setThemeMode("light") },
@@ -717,7 +702,6 @@ function App() {
     ...[["system", t("common.lang.system")], ...LANGS.map((l) => [l, LANG_NAMES[l]])]
       .filter(([v]) => v !== getLangPref())
       .map(([v, name]) => ({ label: t("app.cmd.lang", { name }), keys: t("app.cmd.langKeys"), run: () => setLang(v) })),
-    ...(bots || []).map((b) => ({ label: t("app.cmd.switchBot", { name: b.name }), keys: "bot switch " + b.id, run: () => openChat(b.id) })),
   ];
 
   // —— 渲染 ——
@@ -750,8 +734,8 @@ function App() {
   // SideRail 放在 main 后面：Electron 依次合并 drag / no-drag 区域，主区顶栏不能覆盖浮动按钮的 no-drag。
   return html`<div class=${`app${panel ? " with-panel" : ""}${wide ? " panel-wide" : ""}${workExpanded ? " panel-expanded" : ""}${sideOff ? " side-off" : ""}${fromSearch && route.messageId ? " search-reading" : ""}`} ref=${appRef}>
     ${view === "settings"
-      ? html`<${SettingsSide} tab=${route.tab} query=${settingsQ} onQuery=${setSettingsQ} onTab=${(t) => openSettings(t)} onBack=${() => openChat()}
-          nav=${{ bots, view, onToggleSide: toggleSide, onOpenSearch: openSearch, onNew: newBot, onTemplates: () => openTemplates(), onNewGroup: () => setGroupSheet({}) }}
+      ? html`<${SettingsSide} tab=${route.tab} query=${settingsQ} onQuery=${setSettingsQ} onTab=${(t) => openSettings(t)} onBack=${() => go("/agency/operations")}
+          nav=${{ bots, view, onToggleSide: toggleSide, onOpenSearch: openSearch, onNew: newBot, onTemplates: () => openTemplates(), onNewGroup: () => setGroupSheet({}), onAgency: (tab) => go(tab ? `/agency/${tab}` : "/agency/operations") }}
           username=${status && status.username} account=${managed ? account : null} authUser=${authData?.user} onLogout=${logoutAuth} update=${update} onUpdateChanged=${reloadUpdate} />`
       : html`<${Sidebar} bots=${bots} botsError=${botsErr} reloadBots=${reloadBots} selectedId=${bot && bot.id} view=${sideView} agencyTab=${route.view === "agency" ? route.tab : ""} collapsed=${sideOff} onToggleSide=${toggleSide}
           previews=${previews} pending=${pending} working=${working} needs=${needs} username=${status && status.username} account=${managed ? account : null} authUser=${authData?.user} onLogout=${logoutAuth} update=${update} onUpdateChanged=${reloadUpdate}
@@ -801,7 +785,7 @@ function App() {
       <${MessageSearchScreen} open=${searchOpen} query=${searchQuery} onQuery=${setSearchQuery} bots=${bots || []} groups=${groups} onClose=${closeSearch} onSelect=${openSearchHit} onBot=${openChat} onGroup=${openGroup} focusToken=${searchFocus} />
       <${Toasts} />
     </main>
-    ${sideOff && html`<${SideRail} bots=${bots} view=${sideView} onToggleSide=${toggleSide} onOpenSearch=${openSearch} onNew=${newBot} onTemplates=${() => openTemplates()} onNewGroup=${() => setGroupSheet({})} />`}
+    ${sideOff && html`<${SideRail} bots=${bots} view=${sideView} onToggleSide=${toggleSide} onOpenSearch=${openSearch} onNew=${newBot} onTemplates=${() => openTemplates()} onNewGroup=${() => setGroupSheet({})} onAgency=${(tab) => go(tab ? `/agency/${tab}` : "/agency/operations")} />`}
     ${panel && html`<${Splitter} key=${wide ? "work" : "info"} class="split-panel" size=${wide ? "--work-w" : "--panel-w"} edge="end" label=${t("app.resizePanel")} value=${wide ? workW : panelW} room=${room("--side-col")}
       onCommit=${(v) => setPrefs(wide ? { workW: v } : { panelW: v })} />`}
     ${shownPanel && html`<div class=${`panel-scrim${panelFx.leaving ? " leaving" : ""}`} onClick=${() => setPanelOpen(false)}></div>`}

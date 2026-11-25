@@ -11,7 +11,9 @@ export type AgencyErrorCode =
   | "ORGANIZATION_SUSPENDED"
   | "WHATSAPP_NOT_CONFIGURED"
   | "WHATSAPP_PROVIDER_ERROR"
-  | "WHATSAPP_SUBMISSION_UNKNOWN";
+  | "WHATSAPP_SUBMISSION_UNKNOWN"
+  | "EMAIL_NOT_CONFIGURED"
+  | "EMAIL_PROVIDER_ERROR";
 
 export class AgencyError extends Error {
   constructor(

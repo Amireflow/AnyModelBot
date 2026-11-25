@@ -20,17 +20,19 @@ import type {
   CreateCatalogItemInput, CreateCompanyInput, CreateContactInput, CreateContractInput,
   CreateConversationInput, CreateLeadInput, CreateMissionInput, CreateOrganizationInput,
   CreateProjectInput, CreateProjectLotInput, CreateQuoteInput, DepositStatus, DetectedDevTool,
-  Evidence, FollowUpStatus, FollowUpType, Lead, LeadSearchFilters, LeadStage, MessageDirection,
+  EmailOutboxMessage, Evidence, FollowUpStatus, FollowUpType, Lead, LeadSearchFilters, LeadStage, MessageDirection,
   NeedsQualification, NegotiationEvaluation, Organization, Page, PrepareDeliveryInput,
   Project, ProjectDelivery, ProjectLot, ProjectLotStatus, ProjectStatus,
-  ProposeScopeChangeInput, QaCategory, QaCheck, QaCheckStatus, QaGateEvaluation, Quote,
+  ProposeScopeChangeInput, QaCategory, QaCheck, QaCheckStatus, QaGateEvaluation, QueueEmailInput, Quote,
   QuoteTier, RecordConsentInput, RecordQaCheckInput, RequestApprovalInput, AgencyRole,
   ResearchAssessment, CompanyQualificationAssessment, QualificationProfile, ResearchDomain,
   ScheduleFollowUpInput, ScopeChange, ServiceCatalogItem, SolutionType, TieredProposalOption,
-  UpdateCatalogItemInput, UpdateCommercialRulesInput, UpdateProjectLotInput,
-  UpdateQualificationProfileInput, UpsertNeedsQualificationInput, QueueWhatsAppTemplateInput,
+  UpdateCatalogItemInput, UpdateCommercialRulesInput, UpdateCompanyInput, UpdateContactInput,
+  UpdateLeadInput, UpdateProjectLotInput, UpdateQualificationProfileInput, UpdateQuoteInput,
+  UpsertNeedsQualificationInput, QueueWhatsAppTemplateInput,
   WhatsAppOutboxMessage, WhatsAppWebhookProcessResult,
 } from "./types.js";
+import { EmailProviderError, type EmailSender } from "./email-outbox.js";
 import { WhatsAppProviderError, type WhatsAppTemplateSender } from "./whatsapp-cloud.js";
 import {
   confidenceValue, countryCode, currencyCode, emailAddress, normalizedName, optionalText,
@@ -41,6 +43,7 @@ export interface AgencyServiceOptions {
   now?: () => number;
   id?: () => string;
   whatsapp?: WhatsAppTemplateSender;
+  email?: EmailSender;
 }
 
 const WRITE_ROLES: AgencyRole[] = ["owner","admin","member"];
@@ -245,6 +248,40 @@ export class AgencyService {
     return this.searchCompanies(organizationId,actorId,{limit}).items;
   }
 
+  findDuplicateCompanies(organizationId: string, actorId: string, name = "", website = ""): Company[] {
+    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
+    const normalized=name.trim() ? normalizedName(name) : "";
+    const cleanWebsite=website.trim() ? websiteUrl(website) : "";
+    return this.store.findCompanyDuplicates(organizationId,normalized,cleanWebsite);
+  }
+
+  updateCompany(organizationId: string, actorId: string, companyId: string, input: UpdateCompanyInput): Company {
+    this.requireMember(organizationId,actorId);
+    const current=this.store.getCompany(organizationId,requiredText(companyId,"companyId",100));
+    if (!current) throw new AgencyError("NOT_FOUND","Company not found");
+    const nextName=input.name!==undefined ? requiredText(input.name,"name",200) : current.name;
+    const nextNormalized=normalizedName(nextName);
+    const nextWebsite=input.website!==undefined ? websiteUrl(input.website) : current.website;
+    const nextIndustry=input.industry!==undefined ? optionalText(input.industry,"industry",120) : current.industry;
+    const nextCountry=input.countryCode!==undefined ? countryCode(input.countryCode) : current.countryCode;
+    const nextCity=input.city!==undefined ? optionalText(input.city,"city",120) : current.city;
+    const nextStatus=input.status ?? current.status;
+    if (nextStatus!=="active" && nextStatus!=="archived") throw new AgencyError("VALIDATION_ERROR","Invalid company status");
+    const updated: Company={
+      ...current,name:nextName,normalizedName:nextNormalized,website:nextWebsite,
+      industry:nextIndustry,countryCode:nextCountry,city:nextCity,status:nextStatus,updatedAt:this.now(),
+    };
+    return this.store.transaction(() => {
+      const duplicate=this.store.findCompanyDuplicates(organizationId,nextNormalized,nextWebsite).find((c) => c.id!==current.id);
+      if (duplicate) throw new AgencyError("CONFLICT","A company with the same name or website already exists",{companyId:duplicate.id});
+      const saved=this.store.updateCompany(updated);
+      this.audit(organizationId,actorId,"company.updated","company",current.id,{
+        name:saved.name,website:saved.website,industry:saved.industry,countryCode:saved.countryCode,city:saved.city,status:saved.status,
+      });
+      return saved;
+    });
+  }
+
   createContact(organizationId: string, actorId: string, input: CreateContactInput): Contact {
     this.requireMember(organizationId,actorId);
     const companyId=requiredText(input.companyId,"companyId",100);
@@ -271,6 +308,31 @@ export class AgencyService {
 
   listContacts(organizationId: string, actorId: string, companyId: string): Contact[] {
     return this.searchContacts(organizationId,actorId,{companyId,limit:100}).items;
+  }
+
+  updateContact(organizationId: string, actorId: string, contactId: string, input: UpdateContactInput): Contact {
+    this.requireMember(organizationId,actorId);
+    const current=this.store.getContact(organizationId,requiredText(contactId,"contactId",100));
+    if (!current) throw new AgencyError("NOT_FOUND","Contact not found");
+    const nextStatus=input.status ?? current.status;
+    if (nextStatus!=="active" && nextStatus!=="archived") throw new AgencyError("VALIDATION_ERROR","Invalid contact status");
+    const updated: Contact={
+      ...current,
+      displayName:input.displayName!==undefined ? requiredText(input.displayName,"displayName",160) : current.displayName,
+      role:input.role!==undefined ? optionalText(input.role,"role",120) : current.role,
+      email:input.email!==undefined ? emailAddress(input.email) : current.email,
+      phone:input.phone!==undefined ? optionalText(input.phone,"phone",40) : current.phone,
+      preferredChannel:input.preferredChannel!==undefined ? optionalText(input.preferredChannel,"preferredChannel",40) : current.preferredChannel,
+      status:nextStatus,
+      updatedAt:this.now(),
+    };
+    return this.store.transaction(() => {
+      const saved=this.store.updateContact(updated);
+      this.audit(organizationId,actorId,"contact.updated","contact",current.id,{
+        displayName:saved.displayName,email:saved.email,phonePresent:!!saved.phone,status:saved.status,
+      });
+      return saved;
+    });
   }
 
   createLead(organizationId: string, actorId: string, input: CreateLeadInput): Lead {
@@ -301,6 +363,36 @@ export class AgencyService {
     const lead=this.store.getLead(organizationId,leadId);
     if (!lead) throw new AgencyError("NOT_FOUND","Lead not found");
     return lead;
+  }
+
+  updateLead(organizationId: string, actorId: string, leadId: string, input: UpdateLeadInput): Lead {
+    this.requireMember(organizationId,actorId);
+    const current=this.store.getLead(organizationId,requiredText(leadId,"leadId",100));
+    if (!current) throw new AgencyError("NOT_FOUND","Lead not found");
+    let contactId=current.contactId;
+    if (input.contactId!==undefined) {
+      contactId=input.contactId ? requiredText(input.contactId,"contactId",100) : "";
+      if (contactId) {
+        const contact=this.store.getContact(organizationId,contactId);
+        if (!contact || contact.companyId!==current.companyId) {
+          throw new AgencyError("VALIDATION_ERROR","Contact must belong to the lead's company");
+        }
+      }
+    }
+    const updated: Lead={
+      ...current,
+      contactId,
+      source:input.source!==undefined ? optionalText(input.source,"source",120) : current.source,
+      notes:input.notes!==undefined ? optionalText(input.notes,"notes",4000) : current.notes,
+      updatedAt:this.now(),
+    };
+    return this.store.transaction(() => {
+      const saved=this.store.updateLead(updated);
+      this.audit(organizationId,actorId,"lead.updated","lead",current.id,{
+        contactId:saved.contactId,source:saved.source,
+      });
+      return saved;
+    });
   }
 
   transitionLead(organizationId: string, actorId: string, leadId: string, nextStage: LeadStage): Lead {
@@ -649,6 +741,167 @@ export class AgencyService {
     return this.store.listWhatsAppOutbox(organizationId,limit);
   }
 
+  private hasOptedOutEmailConversation(organizationId: string, contactId: string): boolean {
+    const convs=this.store.listConversations(organizationId,undefined,200);
+    return convs.some((c) => c.contactId===contactId && c.channel==="email" && c.status==="opted_out");
+  }
+
+  queueEmailMessage(organizationId: string, actorId: string, input: QueueEmailInput): EmailOutboxMessage {
+    this.requireMember(organizationId,actorId);
+    const approvalId=requiredText(input.approvalId,"approvalId",100);
+    const idempotencyKey=requiredText(input.idempotencyKey,"idempotencyKey",120);
+    if (!/^[A-Za-z0-9._:-]{8,120}$/.test(idempotencyKey)) {
+      throw new AgencyError("VALIDATION_ERROR","idempotencyKey must contain 8-120 safe characters");
+    }
+    const payload=input.payload;
+    if (!payload || typeof payload!=="object" || Array.isArray(payload)) {
+      throw new AgencyError("VALIDATION_ERROR","Email payload must be an object");
+    }
+    if (Object.keys(payload).sort().join(",")!=="bodyText,channel,contactId,purpose,recipient,subject") {
+      throw new AgencyError("VALIDATION_ERROR","Email approval payload contains unsupported fields");
+    }
+    const contactId=requiredText(payload.contactId as string,"payload.contactId",100);
+    const channel=requiredText(payload.channel as string,"payload.channel",40).toLowerCase();
+    const purpose=requiredText(payload.purpose as string,"payload.purpose",80).toLowerCase();
+    const recipient=emailAddress(payload.recipient as string).toLowerCase();
+    const subject=requiredText(payload.subject as string,"payload.subject",240);
+    const bodyText=requiredText(payload.bodyText as string,"payload.bodyText",16000);
+    if (channel!=="email" || !recipient) {
+      throw new AgencyError("VALIDATION_ERROR","Email payload requires channel=email and a valid recipient email");
+    }
+    let payloadHash: ReturnType<typeof stablePayloadHash>;
+    try { payloadHash=stablePayloadHash(payload); }
+    catch { throw new AgencyError("VALIDATION_ERROR","Email payload must be finite JSON"); }
+
+    const contact=this.store.getContact(organizationId,contactId);
+    if (!contact) throw new AgencyError("NOT_FOUND","Contact not found");
+    if (contact.status!=="active") throw new AgencyError("CONFLICT","Contact is archived");
+    if (!contact.email || contact.email.toLowerCase()!==recipient) {
+      throw new AgencyError("VALIDATION_ERROR","The approved recipient must match the contact's stored email address");
+    }
+    if (this.hasOptedOutEmailConversation(organizationId,contactId)) {
+      throw new AgencyError("CONSENT_REQUIRED","Contact opted out of email outreach");
+    }
+    const consent=this.activeConsentRecord(organizationId,contactId,"email",purpose);
+    if (!consent) throw new AgencyError("CONSENT_REQUIRED","A current, evidenced email consent for this exact purpose is required");
+    const approval=this.store.getApproval(organizationId,approvalId);
+    if (!approval || approval.action!=="send_message" || approval.resourceType!=="email_message"
+      || approval.resourceId!==contactId || approval.status!=="approved"
+      || approval.payloadHash!==payloadHash.hash || (approval.expiresAt && approval.expiresAt<=this.now())) {
+      throw new AgencyError("FORBIDDEN","A current owner approval for this exact email payload is required");
+    }
+    const existing=this.store.findEmailOutboxByIdempotency(organizationId,idempotencyKey);
+    if (existing) {
+      if (existing.approvalPayloadHash!==payloadHash.hash || existing.approvalId!==approvalId
+        || existing.contactId!==contactId || existing.consentId!==consent.id) {
+        throw new AgencyError("CONFLICT","idempotencyKey was already used for a different or superseded authorization");
+      }
+      return existing;
+    }
+    const now=this.now();
+    const message: EmailOutboxMessage={
+      id:this.id(),organizationId,contactId,channel:"email",purpose,recipient,subject,bodyText,
+      approvalId,approvalPayloadHash:payloadHash.hash,consentId:consent.id,
+      status:"queued",providerMessageId:"",failureCode:"",idempotencyKey,
+      createdAt:now,updatedAt:now,submittedAt:0,
+    };
+    return this.store.transaction(() => {
+      const lockedExisting=this.store.findEmailOutboxByIdempotency(organizationId,idempotencyKey);
+      if (lockedExisting) {
+        if (lockedExisting.approvalPayloadHash!==payloadHash.hash || lockedExisting.approvalId!==approvalId
+          || lockedExisting.contactId!==contactId || lockedExisting.consentId!==consent.id) {
+          throw new AgencyError("CONFLICT","idempotencyKey was already used for a different or superseded authorization");
+        }
+        return lockedExisting;
+      }
+      const currentConsent=this.activeConsentRecord(organizationId,contactId,"email",purpose);
+      if (!currentConsent || currentConsent.id!==consent.id || this.hasOptedOutEmailConversation(organizationId,contactId)) {
+        throw new AgencyError("CONSENT_REQUIRED","Consent changed while the email was being queued");
+      }
+      const currentApproval=this.store.getApproval(organizationId,approvalId);
+      if (!currentApproval || currentApproval.status!=="approved" || currentApproval.action!=="send_message"
+        || currentApproval.resourceType!=="email_message" || currentApproval.resourceId!==contactId
+        || currentApproval.payloadHash!==payloadHash.hash || (currentApproval.expiresAt && currentApproval.expiresAt<=now)) {
+        throw new AgencyError("FORBIDDEN","Approval changed while the email was being queued");
+      }
+      const saved=this.store.insertEmailOutbox(message);
+      this.audit(organizationId,actorId,"email.message.queued","email_message",message.id,{
+        contactId,purpose,recipient,approvalId,approvalPayloadHash:payloadHash.hash,consentId:consent.id,idempotencyKey,
+      });
+      return saved;
+    });
+  }
+
+  listEmailOutbox(organizationId: string, actorId: string, limit = 100): EmailOutboxMessage[] {
+    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
+    if (!Number.isInteger(limit) || limit<1 || limit>200) throw new AgencyError("VALIDATION_ERROR","limit must be between 1 and 200");
+    return this.store.listEmailOutbox(organizationId,limit);
+  }
+
+  async dispatchEmailMessage(organizationId: string, actorId: string, messageId: string): Promise<EmailOutboxMessage> {
+    this.requireMember(organizationId,actorId,["owner"]);
+    const message=this.store.getEmailOutbox(organizationId,requiredText(messageId,"messageId",100));
+    if (!message) throw new AgencyError("NOT_FOUND","Email outbox message not found");
+    if (message.status==="sent") return message;
+    if (message.status!=="queued") throw new AgencyError("CONFLICT","Only queued email messages can be dispatched");
+    const sender=this.options.email;
+    if (!sender || !(await sender.isConfigured(organizationId))) {
+      throw new AgencyError("EMAIL_NOT_CONFIGURED","Outbound email provider is not configured");
+    }
+    const approval=this.store.getApproval(organizationId,message.approvalId);
+    if (!approval || approval.status!=="approved" || approval.action!=="send_message"
+      || approval.resourceType!=="email_message" || approval.resourceId!==message.contactId
+      || approval.payloadHash!==message.approvalPayloadHash || (approval.expiresAt && approval.expiresAt<=this.now())) {
+      throw new AgencyError("FORBIDDEN","The owner approval is missing, expired or no longer matches this email");
+    }
+    if (this.hasOptedOutEmailConversation(organizationId,message.contactId)) {
+      throw new AgencyError("CONSENT_REQUIRED","Contact opted out of email outreach");
+    }
+    const consent=this.activeConsentRecord(organizationId,message.contactId,"email",message.purpose);
+    if (!consent || consent.id!==message.consentId) {
+      throw new AgencyError("CONSENT_REQUIRED","Consent was withdrawn, expired or replaced after this email was queued");
+    }
+    const contact=this.store.getContact(organizationId,message.contactId);
+    if (!contact || contact.status!=="active" || contact.email.toLowerCase()!==message.recipient.toLowerCase()) {
+      throw new AgencyError("CONSENT_REQUIRED","The contact email changed or was archived after approval");
+    }
+
+    const startedAt=this.now();
+    this.store.transaction(() => {
+      if (!this.store.updateEmailOutbox(organizationId,message.id,"queued","sending",startedAt)) {
+        throw new AgencyError("CONFLICT","This email message is already being processed");
+      }
+      this.audit(organizationId,actorId,"email.message.submission_started","email_message",message.id,{
+        approvalId:message.approvalId,approvalPayloadHash:message.approvalPayloadHash,
+      });
+    });
+
+    try {
+      const result=await sender.sendEmail({
+        organizationId,recipient:message.recipient,subject:message.subject,bodyText:message.bodyText,
+      });
+      const now=this.now();
+      this.store.transaction(() => {
+        if (!this.store.updateEmailOutbox(organizationId,message.id,"sending","sent",now,result.providerMessageId,"",now)) {
+          throw new AgencyError("CONFLICT","Email message state changed during submission");
+        }
+        this.audit(organizationId,actorId,"email.message.sent","email_message",message.id,{
+          providerMessageId:result.providerMessageId,recipient:message.recipient,
+        });
+      });
+    } catch (error) {
+      const providerError=error instanceof EmailProviderError ? error : new EmailProviderError("UNEXPECTED_EMAIL_FAILURE");
+      const now=this.now();
+      this.store.transaction(() => {
+        this.store.updateEmailOutbox(organizationId,message.id,"sending","failed",now,"",providerError.code,0);
+        this.audit(organizationId,actorId,"email.message.failed","email_message",message.id,{
+          failureCode:providerError.code,
+        });
+      });
+    }
+    return this.store.getEmailOutbox(organizationId,message.id)!;
+  }
+
   async dispatchWhatsAppTemplate(organizationId: string, actorId: string, messageId: string): Promise<WhatsAppOutboxMessage> {
     this.requireMember(organizationId,actorId,["owner"]);
     const message=this.store.getWhatsAppOutbox(organizationId,requiredText(messageId,"messageId",100));
@@ -895,6 +1148,34 @@ export class AgencyService {
         throw new AgencyError("CONSENT_REQUIRED","A current WhatsApp consent grant with proof is required before requesting approval");
       }
     }
+    if (input.action==="send_message" && input.resourceType==="email_message") {
+      const message=input.payload;
+      if (!message || typeof message!=="object" || Array.isArray(message) || message.channel!=="email") {
+        throw new AgencyError("VALIDATION_ERROR","Email approval requires an email payload");
+      }
+      if (Object.keys(message).sort().join(",")!=="bodyText,channel,contactId,purpose,recipient,subject") {
+        throw new AgencyError("VALIDATION_ERROR","Email approval payload contains unsupported fields");
+      }
+      const contactId=requiredText(message.contactId as string,"payload.contactId",100);
+      const purpose=requiredText(message.purpose as string,"payload.purpose",80).toLowerCase();
+      const recipient=emailAddress(message.recipient as string).toLowerCase();
+      requiredText(message.subject as string,"payload.subject",240);
+      requiredText(message.bodyText as string,"payload.bodyText",16000);
+      if (!recipient) throw new AgencyError("VALIDATION_ERROR","A valid recipient email address is required");
+      if (input.resourceId!==contactId) throw new AgencyError("VALIDATION_ERROR","Email approval resource must match its contact");
+      const contact=this.store.getContact(organizationId,contactId);
+      if (!contact) throw new AgencyError("NOT_FOUND","Contact not found");
+      if (contact.status!=="active") throw new AgencyError("CONFLICT","Contact is archived");
+      if (!contact.email || contact.email.toLowerCase()!==recipient) {
+        throw new AgencyError("CONSENT_REQUIRED","The email recipient must match the contact's current email address");
+      }
+      if (this.hasOptedOutEmailConversation(organizationId,contactId)) {
+        throw new AgencyError("CONSENT_REQUIRED","Contact opted out of email outreach");
+      }
+      if (!this.activeConsentRecord(organizationId,contactId,"email",purpose)) {
+        throw new AgencyError("CONSENT_REQUIRED","A current email consent grant with proof is required before requesting approval");
+      }
+    }
     const now=this.now();
     let payload: ReturnType<typeof stablePayloadHash>;
     try {
@@ -965,6 +1246,17 @@ export class AgencyService {
     this.requireMember(organizationId,actorId,["owner","admin","auditor"]);
     if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new AgencyError("VALIDATION_ERROR","limit must be between 1 and 500");
     return this.store.listAudit(organizationId,limit);
+  }
+
+  listAuditFiltered(organizationId: string, actorId: string, filters: { action?: string; entityType?: string; limit?: number } = {}): AuditEvent[] {
+    this.requireMember(organizationId,actorId,["owner","admin","auditor"]);
+    const limit=filters.limit ?? 100;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new AgencyError("VALIDATION_ERROR","limit must be between 1 and 500");
+    return this.store.listAuditFiltered(organizationId,{
+      action:optionalText(filters.action,"action",80),
+      entityType:optionalText(filters.entityType,"entityType",80),
+      limit,
+    });
   }
 
   // ---------- Priority 1: Commercial Conversations, Needs, Catalog, Quotes, Negotiation, Contracts ----------
@@ -1302,6 +1594,103 @@ export class AgencyService {
     const quote=this.store.getQuote(organizationId,requiredText(quoteId,"quoteId",100));
     if (!quote) throw new AgencyError("NOT_FOUND","Quote not found");
     return quote;
+  }
+
+  updateQuoteDraft(organizationId: string, actorId: string, quoteId: string, input: UpdateQuoteInput): {
+    quote: Quote; negotiation: NegotiationEvaluation;
+  } {
+    this.requireMember(organizationId,actorId);
+    const current=this.store.getQuote(organizationId,requiredText(quoteId,"quoteId",100));
+    if (!current) throw new AgencyError("NOT_FOUND","Quote not found");
+    if (current.status!=="draft") throw new AgencyError("CONFLICT","Only draft quotes can be edited; create a revision instead");
+    const tier=input.tier ?? current.tier;
+    if (!QUOTE_TIERS.includes(tier)) throw new AgencyError("VALIDATION_ERROR","Unsupported quote tier");
+    const lines=input.lines ?? current.lines;
+    const discountPct=input.discountPct ?? current.discountPct;
+    const rules=this.getCommercialRules(organizationId,actorId);
+    const totals=calculateQuoteTotals(lines,discountPct,input.uncertaintyPct ?? 15);
+    const negotiation=evaluateNegotiation(totals,totals.discountPct,rules);
+    const validUntil=input.validUntil == null ? current.validUntil : positiveTimestamp(input.validUntil,"validUntil");
+    const updated: Quote={
+      ...current,
+      title:input.title!==undefined ? requiredText(input.title,"title",240) : current.title,
+      tier,
+      lines,
+      exclusions:input.exclusions!==undefined ? stringList(input.exclusions,"exclusions") : current.exclusions,
+      paymentTerms:input.paymentTerms!==undefined ? (optionalText(input.paymentTerms,"paymentTerms",500) || rules.paymentTermsDefault) : current.paymentTerms,
+      deliveryDays:totals.totalDays,
+      discountPct:totals.discountPct,
+      subtotal:totals.subtotal,
+      discountAmount:totals.discountAmount,
+      netTotal:totals.netTotal,
+      estimatedCost:totals.estimatedCost,
+      grossMargin:totals.grossMargin,
+      marginPct:totals.marginPct,
+      rangeLow:totals.rangeLow,
+      rangeHigh:totals.rangeHigh,
+      validUntil,
+      updatedAt:this.now(),
+    };
+    return this.store.transaction(() => {
+      const saved=this.store.updateQuoteDraft(updated);
+      this.audit(organizationId,actorId,"quote.updated","quote",saved.id,{
+        version:saved.version,netTotal:saved.netTotal,marginPct:saved.marginPct,discountPct:saved.discountPct,
+      });
+      return { quote:saved, negotiation };
+    });
+  }
+
+  reviseQuote(organizationId: string, actorId: string, quoteId: string, input: UpdateQuoteInput = {}): {
+    quote: Quote; negotiation: NegotiationEvaluation;
+  } {
+    this.requireMember(organizationId,actorId);
+    const source=this.store.getQuote(organizationId,requiredText(quoteId,"quoteId",100));
+    if (!source) throw new AgencyError("NOT_FOUND","Quote not found");
+    const tier=input.tier ?? source.tier;
+    if (!QUOTE_TIERS.includes(tier)) throw new AgencyError("VALIDATION_ERROR","Unsupported quote tier");
+    const lines=input.lines ?? source.lines;
+    const discountPct=input.discountPct ?? source.discountPct;
+    const rules=this.getCommercialRules(organizationId,actorId);
+    const totals=calculateQuoteTotals(lines,discountPct,input.uncertaintyPct ?? 15);
+    const negotiation=evaluateNegotiation(totals,totals.discountPct,rules);
+    const validUntil=input.validUntil == null ? this.now() + 30 * 24 * 3600_000 : positiveTimestamp(input.validUntil,"validUntil");
+    const now=this.now();
+    return this.store.transaction(() => {
+      const version=this.store.nextQuoteVersion(organizationId,source.leadId);
+      const quote: Quote={
+        id:this.id(),
+        organizationId,
+        leadId:source.leadId,
+        version,
+        title:input.title!==undefined ? requiredText(input.title,"title",240) : source.title,
+        tier,
+        currency:source.currency,
+        lines,
+        exclusions:input.exclusions!==undefined ? stringList(input.exclusions,"exclusions") : source.exclusions,
+        paymentTerms:input.paymentTerms!==undefined ? (optionalText(input.paymentTerms,"paymentTerms",500) || rules.paymentTermsDefault) : source.paymentTerms,
+        deliveryDays:totals.totalDays,
+        discountPct:totals.discountPct,
+        subtotal:totals.subtotal,
+        discountAmount:totals.discountAmount,
+        netTotal:totals.netTotal,
+        estimatedCost:totals.estimatedCost,
+        grossMargin:totals.grossMargin,
+        marginPct:totals.marginPct,
+        rangeLow:totals.rangeLow,
+        rangeHigh:totals.rangeHigh,
+        status:"draft",
+        approvalId:"",
+        validUntil,
+        createdAt:now,
+        updatedAt:now,
+      };
+      this.store.insertQuote(quote);
+      this.audit(organizationId,actorId,"quote.revised","quote",quote.id,{
+        sourceQuoteId:source.id,sourceVersion:source.version,version:quote.version,
+        netTotal:quote.netTotal,marginPct:quote.marginPct,
+      });
+      return { quote, negotiation };
+    });
   }
 
   evaluateQuoteNegotiation(organizationId: string, actorId: string, quoteId: string, requestedDiscountPct: number): NegotiationEvaluation {
@@ -2192,6 +2581,56 @@ export class AgencyService {
     });
   }
 
+  convertFollowUpToOpportunity(
+    organizationId: string,
+    actorId: string,
+    followUpId: string,
+    input: { source?: string; notes?: string } = {},
+  ): { followUp: ClientFollowUp; lead: Lead } {
+    this.requireMember(organizationId, actorId);
+    const existing = this.store.getFollowUp(organizationId, requiredText(followUpId, "followUpId", 100));
+    if (!existing) throw new AgencyError("NOT_FOUND", "Follow-up not found");
+    const project = this.getProject(organizationId, actorId, existing.projectId);
+    const baseLead = this.store.getLead(organizationId, existing.leadId);
+    if (!baseLead) throw new AgencyError("NOT_FOUND", "Original lead not found");
+    const now = this.now();
+    const lead: Lead = {
+      id: this.id(),
+      organizationId,
+      companyId: baseLead.companyId,
+      contactId: baseLead.contactId,
+      source: optionalText(input.source, "source", 120) || `retention:${existing.type}`,
+      notes: optionalText(input.notes, "notes", 4000) || `[Follow-up ${project.title}] ${existing.outcome || existing.notes}`,
+      stage: "opportunity",
+      createdAt: now,
+      updatedAt: now,
+    };
+    return this.store.transaction(() => {
+      this.store.insertLead(lead);
+      this.audit(organizationId, actorId, "lead.created", "lead", lead.id, {
+        companyId: lead.companyId,
+        contactId: lead.contactId,
+        source: lead.source,
+        stage: lead.stage,
+      });
+      const updatedFollowUp = (existing.status === "scheduled" || existing.status === "contacted")
+        ? this.store.updateFollowUp(
+          organizationId,
+          existing.id,
+          "completed",
+          existing.outcome || `Converted to opportunity ${lead.id}`,
+          now,
+          now,
+        )!
+        : existing;
+      this.audit(organizationId, actorId, "followup.converted_to_opportunity", "followup", existing.id, {
+        newLeadId: lead.id,
+        projectId: project.id,
+      });
+      return { followUp: updatedFollowUp, lead };
+    });
+  }
+
   listAgentProfiles(organizationId: string, actorId: string): AgentProfile[] {
     this.requireMember(organizationId, actorId, ["owner", "admin", "member", "auditor"]);
     return [...AGENCY_AGENT_PROFILES];
@@ -2319,6 +2758,7 @@ export class AgencyService {
       qaChecks: this.store.listQaChecks(organizationId),
       followUps: this.store.listFollowUps(organizationId),
       missions: this.store.listMissions(organizationId),
+      approvals: this.store.listApprovals(organizationId, 200),
     });
   }
 }
