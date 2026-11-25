@@ -1,5 +1,5 @@
 import { useState } from "preact/hooks";
-import { html, Icon } from "../../components/ui.js";
+import { html, Icon, Spinner } from "../../components/ui.js";
 import { api } from "../../lib/api.js";
 import { t } from "../../lib/i18n.js";
 
@@ -34,27 +34,37 @@ export function AgencyCopilot({ orgId, activeTab = "copilot", companyId = "", le
     }
   };
 
-  return html`<section class="agency-project-section agency-copilot">
-    <div class="agency-commercial-head">
-      <h2>${t("agency.copilotTitle")}</h2>
-      <div class="agency-commercial-actions">
-        <button class="btn" type="button" disabled=${busy} onClick=${() => ask(t("agency.copilotPromptPipeline"))}>${t("agency.copilotPromptPipeline")}</button>
-        <button class="btn" type="button" disabled=${busy} onClick=${() => ask(t("agency.copilotPromptProjects"))}>${t("agency.copilotPromptProjects")}</button>
-        <button class="btn" type="button" disabled=${busy} onClick=${() => ask(t("agency.copilotPromptNext"))}>${t("agency.copilotPromptNext")}</button>
-      </div>
-    </div>
+  const quickPrompts = [
+    t("agency.copilotPromptPipeline"),
+    t("agency.copilotPromptProjects"),
+    t("agency.copilotPromptNext"),
+  ];
+
+  return html`<section class="agency-copilot">
     ${error && html`<div class="agency-alert" role="alert">${error}</div>`}
     <div class="agency-copilot-thread">
-      ${!messages.length && html`<p class="agency-muted">${t("agency.copilotEmpty")}</p>`}
+      ${!messages.length && html`<div class="agency-copilot-welcome">
+        <span class="agency-quick-icon tone-purple"><${Icon} name="spark" size="lg" /></span>
+        <div>
+          <h2>${t("agency.copilotTitle")}</h2>
+          <p>${t("agency.copilotEmpty")}</p>
+        </div>
+        <div class="agency-copilot-prompts">
+          ${quickPrompts.map((prompt) => html`<button class="agency-copilot-prompt" type="button" disabled=${busy} onClick=${() => ask(prompt)}>
+            <span>${prompt}</span>
+          </button>`)}
+        </div>
+      </div>`}
       ${messages.map((m) => html`<article class=${"agency-copilot-msg " + m.role}>
-        <strong>${m.role === "user" ? "Vous" : m.model ? `Copilote (${m.model})` : "Copilote"}</strong>
+        <strong>${m.role === "user" ? "Vous" : m.model ? `${t("agency.copilotTitle")} · ${m.model}` : t("agency.copilotTitle")}</strong>
         <pre>${m.text}</pre>
       </article>`)}
+      ${busy && html`<div class="agency-loading"><${Spinner} />${t("agency.loading")}</div>`}
     </div>
     <form class="agency-copilot-form" onSubmit=${(e) => { e.preventDefault(); ask(); }}>
       <input class="field" value=${question} placeholder=${t("agency.copilotPlaceholder")} onInput=${(e) => setQuestion(e.currentTarget.value)} />
       <button class="btn primary" type="submit" disabled=${busy || !question.trim()}>
-        <${Icon} name="send" />${t("agency.copilotSend")}
+        ${busy ? html`<${Spinner} />` : html`<${Icon} name="spark" size="sm" />`}${t("agency.copilotSend")}
       </button>
     </form>
   </section>`;

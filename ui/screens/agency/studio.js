@@ -30,6 +30,17 @@ export function ProjectStudio({ orgId, project, onChanged }) {
   const [previewNonce, setPreviewNonce] = useState(1);
   const [mobilePreview, setMobilePreview] = useState(false);
 
+  const openFile = async (relPath) => {
+    if (!relPath) return;
+    setSelectedPath(relPath);
+    try {
+      const res = await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/file?path=${enc(relPath)}`);
+      setContent(res.content || "");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const loadFiles = async (preferPath = "") => {
     if (!orgId || !project?.id) return;
     try {
@@ -39,17 +50,6 @@ export function ProjectStudio({ orgId, project, onChanged }) {
       const next = preferPath || (list.some((f) => f.path === selectedPath) ? selectedPath : (list[0]?.path || ""));
       if (next) await openFile(next);
       else { setSelectedPath(""); setContent(""); }
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
-  const openFile = async (relPath) => {
-    if (!relPath) return;
-    setSelectedPath(relPath);
-    try {
-      const res = await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/file?path=${enc(relPath)}`);
-      setContent(res.content || "");
     } catch (err) {
       setError(err.message);
     }
@@ -131,29 +131,36 @@ export function ProjectStudio({ orgId, project, onChanged }) {
   const previewUrl = `/amb/api/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/preview/${previewPath}?v=${previewNonce}`;
 
   return html`<section class="agency-project-section agency-studio">
-    <div class="agency-commercial-actions">
-      <label class="agency-stage-select"><span>${t("agency.studioScaffoldLabel")}</span>
-        <select class="field" value=${template} onChange=${(e) => setTemplate(e.currentTarget.value)}>
-          ${TEMPLATES.map(([id, label]) => html`<option value=${id}>${label}</option>`)}
+    <div class="agency-studio-toolbar">
+      <div class="agency-commercial-actions">
+        <label class="agency-stage-select"><span>${t("agency.studioScaffoldLabel")}</span>
+          <select class="field" value=${template} onChange=${(e) => setTemplate(e.currentTarget.value)}>
+            ${TEMPLATES.map(([id, label]) => html`<option value=${id}>${label}</option>`)}
+          </select>
+        </label>
+        <button class="btn" type="button" disabled=${!!busy} onClick=${scaffold}>${t("agency.studioScaffoldBtn")}</button>
+      </div>
+      <div class="agency-commercial-actions">
+        <select class="field" aria-label=${t("agency.cliActionLabel")} value=${command} onChange=${(e) => setCommand(e.currentTarget.value)}>
+          ${COMMANDS.map(([id, label]) => html`<option value=${id}>${label}</option>`)}
         </select>
-      </label>
-      <button class="btn" type="button" disabled=${!!busy} onClick=${scaffold}>${t("agency.studioScaffoldBtn")}</button>
-      <select class="field" aria-label=${t("agency.cliActionLabel")} value=${command} onChange=${(e) => setCommand(e.currentTarget.value)}>
-        ${COMMANDS.map(([id, label]) => html`<option value=${id}>${label}</option>`)}
-      </select>
-      <button class="btn" type="button" disabled=${!!busy} onClick=${runCheck}>${t("agency.studioRunCheckBtn")}</button>
+        <button class="btn" type="button" disabled=${!!busy} onClick=${runCheck}>${t("agency.studioRunCheckBtn")}</button>
+      </div>
     </div>
     <form class="agency-copilot-form" onSubmit=${runAiBuilder}>
       <input class="field" value=${instruction} placeholder=${t("agency.studioAgentPlaceholder")} onInput=${(e) => setInstruction(e.currentTarget.value)} />
       <button class="btn primary" type="submit" disabled=${!!busy || !instruction.trim()}>
-        ${busy === "ai" ? html`<${Spinner} />` : html`<${Icon} name="spark" />`}${t("agency.studioAgentRunBtn")}
+        ${busy === "ai" ? html`<${Spinner} />` : html`<${Icon} name="spark" size="sm" />`}${t("agency.studioAgentRunBtn")}
       </button>
     </form>
     ${error && html`<div class="agency-alert" role="alert">${error}</div>`}
     ${notice && html`<p class="agency-research-feedback" role="status">${notice}</p>`}
     <div class="agency-studio-grid">
       <div class="agency-studio-tree">
-        <strong>${t("agency.studioFilesTitle")} (${files.length})</strong>
+        <div class="agency-commercial-head">
+          <strong>${t("agency.studioFilesTitle")}</strong>
+          <span class="agency-count-pill">${files.length}</span>
+        </div>
         <div class="agency-studio-file-list">
           ${files.map((f) => html`<button type="button" class=${"agency-studio-file" + (f.path === selectedPath ? " active" : "")} onClick=${() => openFile(f.path)}>${f.path}</button>`)}
         </div>

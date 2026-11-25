@@ -49,8 +49,11 @@ const cleanPhone=value=>String(value||"").replace(/[\s().-]/g,"");
 function Field({label,value,onInput,required=false,type="text",placeholder=""}) {
   return html`<label class="agency-field"><span>${label}</span><input class="field" type=${type} autocomplete=${type==="password"?"new-password":undefined} value=${value} placeholder=${placeholder} required=${required} onInput=${(e)=>onInput(e.currentTarget.value)} /></label>`;
 }
-function Metric({label,value,icon}) {
-  return html`<article class="agency-metric"><span class="agency-metric-icon"><${Icon} name=${icon} /></span><strong class="num">${fmtNum(value||0)}</strong><span>${label}</span></article>`;
+function Metric({label,value,icon,tone=""}) {
+  return html`<article class="agency-metric">
+    <div class="agency-metric-top"><span class="agency-metric-label">${label}</span><span class=${"agency-metric-icon"+(tone?" tone-"+tone:"")}><${Icon} name=${icon} size="sm"/></span></div>
+    <strong class="agency-metric-value num">${typeof value==="string"?value:fmtNum(value||0)}</strong>
+  </article>`;
 }
 function Empty({title,detail}) {
   return html`<div class="agency-empty"><${Icon} name="inbox" size="xl" /><strong>${title}</strong><span>${detail}</span></div>`;
@@ -179,6 +182,17 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const [auditVerify,setAuditVerify]=useState(null);
   const [execNodeStatus,setExecNodeStatus]=useState(null);
   const [emailStatus,setEmailStatus]=useState(null);
+  const [prospectOpen,setProspectOpen]=useState(false);
+  const [missionFormOpen,setMissionFormOpen]=useState(false);
+  const [catalogFormOpen,setCatalogFormOpen]=useState(false);
+  const [convFormOpen,setConvFormOpen]=useState(false);
+  const [quoteFormOpen,setQuoteFormOpen]=useState(false);
+  const [projectFormOpen,setProjectFormOpen]=useState(false);
+  const [lotFormOpen,setLotFormOpen]=useState(false);
+  const [scopeFormOpen,setScopeFormOpen]=useState(false);
+  const [qaFormOpen,setQaFormOpen]=useState(false);
+  const [deliveryFormOpen,setDeliveryFormOpen]=useState(false);
+  const [followUpFormOpen,setFollowUpFormOpen]=useState(false);
 
   useEffect(()=>{
     let live=true;
@@ -633,7 +647,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         priceMax:Number(catalogDraft.priceMax),
         estimatedCost:Number(catalogDraft.estimatedCost)
       }});
-      setCatalogDraft(blankCatalogDraft);setRevision(v=>v+1);
+      setCatalogDraft(blankCatalogDraft);setCatalogFormOpen(false);setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const previewTiers=async(catalogItemId)=>{
@@ -679,7 +693,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       const d=await api(`/agency/${enc(orgId)}/conversations`,{method:"POST",body:{
         leadId:selectedLeadId,channel:convDraft.channel,subject:convDraft.subject
       }});
-      setConvDraft({channel:"email",subject:""});setSelectedConvId(d.conversation.id);setRevision(v=>v+1);
+      setConvDraft({channel:"email",subject:""});setConvFormOpen(false);setSelectedConvId(d.conversation.id);setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const postConvMessage=async(direction)=>{
@@ -722,6 +736,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       }});
       setQuoteDraft(blankQuoteDraft);
       setQuoteLines([{label:"",unitPrice:"2500",unitCost:"1200",estimatedDays:"10"}]);
+      setQuoteFormOpen(false);
       setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
@@ -909,6 +924,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         estimatedDays:Number(projectDraft.estimatedDays||14)
       }});
       setProjectDraft(blankProjectDraft);
+      setProjectFormOpen(false);
       setSelectedProjectId(d.project.id);
       setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
@@ -932,7 +948,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         ownerRole:lotDraft.ownerRole,
         estimatedHours:Number(lotDraft.estimatedHours||8)
       }});
-      setLotDraft(blankLotDraft);setRevision(v=>v+1);
+      setLotDraft(blankLotDraft);setLotFormOpen(false);setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const updateLotStatus=async(lotId,status)=>{
@@ -964,7 +980,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         budgetDelta:Number(scopeDraft.budgetDelta||0),
         daysDelta:Number(scopeDraft.daysDelta||0)
       }});
-      setScopeDraft(blankScopeDraft);setRevision(v=>v+1);
+      setScopeDraft(blankScopeDraft);setScopeFormOpen(false);setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const scopeChangeAction=async(scId,action,body={})=>{
@@ -986,7 +1002,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         evidence:qaDraft.evidence,
         findings:qaDraft.findings
       }});
-      setQaDraft(blankQaDraft);setRevision(v=>v+1);
+      setQaDraft(blankQaDraft);setQaFormOpen(false);setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const prepareDelivery=async(e)=>{
@@ -997,7 +1013,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         environmentUrl:deliveryDraft.environmentUrl,
         releaseNotes:deliveryDraft.releaseNotes
       }});
-      setDeliveryDraft(blankDeliveryDraft);setRevision(v=>v+1);
+      setDeliveryDraft(blankDeliveryDraft);setDeliveryFormOpen(false);setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const deliveryAction=async(deliveryId,action,body={})=>{
@@ -1018,7 +1034,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         dueAt,
         notes:followUpDraft.notes
       }});
-      setFollowUpDraft(blankFollowUpDraft);setRevision(v=>v+1);
+      setFollowUpDraft(blankFollowUpDraft);setFollowUpFormOpen(false);setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const completeFollowUp=async(followUpId)=>{
@@ -1038,7 +1054,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         objective:missionDraft.objective,
         preferredTool:missionDraft.preferredTool
       }});
-      setMissionDraft(blankMissionDraft);setRevision(v=>v+1);
+      setMissionDraft(blankMissionDraft);setMissionFormOpen(false);setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const updateMission=async(missionId,status)=>{
@@ -1087,16 +1103,21 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const stalledResearchJobs=researchJobs.filter(job=>ACTIVE_RESEARCH.has(job.status)&&!isActiveResearch(job));
   const failedResearchJobs=researchJobs.filter(job=>job.status==="failed"||job.status==="cancelled");
   const completedResearchJobs=researchJobs.filter(job=>job.status==="completed");
+  const activeOrg=orgs.find(o=>o.id===orgId);
+  const cur=activeOrg?.currency||"";
   const selectedCompany=(tab==="companies"?(rows.items||[]).find(x=>x.id===selected):null);
   const selectedProject=(tab==="projects"?projects.find(p=>p.id===selectedProjectId):null);
   const totalPages=Math.max(1,Math.ceil((rows.total||0)/SIZE));
 
   return html`<section class="agency-screen view" data-screen="agency">
     <header class="agency-header">
-      <div><span class="agency-eyebrow">${t("agency.eyebrow")}</span><h1 class="t-page">${t(`agency.${tab}`)}</h1></div>
+      <div class="agency-title-wrap">
+        <h1 class="t-page">${t(`agency.${tab}`)}</h1>
+        ${cur&&html`<span class="agency-org-pill">${cur}</span>`}
+      </div>
       ${orgs.length>0&&html`<div class="agency-org-bar">
-        <label class="agency-org-picker"><span>${t("agency.organization")}</span><select class="field" value=${orgId} onChange=${e=>changeOrg(e.currentTarget.value)}>${orgs.map(o=>html`<option value=${o.id}>${o.name}</option>`)}</select></label>
-        <button class="btn" type="button" aria-expanded=${orgFormOpen} title=${t("agency.newOrganization")} onClick=${()=>setOrgFormOpen(v=>!v)}><${Icon} name=${orgFormOpen?"close":"plus"}/></button>
+        <label class="agency-org-picker"><select class="field" aria-label=${t("agency.organization")} value=${orgId} onChange=${e=>changeOrg(e.currentTarget.value)}>${orgs.map(o=>html`<option value=${o.id}>${o.name}</option>`)}</select></label>
+        <button class="btn" type="button" aria-expanded=${orgFormOpen} title=${t("agency.newOrganization")} onClick=${()=>setOrgFormOpen(v=>!v)}><${Icon} name=${orgFormOpen?"close":"plus"} size="sm"/></button>
       </div>`}
     </header>
     ${orgError&&html`<div class="agency-alert" role="alert">${orgError}</div>`}
@@ -1109,12 +1130,12 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
 
     ${orgId&&html`
       ${(tab==="companies"||tab==="leads")&&html`<div class="agency-metrics">
-        <${Metric} label=${t("agency.companies")} value=${dashboard?.companyCount} icon="folder"/>
-        <${Metric} label=${t("agency.contacts")} value=${dashboard?.contactCount} icon="user"/>
-        <${Metric} label=${t("agency.leads")} value=${dashboard?.leadCount} icon="clipboardCheck"/>
-        <${Metric} label=${t("agency.won")} value=${dashboard?.wonLeadCount} icon="check"/>
+        <${Metric} label=${t("agency.companies")} value=${dashboard?.companyCount} icon="folder" tone="blue"/>
+        <${Metric} label=${t("agency.contacts")} value=${dashboard?.contactCount} icon="user" tone="teal"/>
+        <${Metric} label=${t("agency.leads")} value=${dashboard?.leadCount} icon="clipboardCheck" tone="purple"/>
+        <${Metric} label=${t("agency.won")} value=${dashboard?.wonLeadCount} icon="check" tone="green"/>
       </div>`}
-      ${(tab==="companies"||tab==="commercial")&&html`<div class="agency-channels-bar">
+      ${tab==="commercial"&&html`<div class="agency-channels-bar">
         <div class="agency-whatsapp-status">
           <span class=${"agency-whatsapp-dot "+(whatsappConfig?.configured?"ready":"")}></span>
           <strong>${t("agency.whatsappTitle")}</strong>
@@ -1222,13 +1243,15 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           <button role="tab" aria-selected=${tab==="projects"} class=${tab==="projects"?"active":""} onClick=${()=>switchTab("projects")}>${t("agency.projects")}</button>
           <button role="tab" aria-selected=${tab==="copilot"} class=${tab==="copilot"?"active":""} onClick=${()=>switchTab("copilot")}>${t("agency.copilot")}</button>
         </div>
-        ${tab==="companies"&&html`<button class="btn" onClick=${()=>setQualificationForm(v=>!v)}>${t("agency.qualificationProfile")}</button>`}
-        ${(tab==="companies"||tab==="leads")&&html`<label class="agency-search"><${Icon} name="search"/><input type="search" value=${query} placeholder=${t("agency.search")} onInput=${e=>{setQuery(e.currentTarget.value);setPage(0);}}/></label>`}
-        ${tab==="companies"
-          ?html`<button class="btn primary" onClick=${()=>setCompanyForm(v=>!v)}><${Icon} name="plus"/>${t("agency.newCompany")}</button>`
-          :tab==="leads"
-            ?html`<button class="btn primary" disabled=${!dashboard?.companyCount} onClick=${()=>setLeadForm(v=>!v)}><${Icon} name="plus"/>${t("agency.newLead")}</button>`
-            :null}
+        ${(tab==="companies"||tab==="leads")&&html`<label class="agency-search"><${Icon} name="search" size="sm"/><input type="search" value=${query} placeholder=${t("agency.search")} onInput=${e=>{setQuery(e.currentTarget.value);setPage(0);}}/></label>`}
+        ${tab==="companies"&&html`<div class="agency-toolbar-actions">
+          <button class=${"btn"+(prospectOpen?" primary":"")} type="button" onClick=${()=>setProspectOpen(v=>!v)}><${Icon} name="globe" size="sm"/>${t("agency.prospectSearchTitle")}</button>
+          <button class="btn" type="button" onClick=${()=>setQualificationForm(v=>!v)}>${t("agency.qualificationProfile")}</button>
+          <button class="btn primary" type="button" onClick=${()=>setCompanyForm(v=>!v)}><${Icon} name="plus" size="sm"/>${t("agency.newCompany")}</button>
+        </div>`}
+        ${tab==="leads"&&html`<div class="agency-toolbar-actions">
+          <button class="btn primary" type="button" disabled=${!dashboard?.companyCount} onClick=${()=>setLeadForm(v=>!v)}><${Icon} name="plus" size="sm"/>${t("agency.newLead")}</button>
+        </div>`}
       </div>
       ${error&&html`<div class="agency-alert" role="alert">${error}</div>`}
       ${qualificationForm&&tab==="companies"&&orgId&&html`<form class="agency-form agency-form-grid agency-qualification-form" onSubmit=${saveQualificationProfile}>
@@ -1259,9 +1282,9 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!lead.companyId}>${t("agency.saveLead")}</button></div>
       </form>`}
       ${busy==="load"&&html`<div class="agency-loading"><${Spinner}/>${t("agency.loading")}</div>`}
-      ${tab==="companies"&&html`<section class="agency-project-section">
+      ${tab==="companies"&&prospectOpen&&html`<section class="agency-project-section">
         <form class="agency-form agency-form-grid" onSubmit=${searchProspects}>
-          <div class="agency-form-head"><strong>${t("agency.prospectSearchTitle")}</strong></div>
+          <div class="agency-form-head"><strong>${t("agency.prospectSearchTitle")}</strong><button type="button" class="text" onClick=${()=>setProspectOpen(false)}>${t("agency.cancel")}</button></div>
           <${Field} label=${t("agency.prospectQuery")} value=${prospectQuery} placeholder="BTP, e-commerce, clinique…" onInput=${setProspectQuery}/>
           <${Field} label=${t("agency.prospectSector")} value=${prospectIndustry} onInput=${setProspectIndustry}/>
           <${Field} label=${t("agency.prospectCity")} value=${prospectCity} onInput=${setProspectCity}/>
@@ -1280,10 +1303,16 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       ${!busy&&tab==="companies"&&!rows.items?.length&&html`<${Empty} title=${t("agency.noCompanies")} detail=${query?t("agency.noSearchResults"):t("agency.noCompaniesHint")}/>`}
       ${tab==="companies"&&rows.items?.length>0&&html`<div class="agency-content-grid">
         <div class="agency-table-wrap"><table class="agency-table"><thead><tr><th>${t("agency.company")}</th><th>${t("agency.industry")}</th><th>${t("agency.city")}</th></tr></thead>
-          <tbody>${rows.items.map(c=>html`<tr class=${selected===c.id?"selected":""}><td><button class="agency-company-link" onClick=${()=>{setSelected(v=>v===c.id?"":c.id);setConsentContactId("");}}><strong>${c.name}</strong><small>${c.website||c.countryCode||"—"}</small></button></td><td>${c.industry||"—"}</td><td>${c.city||"—"}</td></tr>`)}</tbody>
+          <tbody>${rows.items.map(c=>html`<tr class=${selected===c.id?"selected":""}><td><button class="agency-company-link" onClick=${()=>{setSelected(v=>v===c.id?"":c.id);setConsentContactId("");}}>
+            <span class="agency-avatar">${(c.name||"?").slice(0,1).toUpperCase()}</span>
+            <span class="agency-company-meta"><strong>${c.name}</strong><small>${c.website||c.countryCode||"—"}</small></span>
+          </button></td><td>${c.industry||"—"}</td><td>${c.city||"—"}</td></tr>`)}</tbody>
         </table></div>
-        ${selectedCompany&&html`<aside class="agency-detail"><div class="agency-detail-head"><div><span class="agency-eyebrow">${t("agency.companyDetails")}</span><h2>${selectedCompany.name}</h2></div><button class="icon-btn" aria-label=${t("agency.close")} onClick=${()=>{setSelected("");setConsentContactId("");}}><${Icon} name="close"/></button></div>
-          <dl class="agency-detail-facts"><div><dt>${t("agency.website")}</dt><dd>${selectedCompany.website||"—"}</dd></div><div><dt>${t("agency.industry")}</dt><dd>${selectedCompany.industry||"—"}</dd></div><div><dt>${t("agency.city")}</dt><dd>${selectedCompany.city||"—"}</dd></div></dl>
+        ${selectedCompany&&html`<aside class="agency-detail"><div class="agency-detail-head"><div class="agency-detail-identity">
+          <span class="agency-avatar">${(selectedCompany.name||"?").slice(0,1).toUpperCase()}</span>
+          <div><span class="agency-eyebrow">${t("agency.companyDetails")}</span><h2>${selectedCompany.name}</h2></div>
+        </div><button class="icon-btn" aria-label=${t("agency.close")} onClick=${()=>{setSelected("");setConsentContactId("");}}><${Icon} name="close"/></button></div>
+          <dl class="agency-facts-grid"><div><dt>${t("agency.website")}</dt><dd>${selectedCompany.website||"—"}</dd></div><div><dt>${t("agency.industry")}</dt><dd>${selectedCompany.industry||"—"}</dd></div><div><dt>${t("agency.city")}</dt><dd>${selectedCompany.city||"—"}</dd></div></dl>
           <div class="agency-commercial-actions">
             <button class="btn primary" type="button" onClick=${()=>{setLead({companyId:selectedCompany.id,source:"crm",notes:""});setLeadForm(true);switchTab("leads");}}><${Icon} name="plus"/>${t("agency.createLeadFromCompany")}</button>
             ${selectedCompany.website&&html`<button class="btn" type="button" disabled=${!!busy} onClick=${()=>auditCompanySite(selectedCompany.id)}>${t("agency.websiteAuditBtn")}</button>`}
@@ -1361,12 +1390,22 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           </section>
         </aside>`}
       </div>`}
-      ${tab==="leads"&&rows.items?.length>0&&html`<div class="agency-stage-filters" role="group" aria-label=${t("agency.leads")}>
-        ${LEAD_FILTERS.map(st=>html`<button type="button" class=${leadStageFilter===st?"active":""} onClick=${()=>setLeadStageFilter(st)}>${st==="all"?t("agency.allStages"):t(`agency.stage.${st}`)}</button>`)}
-        <button type="button" class=${leadViewMode==="list"?"active":""} onClick=${()=>setLeadViewMode("list")}>${t("agency.viewList")}</button>
-        <button type="button" class=${leadViewMode==="kanban"?"active":""} onClick=${()=>setLeadViewMode("kanban")}>${t("agency.viewKanban")}</button>
+      ${tab==="leads"&&rows.items?.length>0&&html`<div class="agency-leads-bar">
+        <div class="agency-stage-filters" role="group" aria-label=${t("agency.leads")}>
+          ${LEAD_FILTERS.map(st=>{
+            const count=st==="all"?rows.items.length:rows.items.filter(l=>l.stage===st).length;
+            return html`<button type="button" class=${leadStageFilter===st?"active":""} onClick=${()=>setLeadStageFilter(st)}>
+              <span>${st==="all"?t("agency.allStages"):t(`agency.stage.${st}`)}</span>
+              <span class="agency-count-pill">${count}</span>
+            </button>`;
+          })}
+        </div>
+        <div class="agency-subtabs">
+          <button type="button" class=${leadViewMode==="list"?"active":""} onClick=${()=>setLeadViewMode("list")}>${t("agency.viewList")}</button>
+          <button type="button" class=${leadViewMode==="kanban"?"active":""} onClick=${()=>setLeadViewMode("kanban")}>${t("agency.viewKanban")}</button>
+        </div>
       </div>`}
-      ${tab==="leads"&&rows.items?.length>0&&leadViewMode==="list"&&html`<div class="agency-lead-list">${rows.items.filter(l=>leadStageFilter==="all"||l.stage===leadStageFilter).map(l=>html`<article class="agency-lead-card"><div class="agency-lead-main"><div><strong>${companyOptions.find(c=>c.id===l.companyId)?.name||l.companyId}</strong><p>${l.notes||l.source||t("agency.noLeadNotes")}</p></div><${Badge} s=${t(`agency.stage.${l.stage}`)}/></div>
+      ${tab==="leads"&&rows.items?.length>0&&leadViewMode==="list"&&html`<div class="agency-lead-list">${rows.items.filter(l=>leadStageFilter==="all"||l.stage===leadStageFilter).map(l=>html`<article class="agency-lead-card"><div class="agency-lead-main"><div><strong>${companyOptions.find(c=>c.id===l.companyId)?.name||l.companyId}</strong><p>${l.notes||l.source||t("agency.noLeadNotes")}</p></div><span class=${"agency-whatsapp-state "+l.stage}>${t(`agency.stage.${l.stage}`)}</span></div>
         <div class="agency-lead-footer"><span>${t("agency.updated")} · ${new Date(l.updatedAt).toLocaleDateString()}</span>
           <div class="agency-commercial-actions">
             <button class="btn" type="button" onClick=${()=>{setSelectedLeadId(l.id);setSelectedConvId("");switchTab("commercial");}}>${t("agency.openCommercial")}</button>
@@ -1378,7 +1417,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         ${["new","qualified","proposal","won","lost"].map(stage=>{
           const col=rows.items.filter(l=>l.stage===stage);
           return html`<div class="agency-kanban-col">
-            <div class="agency-kanban-head"><strong>${t(`agency.stage.${stage}`)}</strong><span>${col.length}</span></div>
+            <div class="agency-kanban-head"><strong>${t(`agency.stage.${stage}`)}</strong><span class="agency-count-pill">${col.length}</span></div>
             ${col.map(l=>html`<article class="agency-commercial-card">
               <strong>${companyOptions.find(c=>c.id===l.companyId)?.name||l.companyId}</strong>
               <small>${l.notes||l.source||"—"}</small>
@@ -1394,9 +1433,11 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       ${(tab==="companies"||tab==="leads")&&rows.total>SIZE&&html`<div class="agency-pagination"><button class="btn" disabled=${page===0} onClick=${()=>setPage(v=>Math.max(0,v-1))}>${t("agency.previous")}</button><span>${t("agency.page",{current:page+1,total:Math.ceil(rows.total/SIZE)})}</span><button class="btn" disabled=${(page+1)*SIZE>=rows.total} onClick=${()=>setPage(v=>v+1)}>${t("agency.next")}</button></div>`}
       ${tab==="catalog"&&html`<div class="agency-commercial-grid">
         <section class="agency-commercial-section">
-          <h2>${t("agency.catalogTitle")}</h2>
-          <form class="agency-form agency-form-grid" onSubmit=${createCatalogItem}>
-            <div class="agency-form-head"><h3>${t("agency.newCatalogItem")}</h3></div>
+          <div class="agency-commercial-head">
+            <h2>${t("agency.catalogTitle")}</h2>
+            <button class="btn primary" type="button" onClick=${()=>setCatalogFormOpen(v=>!v)}><${Icon} name=${catalogFormOpen?"close":"plus"} size="sm"/>${catalogFormOpen?t("agency.cancel"):t("agency.newCatalogItem")}</button>
+          </div>
+          ${catalogFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${createCatalogItem}>
             <${Field} label=${t("agency.catalogCode")} value=${catalogDraft.code} required onInput=${v=>update(setCatalogDraft,"code",v)}/>
             <${Field} label=${t("agency.catalogName")} value=${catalogDraft.name} required onInput=${v=>update(setCatalogDraft,"name",v)}/>
             <label class="agency-field"><span>${t("agency.catalogCategory")}</span><select class="field" value=${catalogDraft.category} onChange=${e=>update(setCatalogDraft,"category",e.currentTarget.value)}>${SOLUTION_TYPES.map(st=>html`<option value=${st}>${t(`agency.solutionType.${st}`)}</option>`)}</select></label>
@@ -1407,20 +1448,26 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             <${Field} label=${t("agency.catalogCost")} value=${catalogDraft.estimatedCost} type="number" required onInput=${v=>update(setCatalogDraft,"estimatedCost",v)}/>
             <label class="agency-field agency-form-wide"><span>${t("agency.catalogDescription")}</span><textarea class="field" rows="2" required value=${catalogDraft.description} onInput=${e=>update(setCatalogDraft,"description",e.currentTarget.value)}></textarea></label>
             <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.saveCatalogItem")}</button></div>
-          </form>
+          </form>`}
           <div class="agency-commercial-list">
             ${!catalogItems.length&&html`<p class="agency-muted">${t("agency.noCatalogItems")}</p>`}
             ${catalogItems.map(item=>html`<article class="agency-commercial-card">
-              <div class="agency-commercial-head"><strong>${item.name} (${item.code})</strong><span class="agency-qualification-status">${t(`agency.solutionType.${item.category}`)}</span></div>
+              <div class="agency-commercial-head"><strong>${item.name} · ${item.code}</strong><span class="agency-whatsapp-state">${t(`agency.solutionType.${item.category}`)}</span></div>
               <p>${item.description}</p>
-              <small>${item.priceMin} – ${item.priceBase} – ${item.priceMax} · ${item.estimatedDays}d</small>
+              <div class="agency-commercial-head">
+                <strong class="agency-price-hero">${fmtNum(item.priceBase)} ${cur}</strong>
+                <small>${fmtNum(item.priceMin)}–${fmtNum(item.priceMax)} ${cur} · ${item.estimatedDays}d</small>
+              </div>
               <div class="agency-commercial-actions"><button class="btn" type="button" onClick=${()=>previewTiers(item.id)}>${t("agency.previewTiers")}</button></div>
             </article>`)}
-            ${tierPreview.length>0&&tierPreview.map(tier=>html`<article class="agency-commercial-card">
-              <div class="agency-commercial-head"><strong>${tier.title}</strong><span class="agency-qualification-status">${t("agency.marginLabel",{pct:tier.marginPct})}</span></div>
-              <p>${tier.scopeSummary}</p>
-              <small>${tier.price} · ${tier.estimatedDays}d</small>
-            </article>`)}
+            ${tierPreview.length>0&&html`<div class="agency-tier-grid">
+              ${tierPreview.map(tier=>html`<article class="agency-commercial-card">
+                <div class="agency-commercial-head"><strong>${tier.title}</strong><span class="agency-whatsapp-state accepted">${t("agency.marginLabel",{pct:tier.marginPct})}</span></div>
+                <strong class="agency-price-hero">${fmtNum(tier.price)} ${cur}</strong>
+                <p>${tier.scopeSummary}</p>
+                <small>${tier.estimatedDays}d</small>
+              </article>`)}
+            </div>`}
           </div>
         </section>
         <section class="agency-commercial-section">
@@ -1436,38 +1483,40 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           </form>
         </section>
       </div>`}
-      ${tab==="commercial"&&html`<div class="agency-commercial-section">
-        <label class="agency-field"><span>${t("agency.selectLead")}</span><select class="field" value=${selectedLeadId} onChange=${e=>{setSelectedLeadId(e.currentTarget.value);setSelectedConvId("");}}>
-          <option value="">—</option>${leadOptions.map(l=>html`<option value=${l.id}>${companyOptions.find(c=>c.id===l.companyId)?.name||l.companyId} · ${t(`agency.stage.${l.stage}`)}</option>`)}
-        </select></label>
-        ${!selectedLeadId&&html`<p class="agency-muted">${t("agency.noLeadSelected")}</p>`}
-        ${selectedLeadId&&html`<div class="agency-subtabs" role="tablist">
-          <button type="button" role="tab" aria-selected=${commercialSubTab==="conversations"} class=${commercialSubTab==="conversations"?"active":""} onClick=${()=>setCommercialSubTab("conversations")}>${t("agency.subtabConversations")}</button>
-          <button type="button" role="tab" aria-selected=${commercialSubTab==="quotes"} class=${commercialSubTab==="quotes"?"active":""} onClick=${()=>setCommercialSubTab("quotes")}>${t("agency.subtabQuotes")}</button>
-          <button type="button" role="tab" aria-selected=${commercialSubTab==="contracts"} class=${commercialSubTab==="contracts"?"active":""} onClick=${()=>setCommercialSubTab("contracts")}>${t("agency.subtabContracts")}</button>
-        </div>`}
+      ${tab==="commercial"&&html`<div class="agency-ops-stack">
+        <div class="agency-context-bar">
+          <label class="agency-stage-select"><span>${t("agency.selectLead")}</span><select class="field" value=${selectedLeadId} onChange=${e=>{setSelectedLeadId(e.currentTarget.value);setSelectedConvId("");}}>
+            <option value="">—</option>${leadOptions.map(l=>html`<option value=${l.id}>${companyOptions.find(c=>c.id===l.companyId)?.name||l.companyId} · ${t(`agency.stage.${l.stage}`)}</option>`)}
+          </select></label>
+          ${selectedLeadId&&html`<div class="agency-subtabs" role="tablist">
+            <button type="button" role="tab" aria-selected=${commercialSubTab==="conversations"} class=${commercialSubTab==="conversations"?"active":""} onClick=${()=>setCommercialSubTab("conversations")}>${t("agency.subtabConversations")}</button>
+            <button type="button" role="tab" aria-selected=${commercialSubTab==="quotes"} class=${commercialSubTab==="quotes"?"active":""} onClick=${()=>setCommercialSubTab("quotes")}>${t("agency.subtabQuotes")}</button>
+            <button type="button" role="tab" aria-selected=${commercialSubTab==="contracts"} class=${commercialSubTab==="contracts"?"active":""} onClick=${()=>setCommercialSubTab("contracts")}>${t("agency.subtabContracts")}</button>
+          </div>`}
+          ${emailStatus&&html`<span class="agency-tool-chip"><span class=${"agency-dot "+(emailStatus.configured?"ok":"off")}></span><span>${t("agency.emailOutboxTitle")}: ${emailStatus.configured?t("agency.emailConfigured"):t("agency.emailNotConfigured")}</span></span>`}
+        </div>
+        ${!selectedLeadId&&html`<${Empty} title=${t("agency.noLeadSelected")} detail=${t("agency.noLeadsHint")}/>`}
         ${selectedLeadId&&commercialSubTab==="conversations"&&html`<div class="agency-commercial-grid">
           <section class="agency-commercial-section">
             <div class="agency-commercial-head">
               <h3>${t("agency.conversationsTitle")}</h3>
-              ${emailStatus&&html`<span class="agency-whatsapp-state">${t("agency.emailOutboxTitle")}: ${emailStatus.configured?t("agency.emailConfigured"):t("agency.emailNotConfigured")}</span>`}
+              <button class="btn primary" type="button" onClick=${()=>setConvFormOpen(v=>!v)}><${Icon} name=${convFormOpen?"close":"plus"} size="sm"/>${convFormOpen?t("agency.cancel"):t("agency.newConversation")}</button>
             </div>
-            <form class="agency-form" onSubmit=${startConversation}>
-              <div class="agency-form-head"><strong>${t("agency.newConversation")}</strong></div>
+            ${convFormOpen&&html`<form class="agency-form" onSubmit=${startConversation}>
               <label class="agency-field"><span>${t("agency.channel")}</span><select class="field" value=${convDraft.channel} onChange=${e=>update(setConvDraft,"channel",e.currentTarget.value)}>${CHANNELS.map(ch=>html`<option value=${ch}>${ch}</option>`)}</select></label>
               <${Field} label=${t("agency.subject")} value=${convDraft.subject} required onInput=${v=>update(setConvDraft,"subject",v)}/>
               <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.startConversation")}</button></div>
-            </form>
+            </form>`}
             <div class="agency-commercial-list">
               ${!conversations.filter(c=>c.leadId===selectedLeadId).length&&html`<p class="agency-muted">${t("agency.noConversations")}</p>`}
-              ${conversations.filter(c=>c.leadId===selectedLeadId).map(conv=>html`<article class="agency-commercial-card">
+              ${conversations.filter(c=>c.leadId===selectedLeadId).map(conv=>html`<article class=${"agency-commercial-card"+(conv.id===selectedConvId?" selected":"")}>
                 <div class="agency-commercial-head"><button class="text" type="button" onClick=${()=>setSelectedConvId(conv.id)}><strong>${conv.subject}</strong></button><span class="agency-whatsapp-state">${t(`agency.conversationStatus.${conv.status}`)}</span></div>
                 <small>${conv.channel}</small>
                 <div class="agency-commercial-actions"><button class="btn" type="button" onClick=${()=>setSelectedConvId(conv.id)}>${conv.id===selectedConvId?"•":t("agency.open")}</button>${conv.status!=="opted_out"&&conv.status!=="handoff_human"&&html`<button class="text" type="button" onClick=${()=>handoffConv(conv.id)}>${t("agency.handoffHuman")}</button>`}</div>
               </article>`)}
             </div>
             ${selectedConvId&&html`<div class="agency-commercial-card">
-              <div class="agency-msg-list">${convMessages.map(m=>html`<div class="agency-msg-row"><strong>${m.direction} · ${m.signal}</strong><span>${m.body}</span></div>`)}</div>
+              <div class="agency-msg-list">${convMessages.map(m=>html`<div class=${"agency-msg-row "+m.direction}><strong>${m.direction} · ${m.signal}</strong><span>${m.body}</span></div>`)}</div>
               ${suggestNotice&&html`<p class="agency-research-feedback" role="status">${suggestNotice}</p>`}
               <${Field} label=${t("agency.messageBody")} value=${msgBody} onInput=${setMsgBody}/>
               <div class="agency-commercial-actions">
@@ -1496,10 +1545,12 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         ${selectedLeadId&&commercialSubTab==="quotes"&&html`<section class="agency-commercial-section">
             <div class="agency-commercial-head">
               <h3>${t("agency.quotesTitle")}</h3>
-              <button class="btn" type="button" disabled=${!!busy} onClick=${estimateQuote}>${t("agency.estimateQuoteBtn")}</button>
+              <div class="agency-commercial-actions">
+                <button class="btn" type="button" disabled=${!!busy} onClick=${()=>{estimateQuote();setQuoteFormOpen(true);}}><${Icon} name="spark" size="sm"/>${t("agency.estimateQuoteBtn")}</button>
+                <button class="btn primary" type="button" onClick=${()=>setQuoteFormOpen(v=>!v)}><${Icon} name=${quoteFormOpen?"close":"plus"} size="sm"/>${quoteFormOpen?t("agency.cancel"):t("agency.newQuote")}</button>
+              </div>
             </div>
-            <form class="agency-form agency-form-grid" onSubmit=${createQuote}>
-              <div class="agency-form-head"><strong>${t("agency.newQuote")}</strong></div>
+            ${quoteFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${createQuote}>
               ${catalogItems.length>0&&html`<label class="agency-field agency-form-wide"><span>${t("agency.prefillFromCatalog")}</span><select class="field" value="" onChange=${e=>{
                 const it=catalogItems.find(x=>x.id===e.currentTarget.value);
                 if(it){
@@ -1521,14 +1572,17 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                 <button class="btn" type="button" onClick=${()=>setQuoteLines(prev=>[...prev,{label:"",unitPrice:"1500",unitCost:"700",estimatedDays:"5"}])}>${t("agency.addQuoteLineBtn")}</button>
                 <button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.createQuote")}</button>
               </div>
-            </form>
+            </form>`}
             <div class="agency-commercial-list">
               ${!quotes.filter(q=>q.leadId===selectedLeadId).length&&html`<p class="agency-muted">${t("agency.noQuotes")}</p>`}
               ${quotes.filter(q=>q.leadId===selectedLeadId).map(q=>{
                 const ap=approvals.find(a=>a.id===q.approvalId);
                 return html`<article class="agency-commercial-card">
-                  <div class="agency-commercial-head"><strong>v${q.version} · ${q.title}</strong><span class="agency-whatsapp-state">${t(`agency.quoteStatus.${q.status}`)}</span></div>
-                  <small>${q.netTotal} ${q.currency} · ${t("agency.marginLabel",{pct:q.marginPct})} · ${q.deliveryDays}d</small>
+                  <div class="agency-commercial-head"><strong>v${q.version} · ${q.title}</strong><span class=${"agency-whatsapp-state "+q.status}>${t(`agency.quoteStatus.${q.status}`)}</span></div>
+                  <div class="agency-commercial-head">
+                    <strong class="agency-price-hero">${fmtNum(q.netTotal)} ${q.currency}</strong>
+                    <small>${t("agency.marginLabel",{pct:q.marginPct})} · ${q.deliveryDays}d</small>
+                  </div>
                   <div class="agency-commercial-actions">
                     <a class="btn" target="_blank" rel="noopener noreferrer" href=${`/amb/api/agency/${enc(orgId)}/quotes/${enc(q.id)}/document`}>${t("agency.previewDocument")}</a>
                     <a class="text" target="_blank" rel="noopener noreferrer" href=${`/amb/api/agency/${enc(orgId)}/quotes/${enc(q.id)}/document?download=1`}>${t("agency.downloadDocument")}</a>
@@ -1553,8 +1607,11 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               ${contracts.filter(c=>c.leadId===selectedLeadId).map(c=>{
                 const ap=approvals.find(a=>a.id===c.approvalId);
                 return html`<article class="agency-commercial-card">
-                  <div class="agency-commercial-head"><strong>${c.title}</strong><span class="agency-whatsapp-state">${t(`agency.contractStatus.${c.status}`)}</span></div>
-                  <small>${c.totalAmount} ${c.currency} · ${c.depositStatus==="paid"?t("agency.depositPaidLabel"):t("agency.depositUnpaidLabel")} (${c.depositAmount})</small>
+                  <div class="agency-commercial-head"><strong>${c.title}</strong><span class=${"agency-whatsapp-state "+c.status}>${t(`agency.contractStatus.${c.status}`)}</span></div>
+                  <div class="agency-commercial-head">
+                    <strong class="agency-price-hero">${fmtNum(c.totalAmount)} ${c.currency}</strong>
+                    <span class=${"agency-whatsapp-state "+c.depositStatus}>${c.depositStatus==="paid"?t("agency.depositPaidLabel"):t("agency.depositUnpaidLabel")} (${fmtNum(c.depositAmount)})</span>
+                  </div>
                   <div class="agency-commercial-actions">
                     <a class="btn" target="_blank" rel="noopener noreferrer" href=${`/amb/api/agency/${enc(orgId)}/contracts/${enc(c.id)}/document`}>${t("agency.previewDocument")}</a>
                     <a class="text" target="_blank" rel="noopener noreferrer" href=${`/amb/api/agency/${enc(orgId)}/contracts/${enc(c.id)}/document?download=1`}>${t("agency.downloadDocument")}</a>
@@ -1562,41 +1619,24 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                     ${c.status==="pending_approval"&&ap?.status==="pending"&&html`<button class="btn primary" type="button" onClick=${()=>approveRecord(ap.id)}>${t("agency.approveAndSend")}</button>`}
                     ${c.status==="pending_approval"&&ap?.status==="approved"&&html`<button class="btn primary" type="button" onClick=${()=>contractAction(c.id,"sign")}>${t("agency.signContractBtn")}</button>`}
                     ${c.status==="signed"&&c.depositStatus==="unpaid"&&html`<input class="field" placeholder=${t("agency.depositRef")} value=${depositRefByContract[c.id]||""} onInput=${e=>setDepositRefByContract(p=>({...p,[c.id]:e.currentTarget.value}))}/><button class="btn primary" type="button" disabled=${!(depositRefByContract[c.id]||"").trim()} onClick=${()=>contractAction(c.id,"deposit",{status:"paid",reference:depositRefByContract[c.id]})}>${t("agency.recordDepositBtn")}</button>`}
-                    ${c.status==="signed"&&(c.depositAmount===0||c.depositStatus==="paid")&&html`<button class="btn primary" type="button" onClick=${()=>{setProjectDraft(cur=>({...cur,contractId:c.id,title:c.title}));switchTab("projects");}}>${t("agency.launchProject")}</button>`}
+                    ${c.status==="signed"&&(c.depositAmount===0||c.depositStatus==="paid")&&html`<button class="btn primary" type="button" onClick=${()=>{setProjectDraft(cur=>({...cur,contractId:c.id,title:c.title}));setProjectFormOpen(true);switchTab("projects");}}>${t("agency.launchProject")}</button>`}
                   </div>
                 </article>`;
               })}
             </div>
           </section>`}
       </div>`}
-      ${tab==="projects"&&html`<div class="agency-projects-grid">
-        <section class="agency-project-section">
-          <h2>${t("agency.projectsTitle")}</h2>
-          <form class="agency-form agency-form-grid" onSubmit=${createProjectHandoff}>
-            <div class="agency-form-head"><strong>${t("agency.handoffProjectTitle")}</strong></div>
-            <label class="agency-field"><span>${t("agency.selectContract")}</span><select class="field" value=${projectDraft.contractId} required onChange=${e=>update(setProjectDraft,"contractId",e.currentTarget.value)}>
-              <option value="">—</option>
-              ${contracts.filter(c=>c.status==="signed"&&(c.depositAmount===0||c.depositStatus==="paid")).map(c=>html`<option value=${c.id}>${c.title} (${c.totalAmount} ${c.currency})</option>`)}
-            </select></label>
-            <${Field} label=${t("agency.workspacePath")} value=${projectDraft.workspacePath} placeholder="workspaces/projects/..." onInput=${v=>update(setProjectDraft,"workspacePath",v)}/>
-            <${Field} label=${t("agency.targetStack")} value=${projectDraft.targetStack} onInput=${v=>update(setProjectDraft,"targetStack",v)}/>
-            <${Field} label=${t("agency.technicalSpecs")} value=${projectDraft.technicalSpecs} onInput=${v=>update(setProjectDraft,"technicalSpecs",v)}/>
-            <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!projectDraft.contractId}>${t("agency.createProjectBtn")}</button></div>
-          </form>
-          <div class="agency-commercial-list">
-            ${!projects.length&&html`<p class="agency-muted">${t("agency.noProjects")}</p>`}
-            ${projects.map(p=>html`<article class=${"agency-commercial-card"+(p.id===selectedProjectId?" selected":"")}>
-              <div class="agency-commercial-head">
-                <button class="agency-company-link" type="button" onClick=${()=>setSelectedProjectId(p.id)}><strong>${p.title}</strong><small>${p.workspacePath} · ${p.budgetAmount} ${p.currency} · ${p.estimatedDays}d</small></button>
-                <span class="agency-whatsapp-state">${t(`agency.projectStatus.${p.status}`)}</span>
-              </div>
-            </article>`)}
+      ${tab==="projects"&&html`<div class="agency-ops-stack">
+        <div class="agency-project-bar">
+          <div class="agency-project-bar-left">
+            ${projects.length>0&&html`<select class="field" aria-label=${t("agency.projectsTitle")} value=${selectedProjectId} onChange=${e=>setSelectedProjectId(e.currentTarget.value)}>
+              ${projects.map(p=>html`<option value=${p.id}>${p.title} (${fmtNum(p.budgetAmount)} ${p.currency})</option>`)}
+            </select>`}
+            ${selectedProject&&html`<span class=${"agency-whatsapp-state "+selectedProject.status}>${t(`agency.projectStatus.${selectedProject.status}`)}</span>`}
           </div>
-        </section>
-        ${selectedProject&&html`<div class="agency-commercial-col">
-          <div class="agency-project-bar">
-            <strong>${selectedProject.title}</strong>
-            <div class="agency-commercial-actions">
+          <div class="agency-commercial-actions">
+            <button class="btn primary" type="button" onClick=${()=>setProjectFormOpen(v=>!v)}><${Icon} name=${projectFormOpen?"close":"plus"} size="sm"/>${projectFormOpen?t("agency.cancel"):t("agency.handoffProjectTitle")}</button>
+            ${selectedProject&&html`
               <button class="btn" type="button" disabled=${!!busy} onClick=${()=>initWorkspace(selectedProject.id)}>${t("agency.initWorkspaceBtn")}</button>
               <button class="btn" type="button" disabled=${!!busy} onClick=${()=>runAutoQa(selectedProject.id)}>${busy==="qa-run"?t("agency.runningAutoQa"):t("agency.runAutoQaBtn")}</button>
               <label class="agency-stage-select"><span>${t("agency.projectStatusAction")}</span>
@@ -1605,8 +1645,22 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                   ${(PROJECT_NEXT[selectedProject.status]||[]).map(st=>html`<option value=${st}>${t(`agency.projectStatus.${st}`)}</option>`)}
                 </select>
               </label>
-            </div>
+            `}
           </div>
+        </div>
+        ${projectFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${createProjectHandoff}>
+          <div class="agency-form-head"><strong>${t("agency.handoffProjectTitle")}</strong><button type="button" class="text" onClick=${()=>setProjectFormOpen(false)}>${t("agency.cancel")}</button></div>
+          <label class="agency-field"><span>${t("agency.selectContract")}</span><select class="field" value=${projectDraft.contractId} required onChange=${e=>update(setProjectDraft,"contractId",e.currentTarget.value)}>
+            <option value="">—</option>
+            ${contracts.filter(c=>c.status==="signed"&&(c.depositAmount===0||c.depositStatus==="paid")).map(c=>html`<option value=${c.id}>${c.title} (${c.totalAmount} ${c.currency})</option>`)}
+          </select></label>
+          <${Field} label=${t("agency.workspacePath")} value=${projectDraft.workspacePath} placeholder="workspaces/projects/..." onInput=${v=>update(setProjectDraft,"workspacePath",v)}/>
+          <${Field} label=${t("agency.targetStack")} value=${projectDraft.targetStack} onInput=${v=>update(setProjectDraft,"targetStack",v)}/>
+          <${Field} label=${t("agency.technicalSpecs")} value=${projectDraft.technicalSpecs} onInput=${v=>update(setProjectDraft,"technicalSpecs",v)}/>
+          <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!projectDraft.contractId}>${t("agency.createProjectBtn")}</button></div>
+        </form>`}
+        ${!selectedProject&&!projectFormOpen&&html`<${Empty} title=${t("agency.noProjects")} detail=${t("agency.handoffProjectTitle")}/>`}
+        ${selectedProject&&html`<div class="agency-ops-stack">
           ${workspaceNotice&&html`<p class="agency-research-feedback" role="status">${workspaceNotice}</p>`}
           <div class="agency-subtabs" role="tablist">
             <button type="button" role="tab" aria-selected=${projectSubTab==="lots"} class=${projectSubTab==="lots"?"active":""} onClick=${()=>setProjectSubTab("lots")}>${t("agency.projTabLots")}</button>
@@ -1619,20 +1673,23 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           ${projectSubTab==="lots"&&html`<section class="agency-project-section">
             <div class="agency-commercial-head">
               <h3>${t("agency.projectLotsTitle")}</h3>
-              <button class="btn" type="button" disabled=${!!busy} onClick=${()=>autoPlanLots(selectedProject.id)}>${t("agency.autoPlanLotsBtn")}</button>
+              <div class="agency-commercial-actions">
+                <button class="btn" type="button" disabled=${!!busy} onClick=${()=>autoPlanLots(selectedProject.id)}><${Icon} name="spark" size="sm"/>${t("agency.autoPlanLotsBtn")}</button>
+                <button class="btn primary" type="button" onClick=${()=>setLotFormOpen(v=>!v)}><${Icon} name=${lotFormOpen?"close":"plus"} size="sm"/>${lotFormOpen?t("agency.cancel"):t("agency.createLotBtn")}</button>
+              </div>
             </div>
-            <form class="agency-form agency-form-grid" onSubmit=${createProjectLot}>
+            ${lotFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${createProjectLot}>
               <${Field} label=${t("agency.lotTitle")} value=${lotDraft.title} required onInput=${v=>update(setLotDraft,"title",v)}/>
               <${Field} label=${t("agency.lotDescription")} value=${lotDraft.description} onInput=${v=>update(setLotDraft,"description",v)}/>
               <${Field} label=${t("agency.lotCriteria")} value=${lotDraft.acceptanceCriteria} onInput=${v=>update(setLotDraft,"acceptanceCriteria",v)}/>
               <label class="agency-field"><span>${t("agency.lotOwnerRole")}</span><select class="field" value=${lotDraft.ownerRole} onChange=${e=>update(setLotDraft,"ownerRole",e.currentTarget.value)}>${AGENT_ROLES.map(r=>html`<option value=${r}>${r}</option>`)}</select></label>
               <${Field} label=${t("agency.lotEstimatedHours")} value=${lotDraft.estimatedHours} type="number" onInput=${v=>update(setLotDraft,"estimatedHours",v)}/>
               <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.createLotBtn")}</button></div>
-            </form>
+            </form>`}
             <div class="agency-commercial-list">
               ${!projectLots.length&&html`<p class="agency-muted">${t("agency.noLots")}</p>`}
               ${projectLots.map(lot=>html`<article class="agency-commercial-card">
-                <div class="agency-commercial-head"><strong>#${lot.lotOrder} · ${lot.title} (${lot.ownerRole})</strong><span class="agency-whatsapp-state">${t(`agency.lotStatus.${lot.status}`)}</span></div>
+                <div class="agency-commercial-head"><strong>#${lot.lotOrder} · ${lot.title} (${lot.ownerRole})</strong><span class=${"agency-whatsapp-state "+lot.status}>${t(`agency.lotStatus.${lot.status}`)}</span></div>
                 ${lot.evidenceSummary&&html`<small>${lot.evidenceSummary}</small>`}
                 <div class="agency-commercial-actions">
                   <input class="field" placeholder=${t("agency.lotVerifyEvidence")} value=${lotEvidenceById[lot.id]||""} onInput=${e=>setLotEvidenceById(p=>({...p,[lot.id]:e.currentTarget.value}))}/>
@@ -1645,18 +1702,22 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             ${briefModal&&html`<div><div class="agency-contact-heading"><strong>${t("agency.generateBriefBtn")}</strong><button class="text" type="button" onClick=${()=>setBriefModal("")}>${t("agency.close")}</button></div><pre class="agency-brief-pre">${briefModal}</pre></div>`}
           </section>`}
           ${projectSubTab==="scope"&&html`<section class="agency-project-section">
-            <form class="agency-form agency-form-grid" onSubmit=${proposeScopeChange}>
+            <div class="agency-commercial-head">
+              <h3>${t("agency.projTabScope")}</h3>
+              <button class="btn primary" type="button" onClick=${()=>setScopeFormOpen(v=>!v)}><${Icon} name=${scopeFormOpen?"close":"plus"} size="sm"/>${scopeFormOpen?t("agency.cancel"):t("agency.proposeScopeChangeBtn")}</button>
+            </div>
+            ${scopeFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${proposeScopeChange}>
               <${Field} label=${t("agency.scopeChangeTitle")} value=${scopeDraft.title} required onInput=${v=>update(setScopeDraft,"title",v)}/>
               <${Field} label=${t("agency.budgetDelta")} value=${scopeDraft.budgetDelta} type="number" onInput=${v=>update(setScopeDraft,"budgetDelta",v)}/>
               <${Field} label=${t("agency.daysDelta")} value=${scopeDraft.daysDelta} type="number" onInput=${v=>update(setScopeDraft,"daysDelta",v)}/>
               <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.proposeScopeChangeBtn")}</button></div>
-            </form>
+            </form>`}
             <div class="agency-commercial-list">
               ${!scopeChanges.length&&html`<p class="agency-muted">${t("agency.noScopeChanges")}</p>`}
               ${scopeChanges.map(sc=>{
                 const ap=approvals.find(a=>a.id===sc.approvalId);
                 return html`<article class="agency-commercial-card">
-                  <div class="agency-commercial-head"><strong>${sc.title} (${sc.budgetDelta >= 0 ? "+" : ""}${sc.budgetDelta}, ${sc.daysDelta >= 0 ? "+" : ""}${sc.daysDelta}d)</strong><span class="agency-whatsapp-state">${t(`agency.scopeChangeStatus.${sc.status}`)}</span></div>
+                  <div class="agency-commercial-head"><strong>${sc.title} (${sc.budgetDelta >= 0 ? "+" : ""}${sc.budgetDelta}, ${sc.daysDelta >= 0 ? "+" : ""}${sc.daysDelta}d)</strong><span class=${"agency-whatsapp-state "+sc.status}>${t(`agency.scopeChangeStatus.${sc.status}`)}</span></div>
                   <div class="agency-commercial-actions">
                     ${sc.status==="proposed"&&html`<button class="btn" type="button" onClick=${()=>scopeChangeAction(sc.id,"request-approval",{reason:"Scope addendum review"})}>${t("agency.requestScopeApproval")}</button>`}
                     ${sc.status==="approval_requested"&&ap?.status==="pending"&&html`<button class="btn primary" type="button" onClick=${()=>approveRecord(ap.id)}>${t("agency.approveAndSend")}</button>`}
@@ -1669,151 +1730,180 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           ${projectSubTab==="qa"&&html`<section class="agency-project-section">
             <div class="agency-commercial-head">
               <h3>${t("agency.qaGateTitle")}</h3>
-              <button class="btn primary" type="button" disabled=${!!busy} onClick=${()=>runFourAxisQa(selectedProject.id)}>${t("agency.qaAuditAllBtn")}</button>
+              <div class="agency-commercial-actions">
+                <button class="btn primary" type="button" disabled=${!!busy} onClick=${()=>runFourAxisQa(selectedProject.id)}>${t("agency.qaAuditAllBtn")}</button>
+                <button class="btn" type="button" onClick=${()=>setQaFormOpen(v=>!v)}><${Icon} name=${qaFormOpen?"close":"plus"} size="sm"/>${qaFormOpen?t("agency.cancel"):t("agency.recordQaCheckBtn")}</button>
+              </div>
             </div>
             ${qaGate&&html`<div class=${"agency-qa-gate "+(qaGate.readyForDelivery?"ready":"blocked")}>
               <strong>${qaGate.readyForDelivery?t("agency.qaGateReady"):t("agency.qaGateBlocked")}</strong>
               <small>${qaGate.verifiedLots}/${qaGate.totalLots} · ${qaGate.passedCategories.length}/4</small>
               ${!qaGate.readyForDelivery&&qaGate.blockers.length>0&&html`<small>${t("agency.qaBlockers")}: ${qaGate.blockers.join(", ")}</small>`}
             </div>`}
-            <form class="agency-form agency-form-grid" onSubmit=${recordQaCheck}>
+            ${qaFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${recordQaCheck}>
               <label class="agency-field"><span>${t("agency.qaCategoryLabel")}</span><select class="field" value=${qaDraft.category} onChange=${e=>update(setQaDraft,"category",e.currentTarget.value)}>${QA_CATEGORIES.map(c=>html`<option value=${c}>${t(`agency.qaCategory.${c}`)}</option>`)}</select></label>
               <label class="agency-field"><span>${t("agency.qaStatusLabel")}</span><select class="field" value=${qaDraft.status} onChange=${e=>update(setQaDraft,"status",e.currentTarget.value)}>${QA_STATUSES.map(s=>html`<option value=${s}>${t(`agency.qaCheckStatus.${s}`)}</option>`)}</select></label>
               <${Field} label=${t("agency.qaCheckTitle")} value=${qaDraft.title} required onInput=${v=>update(setQaDraft,"title",v)}/>
               <${Field} label=${t("agency.qaEvidence")} value=${qaDraft.evidence} onInput=${v=>update(setQaDraft,"evidence",v)}/>
               <${Field} label=${t("agency.qaFindings")} value=${qaDraft.findings} onInput=${v=>update(setQaDraft,"findings",v)}/>
               <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.recordQaCheckBtn")}</button></div>
-            </form>
+            </form>`}
             <div class="agency-commercial-list">
               ${!qaChecks.length&&html`<p class="agency-muted">${t("agency.noQaChecks")}</p>`}
               ${qaChecks.map(c=>html`<article class="agency-commercial-card">
-                <div class="agency-commercial-head"><strong>${t(`agency.qaCategory.${c.category}`)} · ${c.title}</strong><span class="agency-whatsapp-state">${t(`agency.qaCheckStatus.${c.status}`)}</span></div>
+                <div class="agency-commercial-head"><strong>${t(`agency.qaCategory.${c.category}`)} · ${c.title}</strong><span class=${"agency-whatsapp-state "+c.status}>${t(`agency.qaCheckStatus.${c.status}`)}</span></div>
                 ${c.evidence&&html`<small>${c.evidence}</small>`}
               </article>`)}
             </div>
           </section>`}
-          ${projectSubTab==="delivery"&&html`<section class="agency-project-section">
-            <div class="agency-commercial-head">
-              <h3>${t("agency.deliveriesTitle")}</h3>
-              <div class="agency-commercial-actions">
-                <a class="btn" target="_blank" rel="noopener noreferrer" href=${`/amb/api/agency/${enc(orgId)}/projects/${enc(selectedProject.id)}/delivery-report`}>${t("agency.deliveryReportBtn")}</a>
-                <a class="btn" target="_blank" rel="noopener noreferrer" href=${`/amb/api/agency/${enc(orgId)}/projects/${enc(selectedProject.id)}/package.zip`}>${t("agency.downloadZipBtn")}</a>
+          ${projectSubTab==="delivery"&&html`<div class="agency-commercial-grid">
+            <section class="agency-project-section">
+              <div class="agency-commercial-head">
+                <h3>${t("agency.deliveriesTitle")}</h3>
+                <div class="agency-commercial-actions">
+                  <a class="btn" target="_blank" rel="noopener noreferrer" href=${`/amb/api/agency/${enc(orgId)}/projects/${enc(selectedProject.id)}/delivery-report`}>${t("agency.deliveryReportBtn")}</a>
+                  <a class="btn" target="_blank" rel="noopener noreferrer" href=${`/amb/api/agency/${enc(orgId)}/projects/${enc(selectedProject.id)}/package.zip`}>${t("agency.downloadZipBtn")}</a>
+                  <button class="btn primary" type="button" disabled=${!qaGate?.readyForDelivery} onClick=${()=>setDeliveryFormOpen(v=>!v)}><${Icon} name=${deliveryFormOpen?"close":"plus"} size="sm"/>${deliveryFormOpen?t("agency.cancel"):t("agency.prepareDeliveryBtn")}</button>
+                </div>
               </div>
-            </div>
-            <form class="agency-form agency-form-grid" onSubmit=${prepareDelivery}>
-              <${Field} label=${t("agency.deliveryEnvUrl")} value=${deliveryDraft.environmentUrl} placeholder="https://" onInput=${v=>update(setDeliveryDraft,"environmentUrl",v)}/>
-              <${Field} label=${t("agency.deliveryNotes")} value=${deliveryDraft.releaseNotes} onInput=${v=>update(setDeliveryDraft,"releaseNotes",v)}/>
-              <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!qaGate?.readyForDelivery}>${t("agency.prepareDeliveryBtn")}</button></div>
-            </form>
-            <div class="agency-commercial-list">
-              ${!deliveries.length&&html`<p class="agency-muted">${t("agency.noDeliveries")}</p>`}
-              ${deliveries.map(d=>{
-                const ap=approvals.find(a=>a.id===d.approvalId);
-                return html`<article class="agency-commercial-card">
-                  <div class="agency-commercial-head"><strong>v${d.version} · ${d.environmentUrl||"—"}</strong><span class="agency-whatsapp-state">${t(`agency.deliveryStatus.${d.status}`)}</span></div>
-                  <small>${d.qaSummary}</small>
-                  <div class="agency-commercial-actions">
-                    ${d.status==="prepared"&&html`<button class="btn" type="button" onClick=${()=>deliveryAction(d.id,"request-approval",{reason:"Production deployment approval"})}>${t("agency.requestDeployApproval")}</button>`}
-                    ${d.status==="approval_requested"&&ap?.status==="pending"&&html`<button class="btn primary" type="button" onClick=${()=>approveRecord(ap.id)}>${t("agency.approveAndSend")}</button>`}
-                    ${d.status==="approval_requested"&&ap?.status==="approved"&&html`<button class="btn primary" type="button" onClick=${()=>deliveryAction(d.id,"deploy",{})}>${t("agency.deployProductionBtn")}</button>`}
-                    ${d.status==="deployed"&&html`<input class="field" placeholder=${t("agency.clientFeedback")} value=${feedbackByDelivery[d.id]||""} onInput=${e=>setFeedbackByDelivery(p=>({...p,[d.id]:e.currentTarget.value}))}/><button class="btn primary" type="button" onClick=${()=>deliveryAction(d.id,"accept",{accepted:true,feedback:feedbackByDelivery[d.id]||""})}>${t("agency.acceptDeliveryBtn")}</button><button class="text" type="button" onClick=${()=>deliveryAction(d.id,"accept",{accepted:false,feedback:feedbackByDelivery[d.id]||""})}>${t("agency.rejectDeliveryBtn")}</button>`}
-                  </div>
-                </article>`;
-              })}
-            </div>
-          </section>
-          <section class="agency-project-section">
-            <h3>${t("agency.followUpsTitle")}</h3>
-            <form class="agency-form agency-form-grid" onSubmit=${scheduleFollowUp}>
-              <label class="agency-field"><span>${t("agency.followUpTypeLabel")}</span><select class="field" value=${followUpDraft.type} onChange=${e=>update(setFollowUpDraft,"type",e.currentTarget.value)}>${FOLLOWUP_TYPES.map(ft=>html`<option value=${ft}>${t(`agency.followUpType.${ft}`)}</option>`)}</select></label>
-              <${Field} label=${t("agency.followUpNotes")} value=${followUpDraft.notes} onInput=${v=>update(setFollowUpDraft,"notes",v)}/>
-              <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.scheduleFollowUpBtn")}</button></div>
-            </form>
-            <div class="agency-commercial-list">
-              ${!followUps.filter(f=>f.projectId===selectedProjectId).length&&html`<p class="agency-muted">${t("agency.noFollowUps")}</p>`}
-              ${followUps.filter(f=>f.projectId===selectedProjectId).map(fu=>html`<article class="agency-commercial-card">
-                <div class="agency-commercial-head"><strong>${t(`agency.followUpType.${fu.type}`)}</strong><span class="agency-whatsapp-state">${t(`agency.followUpStatus.${fu.status}`)}</span></div>
-                <small>${fu.notes||"—"}</small>
-                ${(fu.status==="scheduled"||fu.status==="completed")&&html`<div class="agency-commercial-actions">
-                  ${fu.status==="scheduled"&&html`<button class="btn" type="button" onClick=${()=>completeFollowUp(fu.id)}>${t("agency.completeFollowUpBtn")}</button>`}
-                  <button class="btn primary" type="button" disabled=${!!busy} onClick=${()=>convertFollowUp(fu.id)}>${t("agency.convertOpportunityBtn")}</button>
-                </div>`}
-              </article>`)}
-            </div>
-          </section>`}
+              ${deliveryFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${prepareDelivery}>
+                <${Field} label=${t("agency.deliveryEnvUrl")} value=${deliveryDraft.environmentUrl} placeholder="https://" onInput=${v=>update(setDeliveryDraft,"environmentUrl",v)}/>
+                <${Field} label=${t("agency.deliveryNotes")} value=${deliveryDraft.releaseNotes} onInput=${v=>update(setDeliveryDraft,"releaseNotes",v)}/>
+                <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!qaGate?.readyForDelivery}>${t("agency.prepareDeliveryBtn")}</button></div>
+              </form>`}
+              <div class="agency-commercial-list">
+                ${!deliveries.length&&html`<p class="agency-muted">${t("agency.noDeliveries")}</p>`}
+                ${deliveries.map(d=>{
+                  const ap=approvals.find(a=>a.id===d.approvalId);
+                  return html`<article class="agency-commercial-card">
+                    <div class="agency-commercial-head"><strong>v${d.version} · ${d.environmentUrl||"—"}</strong><span class=${"agency-whatsapp-state "+d.status}>${t(`agency.deliveryStatus.${d.status}`)}</span></div>
+                    <small>${d.qaSummary}</small>
+                    <div class="agency-commercial-actions">
+                      ${d.status==="prepared"&&html`<button class="btn" type="button" onClick=${()=>deliveryAction(d.id,"request-approval",{reason:"Production deployment approval"})}>${t("agency.requestDeployApproval")}</button>`}
+                      ${d.status==="approval_requested"&&ap?.status==="pending"&&html`<button class="btn primary" type="button" onClick=${()=>approveRecord(ap.id)}>${t("agency.approveAndSend")}</button>`}
+                      ${d.status==="approval_requested"&&ap?.status==="approved"&&html`<button class="btn primary" type="button" onClick=${()=>deliveryAction(d.id,"deploy",{})}>${t("agency.deployProductionBtn")}</button>`}
+                      ${d.status==="deployed"&&html`<input class="field" placeholder=${t("agency.clientFeedback")} value=${feedbackByDelivery[d.id]||""} onInput=${e=>setFeedbackByDelivery(p=>({...p,[d.id]:e.currentTarget.value}))}/><button class="btn primary" type="button" onClick=${()=>deliveryAction(d.id,"accept",{accepted:true,feedback:feedbackByDelivery[d.id]||""})}>${t("agency.acceptDeliveryBtn")}</button><button class="text" type="button" onClick=${()=>deliveryAction(d.id,"accept",{accepted:false,feedback:feedbackByDelivery[d.id]||""})}>${t("agency.rejectDeliveryBtn")}</button>`}
+                    </div>
+                  </article>`;
+                })}
+              </div>
+            </section>
+            <section class="agency-project-section">
+              <div class="agency-commercial-head">
+                <h3>${t("agency.followUpsTitle")}</h3>
+                <button class="btn primary" type="button" onClick=${()=>setFollowUpFormOpen(v=>!v)}><${Icon} name=${followUpFormOpen?"close":"plus"} size="sm"/>${followUpFormOpen?t("agency.cancel"):t("agency.scheduleFollowUpBtn")}</button>
+              </div>
+              ${followUpFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${scheduleFollowUp}>
+                <label class="agency-field"><span>${t("agency.followUpTypeLabel")}</span><select class="field" value=${followUpDraft.type} onChange=${e=>update(setFollowUpDraft,"type",e.currentTarget.value)}>${FOLLOWUP_TYPES.map(ft=>html`<option value=${ft}>${t(`agency.followUpType.${ft}`)}</option>`)}</select></label>
+                <${Field} label=${t("agency.followUpNotes")} value=${followUpDraft.notes} onInput=${v=>update(setFollowUpDraft,"notes",v)}/>
+                <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.scheduleFollowUpBtn")}</button></div>
+              </form>`}
+              <div class="agency-commercial-list">
+                ${!followUps.filter(f=>f.projectId===selectedProjectId).length&&html`<p class="agency-muted">${t("agency.noFollowUps")}</p>`}
+                ${followUps.filter(f=>f.projectId===selectedProjectId).map(fu=>html`<article class="agency-commercial-card">
+                  <div class="agency-commercial-head"><strong>${t(`agency.followUpType.${fu.type}`)}</strong><span class=${"agency-whatsapp-state "+fu.status}>${t(`agency.followUpStatus.${fu.status}`)}</span></div>
+                  <small>${fu.notes||"—"}</small>
+                  ${(fu.status==="scheduled"||fu.status==="completed")&&html`<div class="agency-commercial-actions">
+                    ${fu.status==="scheduled"&&html`<button class="btn" type="button" onClick=${()=>completeFollowUp(fu.id)}>${t("agency.completeFollowUpBtn")}</button>`}
+                    <button class="btn primary" type="button" disabled=${!!busy} onClick=${()=>convertFollowUp(fu.id)}>${t("agency.convertOpportunityBtn")}</button>
+                  </div>`}
+                </article>`)}
+              </div>
+            </section>
+          </div>`}
         </div>`}
       </div>`}
       ${tab==="operations"&&html`<div class="agency-ops-stack">
-        <section class="agency-project-section">
-          <h2>${t("agency.kpisTitle")}</h2>
-          ${metrics&&html`<div class="agency-metrics">
-            <${Metric} label=${t("agency.kpiSignedRevenue")} value=${metrics.signedRevenue} icon="check"/>
-            <${Metric} label=${t("agency.depositPaidLabel")} value=${metrics.collectedDeposits} icon="check"/>
-            <${Metric} label=${t("agency.kpiQuoteAcceptance")} value=${metrics.quoteAcceptanceRate} icon="clipboardCheck"/>
-            <${Metric} label=${t("agency.kpiQaFirstPass")} value=${metrics.qaFirstPassRate} icon="check"/>
-            <${Metric} label=${t("agency.kpiProjectsDelivered")} value=${metrics.projectsDelivered} icon="folder"/>
-            <${Metric} label=${t("agency.kpiPendingFollowUps")} value=${metrics.pendingFollowUps} icon="user"/>
-            <${Metric} label=${t("agency.kpiOpenMissions")} value=${metrics.openMissions} icon="clipboardCheck"/>
-            <${Metric} label=${t("agency.approvalsTitle")} value=${metrics.pendingApprovalsCount} icon="clipboardCheck"/>
-          </div>`}
-        </section>
-        <section class="agency-project-section">
-          <h3>${t("agency.approvalsTitle")}</h3>
-          <div class="agency-commercial-list">
-            ${!approvals.filter(a=>a.status==="pending").length&&html`<p class="agency-muted">${t("agency.noPendingApprovals")}</p>`}
-            ${approvals.filter(a=>a.status==="pending").map(ap=>html`<article class="agency-commercial-card">
-              <div class="agency-commercial-head"><strong>${ap.actionType}</strong><span class="agency-whatsapp-state">${ap.subjectType} · ${ap.subjectId}</span></div>
-              ${ap.reason&&html`<small>${ap.reason}</small>`}
-              <div class="agency-commercial-actions">
-                <button class="btn primary" type="button" disabled=${!!busy} onClick=${()=>decideApproval(ap.id,"approved")}>${t("agency.approveAndSend")}</button>
-                <button class="text" type="button" disabled=${!!busy} onClick=${()=>decideApproval(ap.id,"rejected")}>${t("agency.rejectBtn")}</button>
-              </div>
-            </article>`)}
-          </div>
-        </section>
-        <div class="agency-ops-grid">
+        <div class="agency-quick-strip">
+          <button type="button" class="agency-quick-tile" onClick=${()=>{setProspectOpen(true);switchTab("companies");}}>
+            <span class="agency-quick-icon tone-blue"><${Icon} name="globe" size="sm"/></span>
+            <strong>${t("agency.prospectSearchTitle")}</strong>
+          </button>
+          <button type="button" class="agency-quick-tile" onClick=${()=>switchTab("leads")}>
+            <span class="agency-quick-icon tone-teal"><${Icon} name="user" size="sm"/></span>
+            <strong>${t("agency.leads")}</strong>
+          </button>
+          <button type="button" class="agency-quick-tile" onClick=${()=>switchTab("commercial")}>
+            <span class="agency-quick-icon tone-amber"><${Icon} name="banknotes" size="sm"/></span>
+            <strong>${t("agency.commercial")}</strong>
+          </button>
+          <button type="button" class="agency-quick-tile" onClick=${()=>switchTab("copilot")}>
+            <span class="agency-quick-icon tone-purple"><${Icon} name="spark" size="sm"/></span>
+            <strong>${t("agency.copilot")}</strong>
+          </button>
+        </div>
+        ${metrics&&html`<div class="agency-kpi-grid">
+          <${Metric} label=${t("agency.kpiSignedRevenue")} value=${`${fmtNum(metrics.signedRevenue)} ${cur}`.trim()} icon="banknotes" tone="green"/>
+          <${Metric} label=${t("agency.depositPaidLabel")} value=${`${fmtNum(metrics.collectedDeposits)} ${cur}`.trim()} icon="wallet" tone="teal"/>
+          <${Metric} label=${t("agency.kpiQuoteAcceptance")} value=${`${metrics.quoteAcceptanceRate}%`} icon="trend" tone="blue"/>
+          <${Metric} label=${t("agency.kpiQaFirstPass")} value=${`${metrics.qaFirstPassRate}%`} icon="shield" tone="purple"/>
+          <${Metric} label=${t("agency.kpiProjectsDelivered")} value=${metrics.projectsDelivered} icon="folder" tone="green"/>
+          <${Metric} label=${t("agency.approvalsTitle")} value=${metrics.pendingApprovalsCount} icon="clipboardCheck" tone="amber"/>
+          <${Metric} label=${t("agency.kpiOpenMissions")} value=${metrics.openMissions} icon="code" tone="blue"/>
+          <${Metric} label=${t("agency.kpiPendingFollowUps")} value=${metrics.pendingFollowUps} icon="user" tone="purple"/>
+        </div>`}
+        <div class="agency-ops-bento">
           <div class="agency-commercial-col">
             <section class="agency-project-section">
-              <h3>${t("agency.devToolsTitle")}</h3>
-              <div class="agency-tool-list">
-                ${devTools.map(tool=>html`<div class="agency-tool-chip"><strong>${tool.name}</strong><span>${tool.available?(tool.version||t("agency.toolAvailable")):t("agency.toolMissing")}</span></div>`)}
+              <div class="agency-commercial-head">
+                <h3>${t("agency.approvalsTitle")}</h3>
+                <span class="agency-count-pill">${approvals.filter(a=>a.status==="pending").length}</span>
               </div>
-            </section>
-            <section class="agency-project-section">
-              <h3>${t("agency.agentsTitle")}</h3>
-              <div class="agency-role-grid">
-                ${agentProfiles.map(ag=>html`<div class="agency-tool-chip"><strong>${t(`agency.agentRoleNames.${ag.role}`)}</strong><span>${ag.independentFromBuild?t("agency.agentIndependentQa"):t("agency.agentBuildRole")}</span></div>`)}
+              <div class="agency-commercial-list">
+                ${!approvals.filter(a=>a.status==="pending").length&&html`<p class="agency-muted">${t("agency.noPendingApprovals")}</p>`}
+                ${approvals.filter(a=>a.status==="pending").map(ap=>html`<article class="agency-commercial-card">
+                  <div class="agency-commercial-head"><strong>${ap.actionType}</strong><span class="agency-whatsapp-state pending">${ap.subjectType} · ${ap.subjectId}</span></div>
+                  ${ap.reason&&html`<small>${ap.reason}</small>`}
+                  <div class="agency-commercial-actions">
+                    <button class="btn primary" type="button" disabled=${!!busy} onClick=${()=>decideApproval(ap.id,"approved")}>${t("agency.approveAndSend")}</button>
+                    <button class="text" type="button" disabled=${!!busy} onClick=${()=>decideApproval(ap.id,"rejected")}>${t("agency.rejectBtn")}</button>
+                  </div>
+                </article>`)}
               </div>
-            </section>
-            <section class="agency-project-section">
-              <h3>${t("agency.executionNodeTitle")}</h3>
-              <small>${execNodeStatus?(typeof execNodeStatus==="string"?execNodeStatus:(execNodeStatus.mode||execNodeStatus.status||JSON.stringify(execNodeStatus))):"—"}</small>
             </section>
             <section class="agency-project-section">
               <div class="agency-commercial-head">
                 <h3>${t("agency.auditTitle")}</h3>
                 <button class="btn" type="button" disabled=${!!busy} onClick=${verifyAuditChain}>${t("agency.verifyAuditBtn")}</button>
               </div>
-              ${auditVerify&&html`<p class="agency-research-feedback" role="status">${auditVerify.valid?t("agency.auditValid"):t("agency.qaGateBlocked")} (${auditVerify.checkedEvents??0})</p>`}
+              ${auditVerify&&html`<p class="agency-research-feedback" role="status">${auditVerify.valid?t("agency.auditValid"):t("agency.qaGateBlocked")} (${auditVerify.checkedEvents??auditVerify.eventsChecked??0})</p>`}
               <div class="agency-commercial-list">
-                ${auditEvents.slice(0,8).map(ev=>html`<div class="agency-msg-row"><strong>${ev.action}</strong><small>${ev.actorId} · ${new Date(ev.createdAt).toLocaleString()}</small></div>`)}
+                ${auditEvents.slice(0,6).map(ev=>html`<div class="agency-audit-row"><strong>${ev.action}</strong><span>${new Date(ev.createdAt).toLocaleTimeString()}</span></div>`)}
+              </div>
+            </section>
+            <section class="agency-project-section">
+              <div class="agency-commercial-head">
+                <h3>${t("agency.executionNodeTitle")}</h3>
+                <span class="agency-tool-chip">
+                  <span class=${"agency-dot "+(execNodeStatus?.connected?"ok":execNodeStatus?.state==="active"?"warn":"off")}></span>
+                  <span>${execNodeStatus?(typeof execNodeStatus==="string"?execNodeStatus:(execNodeStatus.state||execNodeStatus.mode||"—")):"—"}</span>
+                </span>
+              </div>
+              <div class="agency-tool-list">
+                ${devTools.map(tool=>html`<div class="agency-tool-chip"><span class=${"agency-dot "+(tool.available?"ok":"off")}></span><strong>${tool.name}</strong><span>${tool.available?(tool.version||t("agency.toolAvailable")):t("agency.toolMissing")}</span></div>`)}
+              </div>
+              <div class="agency-role-grid">
+                ${agentProfiles.map(ag=>html`<div class="agency-tool-chip"><strong>${t(`agency.agentRoleNames.${ag.role}`)}</strong></div>`)}
               </div>
             </section>
           </div>
           <section class="agency-project-section">
-            <h3>${t("agency.missionsTitle")}</h3>
-            <form class="agency-form agency-form-grid" onSubmit=${createMission}>
+            <div class="agency-commercial-head">
+              <h3>${t("agency.missionsTitle")}</h3>
+              <button class="btn primary" type="button" onClick=${()=>setMissionFormOpen(v=>!v)}><${Icon} name=${missionFormOpen?"close":"plus"} size="sm"/>${missionFormOpen?t("agency.cancel"):t("agency.createMissionBtn")}</button>
+            </div>
+            ${missionFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${createMission}>
               <label class="agency-field"><span>${t("agency.missionProjectLabel")}</span><select class="field" value=${missionDraft.projectId} onChange=${e=>update(setMissionDraft,"projectId",e.currentTarget.value)}><option value="">—</option>${projects.map(p=>html`<option value=${p.id}>${p.title}</option>`)}</select></label>
               <label class="agency-field"><span>${t("agency.missionRoleLabel")}</span><select class="field" value=${missionDraft.agentRole} onChange=${e=>update(setMissionDraft,"agentRole",e.currentTarget.value)}>${AGENT_ROLES.map(r=>html`<option value=${r}>${r}</option>`)}</select></label>
               <${Field} label=${t("agency.missionTitle")} value=${missionDraft.title} required onInput=${v=>update(setMissionDraft,"title",v)}/>
               <${Field} label=${t("agency.missionObjective")} value=${missionDraft.objective} onInput=${v=>update(setMissionDraft,"objective",v)}/>
               <${Field} label=${t("agency.missionToolLabel")} value=${missionDraft.preferredTool} onInput=${v=>update(setMissionDraft,"preferredTool",v)}/>
               <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.createMissionBtn")}</button></div>
-            </form>
+            </form>`}
             <div class="agency-commercial-list">
               ${!missions.length&&html`<p class="agency-muted">${t("agency.noMissions")}</p>`}
               ${missions.map(m=>html`<article class="agency-commercial-card">
-                <div class="agency-commercial-head"><strong>${m.title} · ${m.agentRole}</strong><span class="agency-whatsapp-state">${t(`agency.missionStatus.${m.status}`)}</span></div>
+                <div class="agency-commercial-head"><strong>${m.title} · ${m.agentRole}</strong><span class=${"agency-whatsapp-state "+m.status}>${t(`agency.missionStatus.${m.status}`)}</span></div>
                 <small>${m.preferredTool||"—"}${m.projectId?` · ${projects.find(p=>p.id===m.projectId)?.title||m.projectId}`:""}</small>
                 ${m.outputSummary&&html`<small><strong>${t("agency.missionOutputLabel")}:</strong> ${m.outputSummary}</small>`}
                 ${m.evidencePaths?.length>0&&html`<small><strong>${t("agency.missionEvidenceLabel")}:</strong> ${m.evidencePaths.join(", ")}</small>`}
