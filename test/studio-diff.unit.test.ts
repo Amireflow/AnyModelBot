@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createStudioSnapshot, getStudioDiff, writeWorkspaceFile } from "../src/agency/studio.js";
+import { createStudioSnapshot, getStudioDiff, resolveWorkspaceFile, writeWorkspaceFile } from "../src/agency/studio.js";
 import type { Project } from "../src/agency/types.js";
 
 const dirs: string[] = [];
@@ -48,11 +48,14 @@ describe("Studio snapshot diffs", () => {
     const project = makeProject();
     writeWorkspaceFile(dir, project, "src/app.js", "const label = \"old\";\n");
     writeWorkspaceFile(dir, project, "src/removed.js", "export const oldFile = true;\n");
+    const removedPath = resolveWorkspaceFile(dir, project.workspacePath, "src/removed.js").absPath;
+    expect(fs.existsSync(removedPath)).toBe(true);
     const before = await createStudioSnapshot(dir, project, "before");
 
     writeWorkspaceFile(dir, project, "src/app.js", "const label = \"new\";\n");
     writeWorkspaceFile(dir, project, "src/added.js", "export const added = true;\n");
-    fs.rmSync(path.join(dir, project.workspacePath, "src/removed.js"));
+    expect(fs.existsSync(removedPath)).toBe(true);
+    fs.rmSync(removedPath);
     const after = await createStudioSnapshot(dir, project, "after");
 
     const result = await getStudioDiff(dir, project, before.commitHash, after.commitHash);
