@@ -396,6 +396,15 @@ export function agencyRoutes(ctx: WebContext): Route {
         const body=await readObject(req);
         const query=typeof body.query==="string" ? body.query.trim() : "";
         if (!query) throw new HttpError(400,"Prospecting search query is required");
+        const mode=body.mode==="quick" ? "quick" : "deep";
+        let agentRuntime: ReturnType<typeof resolveAgentRuntime> | undefined;
+        try {
+          agentRuntime=resolveAgentRuntime(service,organizationId,actor,"prospecting",ctx.app?.config?.llm?.defaultModel);
+        } catch {
+          agentRuntime=undefined;
+        }
+        const qualificationProfile=service.getQualificationProfile(organizationId,actor);
+        const agentSkillsPrompt=agentRuntime ? resolveSkillsPromptBlock(agentRuntime.skills) : "";
         const result=await prospectWebCompanies({
           search:ctx.app?.search,
           query,
@@ -403,9 +412,18 @@ export function agencyRoutes(ctx: WebContext): Route {
           city:typeof body.city==="string" ? body.city : undefined,
           countryCode:typeof body.countryCode==="string" ? body.countryCode : undefined,
           maxResults:body.maxResults==null ? undefined : Number(body.maxResults),
+          mode,
+          modelClient:ctx.app?.models,
+          preferredModel:agentRuntime?.model,
+          defaultModel:ctx.app?.config?.llm?.defaultModel,
+          hasLlmEndpoint:isLlmConfigured(ctx),
+          qualificationProfile,
+          agentInstructions:agentRuntime?.agentInstructions,
+          agentRules:agentRuntime?.agentRules,
+          agentSkillsPrompt,
           findDuplicate:(name,website) => service.findDuplicateCompanies(organizationId,actor,name,website)[0]?.id,
         });
-        return send(res,200,{items:result.candidates,query:result.query,backend:result.backend});
+        return send(res,200,{items:result.candidates,query:result.query,backend:result.backend,research:result.research});
       }
 
       if (seg[2]==="companies") {
@@ -1722,6 +1740,13 @@ export function agencyRoutes(ctx: WebContext): Route {
             if (tool==="prospect_web") {
               const qStr=String(args.query || "").trim();
               if (!qStr) return { ok:false, summary:"query est requis pour prospect_web" };
+              let prospectRuntime: ReturnType<typeof resolveAgentRuntime> | undefined;
+              try {
+                prospectRuntime=resolveAgentRuntime(service,organizationId,actor,"prospecting",ctx.app?.config?.llm?.defaultModel);
+              } catch {
+                prospectRuntime=undefined;
+              }
+              const qualificationProfile=service.getQualificationProfile(organizationId,actor);
               const resWeb=await prospectWebCompanies({
                 search:ctx.app?.search,
                 query:qStr,
@@ -1729,9 +1754,27 @@ export function agencyRoutes(ctx: WebContext): Route {
                 city:typeof args.city==="string" ? args.city : undefined,
                 countryCode:typeof args.countryCode==="string" ? args.countryCode : undefined,
                 maxResults:args.maxResults==null ? 8 : Number(args.maxResults),
+                mode:args.mode==="quick" ? "quick" : "deep",
+                modelClient:ctx.app?.models,
+                preferredModel:prospectRuntime?.model,
+                defaultModel:ctx.app?.config?.llm?.defaultModel,
+                hasLlmEndpoint:isLlmConfigured(ctx),
+                qualificationProfile,
+                agentInstructions:prospectRuntime?.agentInstructions,
+                agentRules:prospectRuntime?.agentRules,
+                agentSkillsPrompt:prospectRuntime ? resolveSkillsPromptBlock(prospectRuntime.skills) : "",
                 findDuplicate:(name,website) => service.findDuplicateCompanies(organizationId,actor,name,website)[0]?.id,
               });
-              return { ok:true, summary:`${resWeb.candidates.length} entreprise(s) trouvée(s) via ${resWeb.backend}`, data:resWeb.candidates };
+              const modeLabel=resWeb.research.mode==="deep_llm"
+                ? `Deep Search IA (${resWeb.research.model ?? "LLM"})`
+                : resWeb.research.mode==="deep_deterministic"
+                  ? "Deep Search"
+                  : "Recherche rapide";
+              return {
+                ok:true,
+                summary:`${resWeb.candidates.length} entreprise(s) qualifiée(s) (${modeLabel} via ${resWeb.backend}, ${resWeb.research.auditedCount} site(s) inspecté(s))`,
+                data:{ research:resWeb.research, candidates:resWeb.candidates },
+              };
             }
             if (tool==="import_companies") {
               const rawList=Array.isArray(args.companies) ? args.companies.slice(0,20) : [];

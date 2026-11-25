@@ -676,6 +676,38 @@ export interface ProspectCandidate {
   sourceUrl: string;
   backend: string;
   duplicateCompanyId?: string;
+  industry?: string;
+  city?: string;
+  fitScore?: number;
+  relevance?: "high" | "medium" | "low";
+  summary?: string;
+  opportunity?: string;
+  recommendedAngle?: string;
+  signals?: string[];
+  contacts?: { emails: string[]; phones: string[]; socials: string[] };
+  audit?: Pick<
+    WebsiteAuditResult,
+    "finalUrl" | "statusCode" | "usesHttps" | "hasViewportMeta" | "responseTimeMs" | "title" | "generatorMeta" | "issues"
+  >;
+  foundByQueries?: string[];
+}
+
+export interface ProspectResearchStep {
+  label: string;
+  detail: string;
+  status: "done" | "skipped";
+}
+
+export interface ProspectResearchReport {
+  mode: "deep_llm" | "deep_deterministic" | "quick";
+  model?: string;
+  queries: string[];
+  scannedCount: number;
+  filteredOutCount: number;
+  auditedCount: number;
+  durationMs: number;
+  strategySummary: string;
+  steps: ProspectResearchStep[];
 }
 
 export interface WebsiteAuditResult {
@@ -692,6 +724,7 @@ export interface WebsiteAuditResult {
   detectedPhones: string[];
   socialLinks: string[];
   issues: string[];
+  pageExcerpt?: string;
   observedAt: number;
 }
 

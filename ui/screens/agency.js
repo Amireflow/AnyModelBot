@@ -186,6 +186,8 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const [prospectCity,setProspectCity]=useState("");
   const [prospectResults,setProspectResults]=useState([]);
   const [prospectMeta,setProspectMeta]=useState(null);
+  const [prospectMode,setProspectMode]=useState("deep");
+  const [prospectResearch,setProspectResearch]=useState(null);
   const [auditResultByCompany,setAuditResultByCompany]=useState({});
   const [leadViewMode,setLeadViewMode]=useState("list");
   const [auditEvents,setAuditEvents]=useState([]);
@@ -846,13 +848,14 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const approveRecord=(approvalId)=>decideApproval(approvalId,"approved");
   const searchProspects=async(e)=>{
     e.preventDefault();if(!prospectQuery.trim())return;
-    setBusy("prospect-search");setError("");setProspectMeta(null);
+    setBusy("prospect-search");setError("");setProspectMeta(null);setProspectResearch(null);
     try{
       const data=await api(`/agency/${enc(orgId)}/prospecting/search`,{
-        method:"POST",body:{query:prospectQuery,industry:prospectIndustry,city:prospectCity,maxResults:8}
+        method:"POST",body:{query:prospectQuery,industry:prospectIndustry,city:prospectCity,mode:prospectMode,maxResults:prospectMode==="deep"?10:8}
       });
       const list=Array.isArray(data.items)?data.items:(Array.isArray(data.items?.candidates)?data.items.candidates:[]);
       setProspectResults(list);
+      setProspectResearch(data.research||null);
       setProspectMeta({count:list.length,backend:data.backend||data.items?.backend||"web",query:data.query||prospectQuery});
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
@@ -1014,9 +1017,33 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const importProspect=async(item)=>{
     setBusy("prospect-imp");setError("");
     try{
-      await api(`/agency/${enc(orgId)}/companies`,{
-        method:"POST",body:{name:item.name,website:item.website,industry:prospectIndustry,city:prospectCity}
+      const created=await api(`/agency/${enc(orgId)}/companies`,{
+        method:"POST",body:{
+          name:item.name,
+          website:item.website,
+          industry:item.industry||prospectIndustry,
+          city:item.city||prospectCity
+        }
       });
+      if(created?.company?.id&&(item.audit||item.summary||item.opportunity)){
+        try{
+          const parts=[
+            item.summary||"",
+            item.opportunity?`${t("agency.prospectOpportunityLabel")}: ${item.opportunity}`:"",
+            item.audit?`HTTP ${item.audit.statusCode} · ${item.audit.usesHttps?"HTTPS":"no HTTPS"} · ${item.audit.hasViewportMeta?"mobile OK":"no viewport"}`:""
+          ].filter(Boolean);
+          await api(`/agency/${enc(orgId)}/evidence`,{
+            method:"POST",
+            body:{
+              companyId:created.company.id,
+              evidenceType:"website_audit",
+              sourceUrl:item.audit?.finalUrl||item.sourceUrl||item.website,
+              summary:parts.join(" | ").slice(0,800),
+              confidence:item.audit?0.88:0.7
+            }
+          });
+        }catch{/* evidence enrichment optional */}
+      }
       setProspectResults(prev=>prev.filter(x=>x.website!==item.website));
       setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
@@ -1626,17 +1653,56 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           <${Field} label=${t("agency.prospectQuery")} value=${prospectQuery} placeholder="BTP, e-commerce, clinique…" onInput=${setProspectQuery}/>
           <${Field} label=${t("agency.prospectSector")} value=${prospectIndustry} onInput=${setProspectIndustry}/>
           <${Field} label=${t("agency.prospectCity")} value=${prospectCity} onInput=${setProspectCity}/>
-          <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!prospectQuery.trim()}>${t("agency.prospectSearchBtn")}</button></div>
+          <div class="agency-field"><span>${t("agency.prospectModeLabel")}</span><${Select} label=${t("agency.prospectModeLabel")} value=${prospectMode} options=${[["deep",t("agency.prospectModeDeep")],["quick",t("agency.prospectModeQuick")]]} onChange=${setProspectMode}/></div>
+          <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!prospectQuery.trim()}>${busy==="prospect-search"?t("agency.loading"):t("agency.prospectSearchBtn")}</button></div>
         </form>
-        ${prospectMeta&&html`<p class="agency-research-feedback" role="status">${t("agency.prospectMetaLabel",{count:prospectMeta.count,backend:prospectMeta.backend})}</p>`}
-        ${prospectResults.length>0&&html`<div class="agency-commercial-list">
-          ${prospectResults.map(item=>html`<article class="agency-commercial-card">
-            <div class="agency-commercial-head"><strong title=${item.name}>${item.name}</strong><small title=${item.domain}>${item.domain}</small></div>
-            <small class="agency-clamp-2" title=${item.snippet||item.website}>${item.snippet||item.website}</small>
-            <div class="agency-commercial-actions">
-              <button class="btn primary" type="button" disabled=${!!busy||!!item.duplicateCompanyId} onClick=${()=>importProspect(item)}>${item.duplicateCompanyId?"✓":t("agency.prospectImportBtn")}</button>
+        ${busy==="prospect-search"&&html`<div class="agency-prospect-running"><${Spinner}/><span>${prospectMode==="deep"?t("agency.prospectDeepRunning"):t("agency.loading")}</span></div>`}
+        ${prospectResearch&&html`<div class="agency-prospect-synthesis">
+          <div class="agency-prospect-head">
+            <div>
+              <strong>${t("agency.prospectStrategyTitle")}</strong>
+              <p>${prospectResearch.strategySummary}</p>
             </div>
-          </article>`)}
+            <div class="agency-prospect-badges">
+              <span class="agency-whatsapp-state">${prospectResearch.mode==="deep_llm"?`IA · ${prospectResearch.model||"LLM"}`:prospectResearch.mode==="deep_deterministic"?"Deep Search":"Rapide"}</span>
+              <span class="agency-qualification-status">${t("agency.prospectStats",{scanned:prospectResearch.scannedCount||0,audited:prospectResearch.auditedCount||0,sec:((prospectResearch.durationMs||0)/1000).toFixed(1)})}</span>
+            </div>
+          </div>
+          ${Array.isArray(prospectResearch.queries)&&prospectResearch.queries.length>0&&html`<div class="agency-prospect-queries">
+            <small>${t("agency.prospectQueriesUsed")}</small>
+            ${prospectResearch.queries.map(q=>html`<span class="agency-chip">${q}</span>`)}
+          </div>`}
+          ${Array.isArray(prospectResearch.steps)&&prospectResearch.steps.length>0&&html`<div class="agency-prospect-steps">
+            ${prospectResearch.steps.map(st=>html`<div class="agency-prospect-step"><strong>${st.label}</strong><span>${st.detail}</span></div>`)}
+          </div>`}
+        </div>`}
+        ${prospectMeta&&html`<p class="agency-research-feedback" role="status">${t("agency.prospectMetaLabel",{count:prospectMeta.count,backend:prospectMeta.backend})}</p>`}
+        ${prospectMeta&&prospectResults.length===0&&html`<p class="agency-muted">${t("agency.prospectNoResults")}</p>`}
+        ${prospectResults.length>0&&html`<div class="agency-commercial-list">
+          ${prospectResults.map(item=>{
+            const relClass=item.relevance==="high"?"completed":item.relevance==="low"?"blocked":"pending";
+            const contactsLine=[...(item.contacts?.emails||[]),...(item.contacts?.phones||[])].slice(0,3).join(" · ");
+            return html`<article class="agency-commercial-card">
+              <div class="agency-commercial-head">
+                <div>
+                  <strong title=${item.name}>${item.name}</strong>
+                  <small>${joinMeta(item.industry,item.city)||item.domain}</small>
+                </div>
+                <div class="agency-prospect-badges">
+                  ${typeof item.fitScore==="number"&&html`<span class=${"agency-whatsapp-state "+relClass}>${t("agency.prospectScoreLabel",{score:item.fitScore})}</span>`}
+                  <a class="agency-link" href=${safeHref(item.website)} target="_blank" rel="noopener noreferrer" title=${item.domain}>${item.domain}</a>
+                </div>
+              </div>
+              <small class="agency-clamp-2" title=${item.summary||item.snippet||item.website}>${item.summary||item.snippet||item.website}</small>
+              ${item.opportunity&&html`<div class="agency-prospect-insight"><strong>${t("agency.prospectOpportunityLabel")}</strong><span>${item.opportunity}</span></div>`}
+              ${item.recommendedAngle&&html`<div class="agency-prospect-insight"><strong>${t("agency.prospectAngleLabel")}</strong><span>${item.recommendedAngle}</span></div>`}
+              ${Array.isArray(item.signals)&&item.signals.length>0&&html`<div class="agency-prospect-signals">${item.signals.map(sig=>html`<span class="agency-chip">${sig}</span>`)}</div>`}
+              ${contactsLine&&html`<small>${t("agency.prospectContactsDetected")}: ${contactsLine}</small>`}
+              <div class="agency-commercial-actions">
+                <button class="btn primary" type="button" disabled=${!!busy||!!item.duplicateCompanyId} onClick=${()=>importProspect(item)}>${item.duplicateCompanyId?"✓":t("agency.prospectImportBtn")}</button>
+              </div>
+            </article>`;
+          })}
         </div>`}
       </section>`}
       ${!busy&&tab==="companies"&&!rows.items?.length&&html`<${Empty} title=${t("agency.noCompanies")} detail=${query?t("agency.noSearchResults"):t("agency.noCompaniesHint")}/>`}

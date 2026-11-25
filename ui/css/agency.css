@@ -427,6 +427,21 @@
 .agency-milestone-row{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);flex-wrap:wrap;padding:var(--space-2) 0;border-top:1px solid var(--line-2)}
 .agency-milestone-row:first-of-type{border-top:0;padding-top:0}
 .agency-inline-edit{display:grid;gap:var(--space-2-5);padding:var(--space-3);border-radius:var(--r-item);background:var(--well)}
+.agency-prospect-running{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-3);border-radius:var(--r-item);background:var(--well);color:var(--muted);font-size:var(--fs-sm)}
+.agency-prospect-synthesis{display:grid;gap:var(--space-3);padding:var(--space-3);border-radius:var(--r-item);background:var(--well)}
+.agency-prospect-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap}
+.agency-prospect-head strong{display:block;font-size:var(--fs-sm);font-weight:var(--fw-semibold);color:var(--fg)}
+.agency-prospect-head p{margin:var(--space-1) 0 0;font-size:var(--fs-xs);color:var(--fg-2);max-width:72ch}
+.agency-prospect-badges{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
+.agency-prospect-queries,.agency-prospect-signals{display:flex;align-items:center;gap:var(--space-1-5);flex-wrap:wrap}
+.agency-prospect-queries small{font-size:var(--fs-xs);color:var(--muted);margin-inline-end:var(--space-1)}
+.agency-prospect-steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--space-2)}
+.agency-prospect-step{display:grid;gap:var(--space-1);padding:var(--space-2) var(--space-2-5);border-radius:var(--r-ctl);background:var(--card)}
+.agency-prospect-step strong{font-size:var(--fs-xs);color:var(--fg)}
+.agency-prospect-step span{font-size:var(--fs-xs);color:var(--muted)}
+.agency-prospect-insight{display:grid;gap:var(--space-0-5);padding:var(--space-2) var(--space-2-5);border-radius:var(--r-ctl);background:var(--well)}
+.agency-prospect-insight strong{font-size:var(--fs-2xs);color:var(--muted);font-weight:var(--fw-medium)}
+.agency-prospect-insight span{font-size:var(--fs-xs);color:var(--fg-2)}
 
 @media(min-width:761px){.agency-tabs{display:none}}
 @media(max-width:1080px){.agency-metrics,.agency-kpi-grid,.agency-quick-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}
