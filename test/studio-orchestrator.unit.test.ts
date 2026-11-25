@@ -317,6 +317,56 @@ describe("Studio conversational multi-subagent orchestrator", () => {
     expect(readWorkspaceFile(dir, project, "index.html").content).toContain("Klinika Dakar");
   });
 
+
+  it("cancels an in-flight sub-agent request and persists already-written files", async () => {
+    const dir = makeTempDir();
+    const project = makeProject();
+    const controller = new AbortController();
+    let call = 0;
+    const mockClient: ModelClient = {
+      listModels: async () => ["test-model"],
+      streamChat: async (request) => {
+        expect(request.signal).toBe(controller.signal);
+        call += 1;
+        if (call === 1) {
+          return JSON.stringify({
+            tasks: [{ id: "t-cancel", title: "Créer la page", description: "Créer index.html", subagent: "frontend", targetFiles: ["index.html"] }],
+          });
+        }
+        if (call === 2) {
+          return '<studio-write path="index.html"><h1>État conservé</h1></studio-write>';
+        }
+        controller.abort();
+        throw new Error("The model request was aborted");
+      },
+    };
+
+    const events: string[] = [];
+    const result = await runStudioConversation({
+      dataDir: dir,
+      project,
+      message: "Créer la page d'accueil",
+      mode: "build",
+      modelClient: mockClient,
+      defaultModel: "test-model",
+      hasLlmEndpoint: true,
+      resolveRuntime: makeRuntimeResolver(),
+      signal: controller.signal,
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(call).toBe(3);
+    expect(result.message.cancelled).toBe(true);
+    expect(result.message.modifiedFiles).toContain("index.html");
+    expect(result.message.snapshotBeforeCommit).toMatch(/^[0-9a-f]{40}$/);
+    expect(result.message.snapshotCommit).toMatch(/^[0-9a-f]{40}$/);
+    expect(result.plan?.tasks[0]?.status).toBe("pending");
+    expect(result.plan?.status).toBe("draft");
+    expect(readWorkspaceFile(dir, project, "index.html").content).toContain("État conservé");
+    expect(events).toContain("message");
+    expect(events).toContain("done");
+  });
+
   it("auto-detects failing build scripts and triggers self-healing QA fix loop", async () => {
     const dir = makeTempDir();
     const project = makeProject();

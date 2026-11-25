@@ -1346,9 +1346,11 @@ export async function runStudioAiAgent(input: {
   agentInstructions?: string;
   agentRules?: readonly string[];
   onStep?: (step: StudioAgentStep) => void;
+  signal?: AbortSignal;
 }): Promise<{
   summary: string;
   ok: boolean;
+  cancelled?: boolean;
   modifiedFiles: string[];
   steps: StudioAgentStep[];
   model: string;
@@ -1396,8 +1398,26 @@ export async function runStudioAiAgent(input: {
   let finalSummary = "";
   let consecutiveNoAction = 0;
 
+  const cancelledResult = () => ({
+    summary: "Agent interrompu à la demande ; les modifications déjà réalisées sont conservées.",
+    ok: false,
+    cancelled: true,
+    modifiedFiles: [...modified],
+    steps,
+    model,
+    ...(snapshotBefore ? { snapshotBefore } : {}),
+  });
+
   for (let turn = 1; turn <= maxSteps; turn++) {
-    const reply = await input.modelClient.streamChat({ model, messages: history }, () => {});
+    if (input.signal?.aborted) return cancelledResult();
+    let reply: string;
+    try {
+      reply = await input.modelClient.streamChat({ model, messages: history, signal: input.signal }, () => {});
+    } catch (error) {
+      if (!input.signal?.aborted) throw error;
+      return cancelledResult();
+    }
+    if (input.signal?.aborted) return cancelledResult();
     history.push({ role: "assistant", content: reply });
 
     const parsed = parseStudioActions(reply);
@@ -1437,6 +1457,7 @@ export async function runStudioAiAgent(input: {
     let finished = false;
 
     for (const action of parsed.actions) {
+      if (input.signal?.aborted) return cancelledResult();
       const stepNum = steps.length + 1;
       if (action.tool === "finish") {
         finalSummary = action.summary || "Completed workspace updates.";
@@ -1473,6 +1494,7 @@ export async function runStudioAiAgent(input: {
       const stepEntry: StudioAgentStep = { step: stepNum, tool: action.tool, target, ok, summary: observation.slice(0, 240) };
       steps.push(stepEntry);
       input.onStep?.(stepEntry);
+      if (input.signal?.aborted) return cancelledResult();
       observations.push(`[${action.tool}${target ? ` ${target}` : ""}] ${observation}`);
     }
 
