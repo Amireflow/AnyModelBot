@@ -540,8 +540,8 @@
 .agency-studio-change-main>.agency-truncate{font-family:monospace;font-size:var(--fs-xs)}
 .agency-studio-change-main small{color:var(--muted);font-size:var(--fs-2xs)}
 .agency-studio-diff-stats{display:inline-flex;align-items:center;gap:var(--space-1);font-family:monospace;font-size:var(--fs-2xs);font-style:normal;white-space:nowrap}
-.agency-studio-diff-stats b{color:var(--success,#16a34a);font-weight:var(--fw-medium)}
-.agency-studio-diff-stats i{color:var(--danger,#dc2626);font-style:normal}
+.agency-studio-diff-stats b{color:var(--green);font-weight:var(--fw-medium)}
+.agency-studio-diff-stats i{color:var(--red);font-style:normal}
 .agency-studio-diff-view{min-width:0;min-height:0;overflow:auto;border-radius:var(--r-item);background:var(--well)}
 .agency-studio-diff-content{display:grid;align-content:start;min-width:0;min-height:100%}
 .agency-studio-diff-head{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);padding:var(--space-3);background:var(--well-hover)}
@@ -551,8 +551,8 @@
 .agency-studio-diff-code{min-width:0;overflow:auto;padding:var(--space-2) 0;font:var(--fs-xs)/1.65 ui-monospace,SFMono-Regular,Menlo,monospace}
 .agency-studio-diff-line{display:block;min-width:max-content;padding:0 var(--space-3);white-space:pre;color:var(--fg-2)}
 .agency-studio-diff-line code{font:inherit}
-.agency-studio-diff-line.add{color:var(--success,#16a34a);background:color-mix(in srgb,var(--success,#16a34a) 9%,transparent)}
-.agency-studio-diff-line.remove{color:var(--danger,#dc2626);background:color-mix(in srgb,var(--danger,#dc2626) 9%,transparent)}
+.agency-studio-diff-line.add{color:var(--green);background:color-mix(in srgb,var(--green) 9%,transparent)}
+.agency-studio-diff-line.remove{color:var(--red);background:color-mix(in srgb,var(--red) 9%,transparent)}
 .agency-studio-diff-line.meta{color:var(--muted);background:var(--card)}
 .agency-studio-diff-note{display:block;padding:var(--space-2) var(--space-3);color:var(--muted);font-size:var(--fs-2xs)}
 @media(max-width:760px){.agency-studio-changes-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(120px,.36fr) minmax(220px,1fr)}}
