@@ -368,5 +368,18 @@ export default {
   "noQaChecks": "Henüz kalite kontrol kaydı yok.",
   "noDeliveries": "Henüz teslimat paketi yok.",
   "noFollowUps": "Planlanmış müşteri takibi yok.",
-  "noMissions": "Bu proje için planlanmış görev yok."
+  "noMissions": "Bu proje için planlanmış görev yok.",
+  "previewDocument": "Önizleme / PDF",
+  "downloadDocument": "İndir",
+  "suggestReplyBtn": "YZ yanıtı öner",
+  "suggestingReply": "Hazırlanıyor…",
+  "initWorkspaceBtn": "Çalışma alanı başlat",
+  "workspaceReady": "Çalışma alanı hazır: {path}",
+  "runAutoQaBtn": "Otomatik QA çalıştır",
+  "runningAutoQa": "QA çalışıyor…",
+  "exportBriefBtn": "Özeti dışa aktar",
+  "executeLlmBtn": "YZ çalıştır",
+  "executeCliBtn": "Çalışma alanını test et",
+  "missionOutputLabel": "Çıktı",
+  "missionEvidenceLabel": "Kanıtlar"
 };

@@ -11,3 +11,6 @@ export * from "./whatsapp-secrets.js";
 export * from "./commercial.js";
 export * from "./delivery.js";
 export * from "./orchestrator.js";
+export * from "./documents.js";
+export * from "./workspace-runner.js";
+export * from "./commercial-ai.js";

@@ -13,6 +13,15 @@ import type {
 } from "../../agency/types.js";
 import { HttpError, readJson, send, webEvent, type Route, type WebContext } from "../http.js";
 import { CompanyResearchImportError, findActiveCompanyResearchJob, listCompanyResearchJobs, loadCompanyResearchSources } from "../../agency/company-research-import.js";
+import { renderContractDocumentHtml, renderQuoteDocumentHtml } from "../../agency/documents.js";
+import { suggestCommercialReply } from "../../agency/commercial-ai.js";
+import {
+  executeAgencyMission,
+  initProjectWorkspace,
+  runProjectWorkspaceQa,
+  type AgencyCliAction,
+  type AgencyMissionExecutionMode,
+} from "../../agency/workspace-runner.js";
 
 export const LOCAL_AGENCY_ACTOR = "local-owner";
 const ERROR_STATUS: Record<string, number> = {
@@ -25,6 +34,31 @@ const ERROR_STATUS: Record<string, number> = {
 function routeError(error: unknown): never {
   if (error instanceof AgencyError) throw new HttpError(ERROR_STATUS[error.code] ?? 400,error.message);
   throw error;
+}
+function isLlmConfigured(ctx: WebContext): boolean {
+  if (!ctx.app?.models) return false;
+  const ext = ctx.app.config?.magpie?.externalBaseUrl?.trim();
+  if (ext) return true;
+  return Boolean(ctx.app.magpie?.modelflareInfo?.().connected);
+}
+function sendHtmlDocument(
+  res: Parameters<Route>[1],
+  filename: string,
+  html: string,
+  download: boolean,
+): void {
+  const safeName = filename.replace(/[^\w.-]/g, "_");
+  const headers: Record<string, string> = {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
+  };
+  if (download) {
+    headers["content-disposition"] = `attachment; filename="${safeName}"`;
+  }
+  res.writeHead(200, headers);
+  res.end(html);
 }
 function decodeSegment(value: string | undefined, field: string): string {
   try {
@@ -429,6 +463,32 @@ export function agencyRoutes(ctx: WebContext): Route {
           const body=await readObject(req);
           return send(res,200,{conversation:service.handoffConversation(organizationId,actor,convId,body.reason as string)});
         }
+        if (seg.length===5 && seg[4]==="suggest-reply" && method==="POST") {
+          const convId=decodeSegment(seg[3],"conversation id");
+          const org=service.getOrganization(organizationId,actor);
+          const conversation=service.getConversation(organizationId,actor,convId);
+          const lead=service.getLead(organizationId,actor,conversation.leadId);
+          const company=service.getCompany(organizationId,actor,lead.companyId);
+          const messages=service.listConversationMessages(organizationId,actor,convId,50);
+          const needs=service.getNeedsQualification(organizationId,actor,lead.id);
+          const quotes=service.listQuotes(organizationId,actor,lead.id);
+          const rules=service.getCommercialRules(organizationId,actor);
+          const suggestion=await suggestCommercialReply({
+            organization:org,
+            company,
+            lead,
+            conversation,
+            messages,
+            needs,
+            quotes,
+            rules,
+            modelClient:ctx.app?.models,
+            defaultModel:ctx.app?.config?.llm?.defaultModel,
+            hasLlmEndpoint:isLlmConfigured(ctx),
+            lang:ctx.app?.config?.ui?.lang || "fr",
+          });
+          return send(res,200,suggestion);
+        }
       }
 
       if (seg[2]==="catalog") {
@@ -486,6 +546,19 @@ export function agencyRoutes(ctx: WebContext): Route {
         }
         if (seg.length===5) {
           const quoteId=decodeSegment(seg[3],"quote id");
+          if (seg[4]==="document" && method==="GET") {
+            const org=service.getOrganization(organizationId,actor);
+            const quote=service.getQuote(organizationId,actor,quoteId);
+            const lead=service.getLead(organizationId,actor,quote.leadId);
+            const company=service.getCompany(organizationId,actor,lead.companyId);
+            const html=renderQuoteDocumentHtml({
+              organization:org,
+              company,
+              quote,
+              lang:ctx.app?.config?.ui?.lang || "fr",
+            });
+            return sendHtmlDocument(res,`${quote.id}.html`,html,url.searchParams.get("download")==="1");
+          }
           const body=await readObject(req);
           if (seg[4]==="negotiate" && method==="POST") {
             return send(res,200,{evaluation:service.evaluateQuoteNegotiation(organizationId,actor,quoteId,Number(body.requestedDiscountPct))});
@@ -517,6 +590,21 @@ export function agencyRoutes(ctx: WebContext): Route {
         }
         if (seg.length===5) {
           const contractId=decodeSegment(seg[3],"contract id");
+          if (seg[4]==="document" && method==="GET") {
+            const org=service.getOrganization(organizationId,actor);
+            const contract=service.getContract(organizationId,actor,contractId);
+            const lead=service.getLead(organizationId,actor,contract.leadId);
+            const company=service.getCompany(organizationId,actor,lead.companyId);
+            const quote=service.getQuote(organizationId,actor,contract.quoteId);
+            const html=renderContractDocumentHtml({
+              organization:org,
+              company,
+              contract,
+              quote,
+              lang:ctx.app?.config?.ui?.lang || "fr",
+            });
+            return sendHtmlDocument(res,`${contract.id}.html`,html,url.searchParams.get("download")==="1");
+          }
           const body=await readObject(req);
           if (seg[4]==="request-approval" && method==="POST") {
             return send(res,201,service.requestContractApproval(organizationId,actor,contractId,body.reason as string));
@@ -570,6 +658,33 @@ export function agencyRoutes(ctx: WebContext): Route {
           }
           if (seg.length===5 && seg[4]==="qa-gate" && method==="GET") {
             return send(res,200,{gate:service.evaluateProjectQaGate(organizationId,actor,projectId)});
+          }
+          if (seg.length===6 && seg[4]==="workspace" && seg[5]==="init" && method==="POST") {
+            const project=service.getProject(organizationId,actor,projectId);
+            const contract=service.getContract(organizationId,actor,project.contractId);
+            const lots=service.listProjectLots(organizationId,actor,projectId);
+            const workspace=initProjectWorkspace({
+              dataDir:ctx.app?.config?.dataDir ?? process.cwd(),
+              project,
+              contract,
+              lots,
+            });
+            return send(res,200,{workspace});
+          }
+          if (seg.length===5 && seg[4]==="qa-run" && method==="POST") {
+            const project=service.getProject(organizationId,actor,projectId);
+            const run=await runProjectWorkspaceQa({
+              dataDir:ctx.app?.config?.dataDir ?? process.cwd(),
+              project,
+            });
+            const check=service.recordQaCheck(organizationId,actor,projectId,{
+              category:"technical",
+              title:run.title,
+              status:run.status,
+              evidence:run.evidence,
+              findings:run.findings,
+            });
+            return send(res,201,{check,run});
           }
           if (seg.length>=5 && seg[4]==="lots") {
             if (seg.length===5 && method==="GET") {
@@ -715,6 +830,39 @@ export function agencyRoutes(ctx: WebContext): Route {
           const missionId=decodeSegment(seg[3],"mission id");
           const body=await readObject(req);
           return send(res,200,{mission:service.updateMissionStatus(organizationId,actor,missionId,body.status as AgencyMissionStatus,body.outputSummary as string ?? "",body.evidencePaths as string[]|undefined)});
+        }
+        if (seg.length===5 && seg[4]==="execute" && method==="POST") {
+          const missionId=decodeSegment(seg[3],"mission id");
+          const body=await readObject(req);
+          const mode=(body.mode as AgencyMissionExecutionMode|undefined) ?? "brief_export";
+          const cliAction=body.cliAction as AgencyCliAction|undefined;
+          const mission=service.getMission(organizationId,actor,missionId);
+          const project=mission.projectId ? service.getProject(organizationId,actor,mission.projectId) : undefined;
+          service.updateMissionStatus(organizationId,actor,mission.id,"running");
+          try {
+            const execution=await executeAgencyMission({
+              dataDir:ctx.app?.config?.dataDir ?? process.cwd(),
+              project,
+              mission,
+              mode,
+              cliAction,
+              modelClient:ctx.app?.models,
+              defaultModel:ctx.app?.config?.llm?.defaultModel,
+              hasLlmEndpoint:isLlmConfigured(ctx),
+            });
+            const updated=service.updateMissionStatus(
+              organizationId,
+              actor,
+              mission.id,
+              execution.status,
+              execution.outputSummary,
+              execution.evidencePaths,
+            );
+            return send(res,200,{mission:updated,execution});
+          } catch (error) {
+            service.updateMissionStatus(organizationId,actor,mission.id,"failed",(error as Error).message || "Execution failed");
+            throw error;
+          }
         }
       }
 

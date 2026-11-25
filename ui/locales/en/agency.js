@@ -368,5 +368,18 @@ export default {
   "noQaChecks": "No QA checks recorded yet.",
   "noDeliveries": "No delivery packages recorded yet.",
   "noFollowUps": "No client follow-ups scheduled yet.",
-  "noMissions": "No agent missions planned for this project."
+  "noMissions": "No agent missions planned for this project.",
+  "previewDocument": "Preview / PDF",
+  "downloadDocument": "Download",
+  "suggestReplyBtn": "Suggest AI reply",
+  "suggestingReply": "Drafting…",
+  "initWorkspaceBtn": "Init workspace",
+  "workspaceReady": "Workspace ready: {path}",
+  "runAutoQaBtn": "Run Auto QA",
+  "runningAutoQa": "Running QA…",
+  "exportBriefBtn": "Export brief",
+  "executeLlmBtn": "Run AI",
+  "executeCliBtn": "Test workspace",
+  "missionOutputLabel": "Output",
+  "missionEvidenceLabel": "Evidence"
 };

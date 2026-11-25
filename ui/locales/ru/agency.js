@@ -368,5 +368,18 @@ export default {
   "noQaChecks": "Проверок QA пока нет.",
   "noDeliveries": "Поставки ещё не оформлены.",
   "noFollowUps": "Сопровождение клиента пока не запланировано.",
-  "noMissions": "Для этого проекта пока нет миссий."
+  "noMissions": "Для этого проекта пока нет миссий.",
+  "previewDocument": "Просмотр / PDF",
+  "downloadDocument": "Скачать",
+  "suggestReplyBtn": "Предложить ответ ИИ",
+  "suggestingReply": "Подготовка…",
+  "initWorkspaceBtn": "Инициализировать workspace",
+  "workspaceReady": "Workspace готов: {path}",
+  "runAutoQaBtn": "Запустить авто-QA",
+  "runningAutoQa": "Выполняется QA…",
+  "exportBriefBtn": "Экспорт брифа",
+  "executeLlmBtn": "Запустить ИИ",
+  "executeCliBtn": "Тест workspace",
+  "missionOutputLabel": "Результат",
+  "missionEvidenceLabel": "Доказательства"
 };

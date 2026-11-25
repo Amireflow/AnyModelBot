@@ -368,5 +368,18 @@ export default {
   "noQaChecks": "Nenhuma verificação QA registada.",
   "noDeliveries": "Nenhuma entrega registada.",
   "noFollowUps": "Nenhum acompanhamento agendado.",
-  "noMissions": "Nenhuma missão planeada para este projeto."
+  "noMissions": "Nenhuma missão planeada para este projeto.",
+  "previewDocument": "Pré-visualizar / PDF",
+  "downloadDocument": "Descarregar",
+  "suggestReplyBtn": "Sugerir resposta IA",
+  "suggestingReply": "A redigir…",
+  "initWorkspaceBtn": "Inicializar workspace",
+  "workspaceReady": "Workspace pronto: {path}",
+  "runAutoQaBtn": "Executar QA auto",
+  "runningAutoQa": "QA em curso…",
+  "exportBriefBtn": "Exportar briefing",
+  "executeLlmBtn": "Executar IA",
+  "executeCliBtn": "Testar workspace",
+  "missionOutputLabel": "Saída",
+  "missionEvidenceLabel": "Provas"
 };

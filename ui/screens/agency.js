@@ -127,6 +127,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const [convMessages,setConvMessages]=useState([]);
   const [convDraft,setConvDraft]=useState({channel:"email",subject:""});
   const [msgBody,setMsgBody]=useState("");
+  const [suggestNotice,setSuggestNotice]=useState("");
   const [needsDraft,setNeedsDraft]=useState(blankNeedsDraft);
   const [needsNotice,setNeedsNotice]=useState("");
   const [quotes,setQuotes]=useState([]);
@@ -138,6 +139,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const [approvals,setApprovals]=useState([]);
   const [projects,setProjects]=useState([]);
   const [selectedProjectId,setSelectedProjectId]=useState("");
+  const [workspaceNotice,setWorkspaceNotice]=useState("");
   const [projectDraft,setProjectDraft]=useState(blankProjectDraft);
   const [projectLots,setProjectLots]=useState([]);
   const [lotDraft,setLotDraft]=useState(blankLotDraft);
@@ -901,6 +903,39 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
+  const suggestReply=async()=>{
+    if(!selectedConvId)return;
+    setBusy("suggest");setError("");setSuggestNotice("");
+    try{
+      const d=await api(`/agency/${enc(orgId)}/conversations/${enc(selectedConvId)}/suggest-reply`,{method:"POST",body:{}});
+      setMsgBody(d.draft||"");
+      if(d.guardrailsNote)setSuggestNotice(d.guardrailsNote);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const initWorkspace=async(projectId)=>{
+    if(!projectId)return;
+    setBusy("ws-init");setError("");setWorkspaceNotice("");
+    try{
+      const d=await api(`/agency/${enc(orgId)}/projects/${enc(projectId)}/workspace/init`,{method:"POST",body:{}});
+      setWorkspaceNotice(t("agency.workspaceReady",{path:d.workspace?.relativePath||""}));
+      setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const runAutoQa=async(projectId)=>{
+    if(!projectId)return;
+    setBusy("qa-run");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/projects/${enc(projectId)}/qa-run`,{method:"POST",body:{}});
+      setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const executeMission=async(missionId,mode,cliAction)=>{
+    setBusy("mission-exec");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/missions/${enc(missionId)}/execute`,{method:"POST",body:{mode,cliAction}});
+      setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
   const activeResearchJobs=researchJobs.filter(isActiveResearch);
   const launchUpdated=researchLaunch?.updatedAt?Date.parse(researchLaunch.updatedAt):Number.NaN;
   const researchLaunchActive=researchLaunch?.status==="running"&&(!Number.isFinite(launchUpdated)||Date.now()-launchUpdated<30*60_000);
@@ -1240,8 +1275,10 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             </div>
             ${selectedConvId&&html`<div class="agency-commercial-card">
               <div class="agency-msg-list">${convMessages.map(m=>html`<div class="agency-msg-row"><strong>${m.direction} · ${m.signal}</strong><span>${m.body}</span></div>`)}</div>
+              ${suggestNotice&&html`<p class="agency-research-feedback" role="status">${suggestNotice}</p>`}
               <${Field} label=${t("agency.messageBody")} value=${msgBody} onInput=${setMsgBody}/>
               <div class="agency-commercial-actions">
+                <button class="btn" type="button" disabled=${!!busy} onClick=${suggestReply}>${busy==="suggest"?t("agency.suggestingReply"):t("agency.suggestReplyBtn")}</button>
                 <button class="btn primary" type="button" disabled=${!!busy||!msgBody.trim()} onClick=${()=>postConvMessage("outbound")}>${t("agency.sendOutbound")}</button>
                 <button class="btn" type="button" disabled=${!!busy||!msgBody.trim()} onClick=${()=>postConvMessage("inbound")}>${t("agency.recordInbound")}</button>
               </div>
@@ -1282,6 +1319,8 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                   <div class="agency-commercial-head"><strong>v${q.version} · ${q.title}</strong><span class="agency-whatsapp-state">${t(`agency.quoteStatus.${q.status}`)}</span></div>
                   <small>${q.netTotal} ${q.currency} · ${t("agency.marginLabel",{pct:q.marginPct})} · ${q.deliveryDays}d</small>
                   <div class="agency-commercial-actions">
+                    <a class="btn" target="_blank" rel="noopener noreferrer" href=${`/amb/api/agency/${enc(orgId)}/quotes/${enc(q.id)}/document`}>${t("agency.previewDocument")}</a>
+                    <a class="text" target="_blank" rel="noopener noreferrer" href=${`/amb/api/agency/${enc(orgId)}/quotes/${enc(q.id)}/document?download=1`}>${t("agency.downloadDocument")}</a>
                     <input class="field" type="number" value=${negDiscount} onInput=${e=>setNegDiscount(e.currentTarget.value)} aria-label=${t("agency.negotiateDiscount")}/>
                     <button class="btn" type="button" onClick=${()=>evaluateQuoteNeg(q.id)}>${t("agency.evaluateNegotiation")}</button>
                     ${q.status==="draft"&&html`<button class="btn" type="button" onClick=${()=>quoteAction(q.id,"request-approval",{reason:"Review quote before sending"})}>${t("agency.requestQuoteApproval")}</button>`}
@@ -1305,6 +1344,8 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                   <div class="agency-commercial-head"><strong>${c.title}</strong><span class="agency-whatsapp-state">${t(`agency.contractStatus.${c.status}`)}</span></div>
                   <small>${c.totalAmount} ${c.currency} · ${c.depositStatus==="paid"?t("agency.depositPaidLabel"):t("agency.depositUnpaidLabel")} (${c.depositAmount})</small>
                   <div class="agency-commercial-actions">
+                    <a class="btn" target="_blank" rel="noopener noreferrer" href=${`/amb/api/agency/${enc(orgId)}/contracts/${enc(c.id)}/document`}>${t("agency.previewDocument")}</a>
+                    <a class="text" target="_blank" rel="noopener noreferrer" href=${`/amb/api/agency/${enc(orgId)}/contracts/${enc(c.id)}/document?download=1`}>${t("agency.downloadDocument")}</a>
                     ${c.status==="draft"&&html`<button class="btn" type="button" onClick=${()=>contractAction(c.id,"request-approval",{reason:"Review contract before signature"})}>${t("agency.requestContractApproval")}</button>`}
                     ${c.status==="pending_approval"&&ap?.status==="pending"&&html`<button class="btn primary" type="button" onClick=${()=>approveRecord(ap.id)}>${t("agency.approveAndSend")}</button>`}
                     ${c.status==="pending_approval"&&ap?.status==="approved"&&html`<button class="btn primary" type="button" onClick=${()=>contractAction(c.id,"sign")}>${t("agency.signContractBtn")}</button>`}
@@ -1344,13 +1385,18 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         ${selectedProject&&html`<div class="agency-commercial-col">
           <div class="agency-project-bar">
             <strong>${selectedProject.title}</strong>
-            <label class="agency-stage-select"><span>${t("agency.projectStatusAction")}</span>
-              <select class="field" value=${selectedProject.status} disabled=${busy==="proj-status"||!(PROJECT_NEXT[selectedProject.status]||[]).length} onChange=${e=>updateProjectStatus(selectedProject.id,e.currentTarget.value)}>
-                <option value=${selectedProject.status}>${t(`agency.projectStatus.${selectedProject.status}`)}</option>
-                ${(PROJECT_NEXT[selectedProject.status]||[]).map(st=>html`<option value=${st}>${t(`agency.projectStatus.${st}`)}</option>`)}
-              </select>
-            </label>
+            <div class="agency-commercial-actions">
+              <button class="btn" type="button" disabled=${!!busy} onClick=${()=>initWorkspace(selectedProject.id)}>${t("agency.initWorkspaceBtn")}</button>
+              <button class="btn" type="button" disabled=${!!busy} onClick=${()=>runAutoQa(selectedProject.id)}>${busy==="qa-run"?t("agency.runningAutoQa"):t("agency.runAutoQaBtn")}</button>
+              <label class="agency-stage-select"><span>${t("agency.projectStatusAction")}</span>
+                <select class="field" value=${selectedProject.status} disabled=${busy==="proj-status"||!(PROJECT_NEXT[selectedProject.status]||[]).length} onChange=${e=>updateProjectStatus(selectedProject.id,e.currentTarget.value)}>
+                  <option value=${selectedProject.status}>${t(`agency.projectStatus.${selectedProject.status}`)}</option>
+                  ${(PROJECT_NEXT[selectedProject.status]||[]).map(st=>html`<option value=${st}>${t(`agency.projectStatus.${st}`)}</option>`)}
+                </select>
+              </label>
+            </div>
           </div>
+          ${workspaceNotice&&html`<p class="agency-research-feedback" role="status">${workspaceNotice}</p>`}
           <section class="agency-project-section">
             <h3>${t("agency.projectLotsTitle")}</h3>
             <form class="agency-form agency-form-grid" onSubmit=${createProjectLot}>
@@ -1509,8 +1555,13 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               ${missions.map(m=>html`<article class="agency-commercial-card">
                 <div class="agency-commercial-head"><strong>${m.title} · ${m.agentRole}</strong><span class="agency-whatsapp-state">${t(`agency.missionStatus.${m.status}`)}</span></div>
                 <small>${m.preferredTool||"—"}${m.projectId?` · ${projects.find(p=>p.id===m.projectId)?.title||m.projectId}`:""}</small>
+                ${m.outputSummary&&html`<small><strong>${t("agency.missionOutputLabel")}:</strong> ${m.outputSummary}</small>`}
+                ${m.evidencePaths?.length>0&&html`<small><strong>${t("agency.missionEvidenceLabel")}:</strong> ${m.evidencePaths.join(", ")}</small>`}
                 ${m.brief&&html`<details class="agency-brief-details"><summary>${t("agency.missionBriefLabel")}</summary><pre>${m.brief}</pre></details>`}
                 <div class="agency-commercial-actions">
+                  <button class="btn" type="button" disabled=${!!busy} onClick=${()=>executeMission(m.id,"brief_export")}>${t("agency.exportBriefBtn")}</button>
+                  <button class="btn" type="button" disabled=${!!busy} onClick=${()=>executeMission(m.id,"llm_draft")}>${t("agency.executeLlmBtn")}</button>
+                  <button class="btn" type="button" disabled=${!!busy} onClick=${()=>executeMission(m.id,"cli_tool","npm_test")}>${t("agency.executeCliBtn")}</button>
                   ${m.status==="planned"&&html`<button class="btn" type="button" onClick=${()=>updateMission(m.id,"running")}>${t("agency.startMissionBtn")}</button>`}
                   ${(m.status==="planned"||m.status==="running")&&html`<button class="btn primary" type="button" onClick=${()=>updateMission(m.id,"completed")}>${t("agency.completeMissionBtn")}</button>`}
                 </div>

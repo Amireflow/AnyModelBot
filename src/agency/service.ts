@@ -1004,6 +1004,13 @@ export class AgencyService {
     return this.store.listConversations(organizationId,leadId ? requiredText(leadId,"leadId",100) : undefined,limit);
   }
 
+  getConversation(organizationId: string, actorId: string, conversationId: string): CommercialConversation {
+    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
+    const conv=this.store.getConversation(organizationId,requiredText(conversationId,"conversationId",100));
+    if (!conv) throw new AgencyError("NOT_FOUND","Conversation not found");
+    return conv;
+  }
+
   listConversationMessages(organizationId: string, actorId: string, conversationId: string, limit = 200): ConversationMessage[] {
     this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
     const conv=this.store.getConversation(organizationId,requiredText(conversationId,"conversationId",100));
@@ -2253,6 +2260,13 @@ export class AgencyService {
   listMissions(organizationId: string, actorId: string, projectId?: string): AgencyMission[] {
     this.requireMember(organizationId, actorId, ["owner", "admin", "member", "auditor"]);
     return this.store.listMissions(organizationId, projectId ? requiredText(projectId, "projectId", 100) : undefined);
+  }
+
+  getMission(organizationId: string, actorId: string, missionId: string): AgencyMission {
+    this.requireMember(organizationId, actorId, ["owner", "admin", "member", "auditor"]);
+    const mission = this.store.getMission(organizationId, requiredText(missionId, "missionId", 100));
+    if (!mission) throw new AgencyError("NOT_FOUND", "Mission not found");
+    return mission;
   }
 
   updateMissionStatus(

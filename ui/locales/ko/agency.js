@@ -368,5 +368,18 @@ export default {
   "noQaChecks": "기록된 QA 검사가 없습니다.",
   "noDeliveries": "등록된 납품 내역이 없습니다.",
   "noFollowUps": "예정된 고객 후속 조치가 없습니다.",
-  "noMissions": "이 프로젝트에 계획된 미션이 없습니다."
+  "noMissions": "이 프로젝트에 계획된 미션이 없습니다.",
+  "previewDocument": "미리보기 / PDF",
+  "downloadDocument": "다운로드",
+  "suggestReplyBtn": "AI 답장 제안",
+  "suggestingReply": "작성 중…",
+  "initWorkspaceBtn": "워크스페이스 초기화",
+  "workspaceReady": "워크스페이스 준비됨: {path}",
+  "runAutoQaBtn": "자동 QA 실행",
+  "runningAutoQa": "QA 실행 중…",
+  "exportBriefBtn": "브리프 내보내기",
+  "executeLlmBtn": "AI 실행",
+  "executeCliBtn": "워크스페이스 테스트",
+  "missionOutputLabel": "출력",
+  "missionEvidenceLabel": "증거"
 };

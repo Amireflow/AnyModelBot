@@ -368,5 +368,18 @@ export default {
   "noQaChecks": "QA チェックはまだありません。",
   "noDeliveries": "納品パッケージはまだありません。",
   "noFollowUps": "フォローアップはまだ予定されていません。",
-  "noMissions": "このプロジェクトのミッションはまだありません。"
+  "noMissions": "このプロジェクトのミッションはまだありません。",
+  "previewDocument": "プレビュー / PDF",
+  "downloadDocument": "ダウンロード",
+  "suggestReplyBtn": "AI 返信を提案",
+  "suggestingReply": "下書き作成中…",
+  "initWorkspaceBtn": "ワークスペース初期化",
+  "workspaceReady": "準備完了: {path}",
+  "runAutoQaBtn": "自動 QA を実行",
+  "runningAutoQa": "QA 実行中…",
+  "exportBriefBtn": "ブリーフ出力",
+  "executeLlmBtn": "AI 実行",
+  "executeCliBtn": "テスト実行",
+  "missionOutputLabel": "出力",
+  "missionEvidenceLabel": "証跡"
 };

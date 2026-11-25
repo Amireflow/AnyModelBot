@@ -368,5 +368,18 @@ export default {
   "noQaChecks": "暂无 QA 检查记录。",
   "noDeliveries": "暂无交付包记录。",
   "noFollowUps": "暂无客户回访计划。",
-  "noMissions": "该项目暂无执行任务。"
+  "noMissions": "该项目暂无执行任务。",
+  "previewDocument": "预览 / PDF",
+  "downloadDocument": "下载",
+  "suggestReplyBtn": "AI 建议回复",
+  "suggestingReply": "生成中…",
+  "initWorkspaceBtn": "初始化工作区",
+  "workspaceReady": "工作区已就绪：{path}",
+  "runAutoQaBtn": "运行自动 QA",
+  "runningAutoQa": "QA 运行中…",
+  "exportBriefBtn": "导出简报",
+  "executeLlmBtn": "AI 执行",
+  "executeCliBtn": "测试工作区",
+  "missionOutputLabel": "输出",
+  "missionEvidenceLabel": "证据"
 };

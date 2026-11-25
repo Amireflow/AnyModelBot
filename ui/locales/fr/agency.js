@@ -369,5 +369,18 @@ export default {
   "noQaChecks": "Aucun contrôle qualité enregistré.",
   "noDeliveries": "Aucune livraison ni preuve enregistrée.",
   "noFollowUps": "Aucun suivi client planifié.",
-  "noMissions": "Aucune mission planifiée pour ce projet."
+  "noMissions": "Aucune mission planifiée pour ce projet.",
+  "previewDocument": "Aperçu / PDF",
+  "downloadDocument": "Télécharger",
+  "suggestReplyBtn": "Suggérer réponse IA",
+  "suggestingReply": "Rédaction…",
+  "initWorkspaceBtn": "Initialiser workspace",
+  "workspaceReady": "Workspace initialisé : {path}",
+  "runAutoQaBtn": "Lancer QA auto",
+  "runningAutoQa": "QA en cours…",
+  "exportBriefBtn": "Exporter brief",
+  "executeLlmBtn": "Exécuter IA",
+  "executeCliBtn": "Test workspace",
+  "missionOutputLabel": "Sortie",
+  "missionEvidenceLabel": "Preuves"
 };
