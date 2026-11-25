@@ -2,6 +2,8 @@
  * 一条命令启动全部：内置 magpie（受管）+ 机器人运行时 + 渠道 + 管理界面。
  *   npm start            （数据目录默认 ./data，可用 AMB_DATA_DIR 指定）
  */
+import fs from "node:fs";
+import path from "node:path";
 import { loadConfig } from "./config.js";
 import { App } from "./app.js";
 import { logger } from "./log.js";
@@ -9,6 +11,14 @@ import { logger } from "./log.js";
 const log = logger("main");
 
 export async function runCli(): Promise<App> {
+  const envPath = path.resolve(process.cwd(), ".env");
+  if (fs.existsSync(envPath)) {
+    try {
+      process.loadEnvFile(envPath);
+    } catch (error) {
+      log.warn("failed to load .env", { message: (error as Error).message });
+    }
+  }
   const config = loadConfig();
   const app = new App(config);
   await app.start();

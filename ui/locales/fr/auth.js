@@ -1,7 +1,7 @@
 // auth · fr
 export default {
   title: "AnyModelBot",
-  subtitle: "Connectez-vous à votre plateforme agence avec Supabase Auth",
+  subtitle: "Connectez-vous à votre espace de travail",
   tabSignIn: "Se connecter",
   tabSignUp: "Créer un compte",
   email: "Adresse e-mail",
