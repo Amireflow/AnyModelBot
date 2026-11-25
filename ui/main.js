@@ -515,6 +515,11 @@ function App() {
     setTimeout(pollSide, 300);
   }, [pollSide, pollWorking]);
 
+  const openAgency = (tab = "operations") => {
+    setSearchOpen(false);
+    setFromSearch(false);
+    go(`/agency/${encodeURIComponent(tab)}`);
+  };
   const openSettings = (tab = route.view === "settings" ? route.tab : "general", row = "") => {
     reloadStatus();
     go(`/settings/${tab}${row ? "/" + row : ""}`);
