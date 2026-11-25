@@ -1,9 +1,10 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { BotAvatar } from "../components/avatar.js";
 import { html, Icon, Select, Spinner, Badge, Switch } from "../components/ui.js";
 import { Markdown } from "../components/markdown.js";
 import { api } from "../lib/api.js";
 import { fmtNum, t, useLang } from "../lib/i18n.js";
+import { toast } from "../lib/store.js";
 import { agentAvatarOf } from "./agency/agent-avatars.js";
 import { AgencyCopilot } from "./agency/copilot.js";
 import { AgencyAgents } from "./agency/agents.js";
@@ -176,6 +177,15 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const [prospectMeta,setProspectMeta]=useState(null);
   const [prospectMode,setProspectMode]=useState("deep");
   const [prospectResearch,setProspectResearch]=useState(null);
+  const [qaE2eUrl,setQaE2eUrl]=useState("http://127.0.0.1:3600/");
+  const [qaE2eResult,setQaE2eResult]=useState(null);
+  const [deployAdapters,setDeployAdapters]=useState([]);
+  const [deployAdapter,setDeployAdapter]=useState("docker_compose");
+  const [healthCheckByDelivery,setHealthCheckByDelivery]=useState({});
+  const [deployResult,setDeployResult]=useState(null);
+  const [opsBackups,setOpsBackups]=useState([]);
+  const [opsBackupNotice,setOpsBackupNotice]=useState("");
+  const [llmUsage,setLlmUsage]=useState(null);
   const [auditResultByCompany,setAuditResultByCompany]=useState({});
   const [leadViewMode,setLeadViewMode]=useState("list");
   const [auditEvents,setAuditEvents]=useState([]);
@@ -216,6 +226,36 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const [deliveryFormOpen,setDeliveryFormOpen]=useState(false);
   const [followUpFormOpen,setFollowUpFormOpen]=useState(false);
   const [deleteTarget,setDeleteTarget]=useState(null);
+  const [detailTab,setDetailTab]=useState("contacts");
+  const searchInputRef=useRef(null);
+
+  useEffect(()=>{
+    const onKey=(e)=>{
+      if(e.isComposing||e.keyCode===229)return;
+      if(document.querySelector(".scrim"))return;
+      const el=document.activeElement;
+      const typing=el&&(el.tagName==="INPUT"||el.tagName==="TEXTAREA"||el.tagName==="SELECT"||el.isContentEditable);
+      if(e.key==="/"&&!typing&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&(tab==="companies"||tab==="leads")){
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }else if(e.key==="Escape"&&!typing){
+        if(prospectOpen)setProspectOpen(false);
+        else if(qualificationForm)setQualificationForm(false);
+        else if(companyForm)setCompanyForm(false);
+        else if(leadForm)setLeadForm(false);
+        else if(orgFormOpen)setOrgFormOpen(false);
+        else if(selected){setSelected("");setConsentContactId("");}
+      }
+    };
+    window.addEventListener("keydown",onKey);
+    return ()=>window.removeEventListener("keydown",onKey);
+  },[tab,prospectOpen,qualificationForm,companyForm,leadForm,orgFormOpen,selected]);
+
+  const toggleCompaniesPanel=(panel)=>{
+    setProspectOpen(v=>panel==="prospect"?!v:false);
+    setQualificationForm(v=>panel==="qualification"?!v:false);
+    setCompanyForm(v=>panel==="company"?!v:false);
+  };
 
   useEffect(()=>{
     let live=true;
@@ -303,8 +343,11 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         api(`/agency/${enc(orgId)}/dev-tools`),
         api(`/agency/${enc(orgId)}/metrics`),
         api(`/agency/${enc(orgId)}/audit?limit=40`),
-        api(`/agency/${enc(orgId)}/execution-node`)
-      ]).then(([stats,contractData,projectData,appData,fuData,missionData,agentData,toolData,metricData,auditData,nodeData])=>{
+        api(`/agency/${enc(orgId)}/execution-node`),
+        api(`/agency/${enc(orgId)}/deploy/adapters`).catch(()=>({items:[]})),
+        api(`/agency/${enc(orgId)}/ops/backups`).catch(()=>({items:[]})),
+        api(`/agency/${enc(orgId)}/ops/llm-usage`).catch(()=>({summary:null}))
+      ]).then(([stats,contractData,projectData,appData,fuData,missionData,agentData,toolData,metricData,auditData,nodeData,adapterData,backupData,usageData])=>{
         if(!live)return;
         setDashboard(stats);
         const contractList=contractData.items||[];
@@ -322,6 +365,9 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         setMetrics(metricData.metrics||null);
         setAuditEvents(auditData.items||[]);
         setExecNodeStatus(nodeData.status||null);
+        setDeployAdapters(adapterData.items||[]);
+        setOpsBackups(backupData.items||[]);
+        setLlmUsage(usageData.summary||null);
       }).catch(e=>live&&setError(e.message)).finally(()=>live&&setBusy(""));
       return ()=>{live=false;};
     }
@@ -458,22 +504,22 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   };
   const createCompany=async(e)=>{
     e.preventDefault();setBusy("create");setError("");
-    try{await api(`/agency/${enc(orgId)}/companies`,{method:"POST",body:company});setCompany(blankCompany);setCompanyForm(false);setPage(0);setRevision(v=>v+1);}
+    try{await api(`/agency/${enc(orgId)}/companies`,{method:"POST",body:company});setCompany(blankCompany);setCompanyForm(false);setPage(0);setRevision(v=>v+1);toast(t("common.saved"));}
     catch(err){setError(err.message);}finally{setBusy("");}
   };
   const createLead=async(e)=>{
     e.preventDefault();setBusy("create");setError("");
-    try{await api(`/agency/${enc(orgId)}/leads`,{method:"POST",body:lead});setLead(blankLead);setLeadForm(false);switchTab("leads");setRevision(v=>v+1);}
+    try{await api(`/agency/${enc(orgId)}/leads`,{method:"POST",body:lead});setLead(blankLead);setLeadForm(false);switchTab("leads");setRevision(v=>v+1);toast(t("common.saved"));}
     catch(err){setError(err.message);}finally{setBusy("");}
   };
   const createContact=async(e)=>{
     e.preventDefault();setBusy("create");setError("");
-    try{await api(`/agency/${enc(orgId)}/companies/${enc(selected)}/contacts`,{method:"POST",body:contact});setContact(blankContact);setContactForm(false);setRevision(v=>v+1);}
+    try{await api(`/agency/${enc(orgId)}/companies/${enc(selected)}/contacts`,{method:"POST",body:contact});setContact(blankContact);setContactForm(false);setRevision(v=>v+1);toast(t("common.saved"));}
     catch(err){setError(err.message);}finally{setBusy("");}
   };
   const moveLead=async(id,stage)=>{
     setBusy("stage");setError("");
-    try{await api(`/agency/${enc(orgId)}/leads/${enc(id)}/stage`,{method:"PATCH",body:{stage}});setRevision(v=>v+1);}
+    try{await api(`/agency/${enc(orgId)}/leads/${enc(id)}/stage`,{method:"PATCH",body:{stage}});setRevision(v=>v+1);toast(t("common.saved"));}
     catch(err){setError(err.message);}finally{setBusy("");}
   };
   const createEvidence=async(e)=>{
@@ -482,7 +528,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       await api("/agency/"+enc(orgId)+"/companies/"+enc(selected)+"/evidence",{
         method:"POST",body:{...evidenceDraft,confidence:Number(evidenceDraft.confidence)}
       });
-      setEvidenceDraft(blankEvidence);setEvidenceForm(false);setRevision(v=>v+1);
+      setEvidenceDraft(blankEvidence);setEvidenceForm(false);setRevision(v=>v+1);toast(t("common.saved"));
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const openWhatsAppConsent=async(contactRecord,channel="whatsapp")=>{
@@ -580,6 +626,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         const assessment=await api("/agency/"+enc(orgId)+"/companies/"+enc(selected)+"/qualification");
         setQualification(assessment.assessment);
       }
+      toast(t("common.saved"));
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const startResearch=async()=>{
@@ -637,7 +684,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         requireOwnerApprovalAboveAmount:Number(rulesDraft.requireOwnerApprovalAboveAmount),
         paymentTermsDefault:rulesDraft.paymentTermsDefault
       }});
-      setRulesNotice(t("agency.rulesSaved"));setRevision(v=>v+1);
+      setRulesNotice(t("agency.rulesSaved"));setRevision(v=>v+1);toast(t("agency.rulesSaved"));
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const saveNeeds=async(e)=>{
@@ -653,7 +700,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         budgetMax:Number(needsDraft.budgetMax||0),
         clientConfirmed:needsDraft.clientConfirmed
       }});
-      setNeedsNotice(t("agency.needsSaved"));setRevision(v=>v+1);
+      setNeedsNotice(t("agency.needsSaved"));setRevision(v=>v+1);toast(t("agency.needsSaved"));
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const startConversation=async(e)=>{
@@ -924,6 +971,43 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
+  const runVisualQa=async(projectId)=>{
+    if(!projectId||!qaE2eUrl.trim())return;
+    setBusy("qa-e2e");setError("");setQaE2eResult(null);
+    try{
+      const data=await api(`/agency/${enc(orgId)}/projects/${enc(projectId)}/qa-e2e`,{method:"POST",body:{url:qaE2eUrl.trim()}});
+      setQaE2eResult(data.result||null);
+      setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const checkDeliveryHealth=async(deliveryId,targetUrl)=>{
+    if(!selectedProjectId)return;
+    setBusy("health");setError("");
+    try{
+      const data=await api(`/agency/${enc(orgId)}/projects/${enc(selectedProjectId)}/deliveries/${enc(deliveryId)}/health-check`,{method:"POST",body:{url:targetUrl}});
+      setHealthCheckByDelivery(p=>({...p,[deliveryId]:data.healthCheck}));
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const executeDeliveryDeploy=async(deliveryId,targetUrl)=>{
+    if(!selectedProjectId)return;
+    setBusy("exec-deploy");setError("");setDeployResult(null);
+    try{
+      const data=await api(`/agency/${enc(orgId)}/projects/${enc(selectedProjectId)}/deliveries/${enc(deliveryId)}/execute-deploy`,{
+        method:"POST",body:{adapter:deployAdapter,url:targetUrl||undefined}
+      });
+      setDeployResult(data.deploy||null);
+      setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const createBackupNow=async()=>{
+    if(!orgId)return;
+    setBusy("backup");setError("");setOpsBackupNotice("");
+    try{
+      const data=await api(`/agency/${enc(orgId)}/ops/backups`,{method:"POST",body:{}});
+      setOpsBackups(data.items||[]);
+      setOpsBackupNotice(t("agency.opsBackupDone",{file:data.backup?.filename||"agency.db"}));
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
   const importProspect=async(item)=>{
     setBusy("prospect-imp");setError("");
     try{
@@ -956,6 +1040,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       }
       setProspectResults(prev=>prev.filter(x=>x.website!==item.website));
       setRevision(v=>v+1);
+      toast(`${item.name} · ✓`);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const auditCompanySite=async(companyId)=>{
@@ -970,7 +1055,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
     setBusy("archive-co");setError("");
     try{
       await api(`/agency/${enc(orgId)}/companies/${enc(companyId)}`,{method:"PATCH",body:{status:"archived"}});
-      setSelected("");setRevision(v=>v+1);
+      setSelected("");setRevision(v=>v+1);toast(t("common.saved"));
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const archiveFromDeleteModal=async(target)=>{
@@ -1456,11 +1541,11 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           <button role="tab" aria-selected=${tab==="agents"} class=${tab==="agents"?"active":""} onClick=${()=>switchTab("agents")}>${t("agency.agents")}</button>
           <button role="tab" aria-selected=${tab==="copilot"} class=${tab==="copilot"?"active":""} onClick=${()=>switchTab("copilot")}>${t("agency.copilot")}</button>
         </div>
-        ${(tab==="companies"||tab==="leads")&&html`<label class="agency-search"><${Icon} name="search" size="sm"/><input type="search" value=${query} placeholder=${t("agency.search")} onInput=${e=>{setQuery(e.currentTarget.value);setPage(0);}}/></label>`}
+        ${(tab==="companies"||tab==="leads")&&html`<label class="agency-search"><${Icon} name="search" size="sm"/><input ref=${searchInputRef} type="search" value=${query} placeholder=${t("agency.search")} onInput=${e=>{setQuery(e.currentTarget.value);setPage(0);}}/>${!query&&html`<kbd aria-hidden="true">/</kbd>`}</label>`}
         ${tab==="companies"&&html`<div class="agency-toolbar-actions">
-          <button class=${"btn"+(prospectOpen?" primary":"")} type="button" onClick=${()=>setProspectOpen(v=>!v)}><${Icon} name="globe" size="sm"/>${t("agency.prospectSearchTitle")}</button>
-          <button class="btn" type="button" onClick=${()=>setQualificationForm(v=>!v)}>${t("agency.qualificationProfile")}</button>
-          <button class="btn primary" type="button" onClick=${()=>setCompanyForm(v=>!v)}><${Icon} name="plus" size="sm"/>${t("agency.newCompany")}</button>
+          <button class=${"btn"+(prospectOpen?" primary":"")} type="button" onClick=${()=>toggleCompaniesPanel("prospect")}><${Icon} name="globe" size="sm"/>${t("agency.prospectSearchTitle")}</button>
+          <button class=${"btn"+(qualificationForm?" primary":"")} type="button" onClick=${()=>toggleCompaniesPanel("qualification")}>${t("agency.qualificationProfile")}</button>
+          <button class="btn primary" type="button" onClick=${()=>toggleCompaniesPanel("company")}><${Icon} name=${companyForm?"close":"plus"} size="sm"/>${t("agency.newCompany")}</button>
         </div>`}
         ${tab==="leads"&&html`<div class="agency-toolbar-actions">
           <button class="btn primary" type="button" disabled=${!dashboard?.companyCount} onClick=${()=>setLeadForm(v=>!v)}><${Icon} name="plus" size="sm"/>${t("agency.newLead")}</button>
@@ -1493,20 +1578,30 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!lead.companyId}>${t("agency.saveLead")}</button></div>
       </form>`}
       ${busy==="load"&&html`<div class="agency-loading"><${Spinner}/>${t("agency.loading")}</div>`}
-      ${tab==="companies"&&prospectOpen&&html`<section class="agency-project-section">
-        <form class="agency-form agency-form-grid" onSubmit=${searchProspects}>
-          <div class="agency-form-head"><strong>${t("agency.prospectSearchTitle")}</strong><button type="button" class="text" onClick=${()=>setProspectOpen(false)}>${t("agency.cancel")}</button></div>
-          <${Field} label=${t("agency.prospectQuery")} value=${prospectQuery} placeholder="BTP, e-commerce, clinique…" onInput=${setProspectQuery}/>
-          <${Field} label=${t("agency.prospectSector")} value=${prospectIndustry} onInput=${setProspectIndustry}/>
-          <${Field} label=${t("agency.prospectCity")} value=${prospectCity} onInput=${setProspectCity}/>
-          <div class="agency-field"><span>${t("agency.prospectModeLabel")}</span><${Select} label=${t("agency.prospectModeLabel")} value=${prospectMode} options=${[["deep",t("agency.prospectModeDeep")],["quick",t("agency.prospectModeQuick")]]} onChange=${setProspectMode}/></div>
-          <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!prospectQuery.trim()}>${busy==="prospect-search"?t("agency.loading"):t("agency.prospectSearchBtn")}</button></div>
+      ${tab==="companies"&&prospectOpen&&html`<section class="agency-prospect-shell">
+        <form class="agency-prospect-form" onSubmit=${searchProspects}>
+          <div class="agency-prospect-form-head">
+            <span class="agency-prospect-form-title"><${Icon} name="globe" size="sm"/><span>${t("agency.prospectSearchTitle")}</span></span>
+            <button type="button" class="icon-btn" title=${t("agency.close")} aria-label=${t("agency.close")} onClick=${()=>setProspectOpen(false)}><${Icon} name="close" size="sm"/></button>
+          </div>
+          <div class="agency-prospect-bar">
+            <${Field} label=${t("agency.prospectQuery")} value=${prospectQuery} placeholder="BTP, e-commerce, clinique…" onInput=${setProspectQuery}/>
+            <button class="btn primary" type="submit" disabled=${!!busy||!prospectQuery.trim()}>${busy==="prospect-search"?html`<${Spinner}/>`:html`<${Icon} name="search" size="sm"/>`}${busy==="prospect-search"?t("agency.loading"):t("agency.prospectSearchBtn")}</button>
+          </div>
+          <div class="agency-prospect-filters">
+            <${Field} label=${t("agency.prospectSector")} value=${prospectIndustry} onInput=${setProspectIndustry}/>
+            <${Field} label=${t("agency.prospectCity")} value=${prospectCity} onInput=${setProspectCity}/>
+            <div class="agency-field"><span>${t("agency.prospectModeLabel")}</span><${Select} label=${t("agency.prospectModeLabel")} value=${prospectMode} options=${[["deep",t("agency.prospectModeDeep")],["quick",t("agency.prospectModeQuick")]]} onChange=${setProspectMode}/></div>
+          </div>
         </form>
         ${busy==="prospect-search"&&html`<div class="agency-prospect-running"><${Spinner}/><span>${prospectMode==="deep"?t("agency.prospectDeepRunning"):t("agency.loading")}</span></div>`}
         ${prospectResearch&&html`<div class="agency-prospect-synthesis">
           <div class="agency-prospect-head">
             <div>
-              <strong>${t("agency.prospectStrategyTitle")}</strong>
+              <div class="agency-prospect-head-title">
+                <span class="agency-copilot-badge tone-purple"><${Icon} name="spark" size="xs"/></span>
+                <strong>${t("agency.prospectStrategyTitle")}</strong>
+              </div>
               <p>${prospectResearch.strategySummary}</p>
             </div>
             <div class="agency-prospect-badges">
@@ -1514,49 +1609,67 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               <span class="agency-qualification-status">${t("agency.prospectStats",{scanned:prospectResearch.scannedCount||0,audited:prospectResearch.auditedCount||0,sec:((prospectResearch.durationMs||0)/1000).toFixed(1)})}</span>
             </div>
           </div>
-          ${Array.isArray(prospectResearch.queries)&&prospectResearch.queries.length>0&&html`<div class="agency-prospect-queries">
-            <small>${t("agency.prospectQueriesUsed")}</small>
-            ${prospectResearch.queries.map(q=>html`<span class="agency-chip">${q}</span>`)}
-          </div>`}
-          ${Array.isArray(prospectResearch.steps)&&prospectResearch.steps.length>0&&html`<div class="agency-prospect-steps">
-            ${prospectResearch.steps.map(st=>html`<div class="agency-prospect-step"><strong>${st.label}</strong><span>${st.detail}</span></div>`)}
-          </div>`}
+          ${((Array.isArray(prospectResearch.queries)&&prospectResearch.queries.length>0)||(Array.isArray(prospectResearch.steps)&&prospectResearch.steps.length>0))&&html`<details class="agency-prospect-trace" open=${prospectResults.length===0||undefined}>
+            <summary class="agency-prospect-trace-summary">
+              <${Icon} name="chevRight" size="xs"/>
+              <span>${prospectResearch.steps?.length||0} · ${prospectResearch.queries?.length||0} ${t("agency.prospectQueriesUsed").replace(/\s*:?\s*$/,"")}</span>
+            </summary>
+            <div class="agency-prospect-trace-body">
+              ${Array.isArray(prospectResearch.queries)&&prospectResearch.queries.length>0&&html`<div class="agency-prospect-queries">
+                <small>${t("agency.prospectQueriesUsed")}</small>
+                ${prospectResearch.queries.map(q=>html`<span class="agency-chip">${q}</span>`)}
+              </div>`}
+              ${Array.isArray(prospectResearch.steps)&&prospectResearch.steps.length>0&&html`<div class="agency-prospect-steps">
+                ${prospectResearch.steps.map((st,idx)=>html`<div class="agency-prospect-step">
+                  <div class="agency-prospect-step-head"><span class="agency-step-num">${idx+1}</span><strong>${st.label}</strong></div>
+                  <span>${st.detail}</span>
+                </div>`)}
+              </div>`}
+            </div>
+          </details>`}
         </div>`}
-        ${prospectMeta&&html`<p class="agency-research-feedback" role="status">${t("agency.prospectMetaLabel",{count:prospectMeta.count,backend:prospectMeta.backend})}</p>`}
+        ${prospectMeta&&html`<div class="agency-prospect-results-bar">
+          <span class="agency-qualification-status" role="status">${t("agency.prospectMetaLabel",{count:prospectMeta.count,backend:prospectMeta.backend})}</span>
+        </div>`}
         ${prospectMeta&&prospectResults.length===0&&html`<p class="agency-muted">${t("agency.prospectNoResults")}</p>`}
         ${prospectResults.length>0&&html`<div class="agency-commercial-list">
           ${prospectResults.map(item=>{
             const relClass=item.relevance==="high"?"completed":item.relevance==="low"?"blocked":"pending";
             const contactsLine=[...(item.contacts?.emails||[]),...(item.contacts?.phones||[])].slice(0,3).join(" · ");
-            return html`<article class="agency-commercial-card">
-              <div class="agency-commercial-head">
-                <div>
-                  <strong title=${item.name}>${item.name}</strong>
-                  <small>${joinMeta(item.industry,item.city)||item.domain}</small>
+            return html`<article class="agency-prospect-card">
+              <div class="agency-prospect-card-head">
+                <div class="agency-prospect-identity">
+                  <span class="agency-avatar">${(item.name||"?").slice(0,1).toUpperCase()}</span>
+                  <div class="agency-prospect-identity-meta">
+                    <strong title=${item.name}>${item.name}</strong>
+                    <div class="agency-prospect-subline">
+                      ${joinMeta(item.industry,item.city)&&html`<span>${joinMeta(item.industry,item.city)}</span>`}
+                      ${item.domain&&html`<a class="agency-link" href=${safeHref(item.website)} target="_blank" rel="noopener noreferrer" title=${item.website||item.domain}><span>${item.domain}</span><${Icon} name="ext" size="xs"/></a>`}
+                    </div>
+                  </div>
                 </div>
-                <div class="agency-prospect-badges">
+                <div class="agency-prospect-card-actions">
                   ${typeof item.fitScore==="number"&&html`<span class=${"agency-whatsapp-state "+relClass}>${t("agency.prospectScoreLabel",{score:item.fitScore})}</span>`}
-                  <a class="agency-link" href=${safeHref(item.website)} target="_blank" rel="noopener noreferrer" title=${item.domain}>${item.domain}</a>
+                  <button class="btn primary" type="button" disabled=${!!busy||!!item.duplicateCompanyId} onClick=${()=>importProspect(item)}><${Icon} name=${item.duplicateCompanyId?"check":"plus"} size="sm"/>${item.duplicateCompanyId?"":t("agency.prospectImportBtn")}</button>
                 </div>
               </div>
-              <small class="agency-clamp-2" title=${item.summary||item.snippet||item.website}>${item.summary||item.snippet||item.website}</small>
-              ${item.opportunity&&html`<div class="agency-prospect-insight"><strong>${t("agency.prospectOpportunityLabel")}</strong><span>${item.opportunity}</span></div>`}
-              ${item.recommendedAngle&&html`<div class="agency-prospect-insight"><strong>${t("agency.prospectAngleLabel")}</strong><span>${item.recommendedAngle}</span></div>`}
+              <p class="agency-prospect-summary agency-clamp-2" title=${item.summary||item.snippet||item.website}>${item.summary||item.snippet||item.website}</p>
+              ${(item.opportunity||item.recommendedAngle)&&html`<div class="agency-prospect-insights-grid">
+                ${item.opportunity&&html`<div class="agency-prospect-insight"><strong>${t("agency.prospectOpportunityLabel")}</strong><span>${item.opportunity}</span></div>`}
+                ${item.recommendedAngle&&html`<div class="agency-prospect-insight"><strong>${t("agency.prospectAngleLabel")}</strong><span>${item.recommendedAngle}</span></div>`}
+              </div>`}
               ${Array.isArray(item.signals)&&item.signals.length>0&&html`<div class="agency-prospect-signals">${item.signals.map(sig=>html`<span class="agency-chip">${sig}</span>`)}</div>`}
-              ${contactsLine&&html`<small>${t("agency.prospectContactsDetected")}: ${contactsLine}</small>`}
-              <div class="agency-commercial-actions">
-                <button class="btn primary" type="button" disabled=${!!busy||!!item.duplicateCompanyId} onClick=${()=>importProspect(item)}>${item.duplicateCompanyId?"✓":t("agency.prospectImportBtn")}</button>
-              </div>
+              ${contactsLine&&html`<div class="agency-prospect-contacts"><${Icon} name="user" size="xs"/><span>${t("agency.prospectContactsDetected")}: ${contactsLine}</span></div>`}
             </article>`;
           })}
         </div>`}
       </section>`}
       ${!busy&&tab==="companies"&&!rows.items?.length&&html`<${Empty} title=${t("agency.noCompanies")} detail=${query?t("agency.noSearchResults"):t("agency.noCompaniesHint")}/>`}
-      ${tab==="companies"&&rows.items?.length>0&&html`<div class="agency-content-grid">
+      ${tab==="companies"&&rows.items?.length>0&&html`<div class=${"agency-content-grid"+(selectedCompany?" has-detail":"")}>
         <div class="agency-table-wrap"><table class="agency-table"><thead><tr><th>${t("agency.company")}</th><th>${t("agency.industry")}</th><th>${t("agency.city")}</th></tr></thead>
           <tbody>${rows.items.map(c=>{
             const subtitle=formatHost(c.website)||c.countryCode||"";
-            return html`<tr class=${selected===c.id?"selected":""}><td><button class="agency-company-link" onClick=${()=>{setSelected(v=>v===c.id?"":c.id);setConsentContactId("");}}>
+            return html`<tr class=${selected===c.id?"selected":""} onClick=${()=>{setSelected(v=>v===c.id?"":c.id);setConsentContactId("");}}><td><button type="button" class="agency-company-link" onClick=${e=>{e.stopPropagation();setSelected(v=>v===c.id?"":c.id);setConsentContactId("");}}>
               <span class="agency-avatar">${(c.name||"?").slice(0,1).toUpperCase()}</span>
               <span class="agency-company-meta"><strong title=${c.name}>${c.name}</strong>${subtitle&&html`<small title=${c.website||subtitle}>${subtitle}</small>`}</span>
             </button></td><td title=${c.industry||""}>${c.industry||emptyVal()}</td><td title=${c.city||""}>${c.city||emptyVal()}</td></tr>`;
@@ -1567,12 +1680,12 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           <div><span class="agency-eyebrow">${t("agency.companyDetails")}</span><h2 title=${selectedCompany.name}>${selectedCompany.name}</h2></div>
         </div><button class="icon-btn" aria-label=${t("agency.close")} onClick=${()=>{setSelected("");setConsentContactId("");}}><${Icon} name="close"/></button></div>
           <dl class="agency-facts-grid">
-            <div><dt>${t("agency.website")}</dt><dd>${selectedCompany.website?html`<a class="agency-link" href=${safeHref(selectedCompany.website)} target="_blank" rel="noopener noreferrer" title=${selectedCompany.website}><span>${formatHost(selectedCompany.website)}</span></a>`:emptyVal()}</dd></div>
+            <div><dt>${t("agency.website")}</dt><dd>${selectedCompany.website?html`<a class="agency-link" href=${safeHref(selectedCompany.website)} target="_blank" rel="noopener noreferrer" title=${selectedCompany.website}><span>${formatHost(selectedCompany.website)}</span><${Icon} name="ext" size="xs"/></a>`:emptyVal()}</dd></div>
             <div><dt>${t("agency.industry")}</dt><dd>${selectedCompany.industry?html`<span title=${selectedCompany.industry}>${selectedCompany.industry}</span>`:emptyVal()}</dd></div>
             <div><dt>${t("agency.city")}</dt><dd>${joinMeta(selectedCompany.city,selectedCompany.countryCode)||emptyVal()}</dd></div>
           </dl>
           <div class="agency-commercial-actions">
-            <button class="btn primary" type="button" onClick=${()=>{setLead({companyId:selectedCompany.id,source:"crm",notes:""});setLeadForm(true);switchTab("leads");}}><${Icon} name="plus"/>${t("agency.createLeadFromCompany")}</button>
+            <button class="btn primary" type="button" onClick=${()=>{setLead({companyId:selectedCompany.id,source:"crm",notes:""});setLeadForm(true);switchTab("leads");}}><${Icon} name="plus" size="sm"/>${t("agency.createLeadFromCompany")}</button>
             <button class="btn" type="button" onClick=${()=>{setEditingCompany(v=>!v);setEditCompanyDraft({name:selectedCompany.name||"",website:selectedCompany.website||"",industry:selectedCompany.industry||"",countryCode:selectedCompany.countryCode||"SN",city:selectedCompany.city||""});}}>${editingCompany?t("agency.cancel"):t("agency.editBtn")}</button>
             ${selectedCompany.website&&html`<button class="btn" type="button" disabled=${!!busy} onClick=${()=>auditCompanySite(selectedCompany.id)}>${t("agency.websiteAuditBtn")}</button>`}
             <button class="btn agency-btn-subtle" type="button" disabled=${!!busy} onClick=${()=>archiveCompany(selectedCompany.id)}>${t("agency.archiveBtn")}</button>
@@ -1586,6 +1699,19 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.saveCompany")}</button></div>
           </form>`}
           ${auditResultByCompany[selectedCompany.id]&&html`<p class="agency-research-feedback" role="status">${auditResultByCompany[selectedCompany.id]}</p>`}
+          <div class="agency-detail-tabs">
+            <div class="agency-subtabs" role="tablist">
+              <button type="button" role="tab" aria-selected=${detailTab==="contacts"} class=${detailTab==="contacts"?"active":""} onClick=${()=>setDetailTab("contacts")}>
+                <span>${t("agency.contacts")}</span>
+                <span class="agency-count-pill">${contacts.length}</span>
+              </button>
+              <button type="button" role="tab" aria-selected=${detailTab==="intelligence"} class=${detailTab==="intelligence"?"active":""} onClick=${()=>setDetailTab("intelligence")}>
+                <span>${t("agency.qualificationTitle")} · ${t("agency.researchTitle")}</span>
+                <span class="agency-count-pill">${research.items?.length||0}</span>
+              </button>
+            </div>
+          </div>
+          ${detailTab==="contacts"&&html`<div class="agency-detail-pane">
           <div class="agency-contact-heading"><h3>${t("agency.contacts")}</h3><button class="text" onClick=${()=>setContactForm(v=>!v)}>${t("agency.addContact")}</button></div>
           ${contactForm&&html`<form class="agency-form agency-contact-form" onSubmit=${createContact}><${Field} label=${t("agency.contactName")} value=${contact.displayName} required onInput=${v=>update(setContact,"displayName",v)}/><${Field} label=${t("agency.role")} value=${contact.role} onInput=${v=>update(setContact,"role",v)}/><${Field} label=${t("agency.email")} value=${contact.email} type="email" onInput=${v=>update(setContact,"email",v)}/><${Field} label=${t("agency.phone")} value=${contact.phone} type="tel" onInput=${v=>update(setContact,"phone",v)}/><button class="btn primary block" type="submit">${t("agency.saveContact")}</button></form>`}
           ${contacts.map(p=>{
@@ -1646,6 +1772,8 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           })}
 
           ${!contacts.length&&html`<p class="agency-muted">${t("agency.noContacts")}</p>`}
+          </div>`}
+          ${detailTab==="intelligence"&&html`<div class="agency-detail-pane">
           <section class="agency-qualification">
             <div class="agency-contact-heading"><h3>${t("agency.qualificationTitle")}</h3><span class="agency-qualification-status">${qualification?t(`agency.qualificationStatus.${qualification.status}`):t("agency.notEvaluated")}</span></div>
             ${qualification?html`<div class="agency-qualification-score"><strong>${qualification.score===null?t("agency.notEvaluated"):qualification.score+"/100"}</strong><span>${t("agency.qualificationCoverage",{coverage:qualification.coverage})}</span></div>
@@ -1673,6 +1801,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             ${(research.items||[]).map(item=>html`<article class="agency-evidence-row"><div><strong>${item.evidenceType}</strong><small>${Math.round(item.confidence*100)}% · ${item.observedAt?new Date(item.observedAt).toLocaleDateString():t("agency.dateUnknown")}</small></div><a class="agency-truncate" title=${item.sourceUrl} href=${item.sourceUrl} target="_blank" rel="noopener noreferrer">${formatHost(item.sourceUrl)||item.sourceUrl}</a><p class="agency-clamp-3" title=${item.summary}>${item.summary}</p><div class="agency-commercial-actions"><button class="text agency-danger-btn" type="button" disabled=${!!busy} onClick=${()=>setDeleteTarget({entityType:"evidence",entityId:item.id,label:`${item.evidenceType} · ${item.sourceUrl}`})}>${t("agency.deleteBtn")}</button></div></article>`)}
             ${!research.items?.length&&html`<p class="agency-muted">${t("agency.noEvidence")}</p>`}
           </section>
+          </div>`}
         </aside>`}
       </div>`}
       ${tab==="leads"&&rows.items?.length>0&&html`<div class="agency-leads-bar">
@@ -2072,6 +2201,20 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               <small>${qaGate.verifiedLots}/${qaGate.totalLots} · ${qaGate.passedCategories.length}/4</small>
               ${!qaGate.readyForDelivery&&qaGate.blockers.length>0&&html`<small>${t("agency.qaBlockers")}: ${qaGate.blockers.join(", ")}</small>`}
             </div>`}
+            <div class="agency-form agency-form-grid">
+              <${Field} label=${t("agency.qaE2eUrlLabel")} value=${qaE2eUrl} type="url" placeholder="http://127.0.0.1:3000" onInput=${setQaE2eUrl}/>
+              <div class="agency-form-actions"><button class="btn" type="button" disabled=${!!busy||!qaE2eUrl.trim()} onClick=${()=>runVisualQa(selectedProject.id)}>${busy==="qa-e2e"?t("agency.qaE2eRunning"):t("agency.qaE2eRunBtn")}</button></div>
+            </div>
+            ${qaE2eResult&&html`<div class="agency-prospect-synthesis">
+              <div class="agency-prospect-head">
+                <div><strong>${qaE2eResult.summary}</strong>${qaE2eResult.title&&html`<p>${qaE2eResult.title}</p>`}</div>
+                <span class=${"agency-whatsapp-state "+(qaE2eResult.passed?"passed":"failed")}>HTTP ${qaE2eResult.httpStatus} · ${qaE2eResult.responseTimeMs}ms</span>
+              </div>
+              ${(qaE2eResult.screenshots?.desktop||qaE2eResult.screenshots?.mobile)&&html`<div class="agency-e2e-shots">
+                ${qaE2eResult.screenshots.desktop&&html`<figure class="agency-e2e-shot"><figcaption>${t("agency.qaE2eDesktopShot")}</figcaption><img src=${`/amb/api/agency/${enc(orgId)}/projects/${enc(selectedProject.id)}/qa-e2e/screenshot?path=${enc(qaE2eResult.screenshots.desktop)}`} alt="Desktop QA"/></figure>`}
+                ${qaE2eResult.screenshots.mobile&&html`<figure class="agency-e2e-shot"><figcaption>${t("agency.qaE2eMobileShot")}</figcaption><img src=${`/amb/api/agency/${enc(orgId)}/projects/${enc(selectedProject.id)}/qa-e2e/screenshot?path=${enc(qaE2eResult.screenshots.mobile)}`} alt="Mobile QA"/></figure>`}
+              </div>`}
+            </div>`}
             ${qaFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${recordQaCheck}>
               <div class="agency-field"><span>${t("agency.qaCategoryLabel")}</span><${Select} label=${t("agency.qaCategoryLabel")} value=${qaDraft.category} options=${QA_CATEGORIES.map(c=>[c,t(`agency.qaCategory.${c}`)])} onChange=${v=>update(setQaDraft,"category",v)}/></div>
               <div class="agency-field"><span>${t("agency.qaStatusLabel")}</span><${Select} label=${t("agency.qaStatusLabel")} value=${qaDraft.status} options=${QA_STATUSES.map(s=>[s,t(`agency.qaCheckStatus.${s}`)])} onChange=${v=>update(setQaDraft,"status",v)}/></div>
@@ -2114,11 +2257,15 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                       ${d.status==="prepared"&&html`<button class="btn" type="button" onClick=${()=>deliveryAction(d.id,"request-approval",{reason:"Production deployment approval"})}>${t("agency.requestDeployApproval")}</button>`}
                       ${d.status==="approval_requested"&&ap?.status==="pending"&&html`<button class="btn primary" type="button" onClick=${()=>approveRecord(ap.id)}>${t("agency.approveAndSend")}</button>`}
                       ${d.status==="approval_requested"&&ap?.status==="approved"&&html`<button class="btn primary" type="button" onClick=${()=>deliveryAction(d.id,"deploy",{})}>${t("agency.deployProductionBtn")}</button>`}
+                      ${d.status==="approval_requested"&&ap?.status==="approved"&&deployAdapters.length>0&&html`<${Select} block=${false} width=${210} label="Adapter" value=${deployAdapter} options=${deployAdapters.map(ad=>[ad.id,ad.name])} onChange=${setDeployAdapter}/><button class="btn" type="button" disabled=${!!busy} onClick=${()=>executeDeliveryDeploy(d.id,d.environmentUrl)}>${t("agency.deployExecuteBtn")}</button>`}
+                      ${d.environmentUrl&&html`<button class="btn" type="button" disabled=${!!busy} onClick=${()=>checkDeliveryHealth(d.id,d.environmentUrl)}>${t("agency.deployHealthCheckBtn")}</button>`}
                       ${d.status==="deployed"&&html`<input class="field agency-inline-input" placeholder=${t("agency.clientFeedback")} value=${feedbackByDelivery[d.id]||""} onInput=${e=>setFeedbackByDelivery(p=>({...p,[d.id]:e.currentTarget.value}))}/><button class="btn primary" type="button" onClick=${()=>deliveryAction(d.id,"accept",{accepted:true,feedback:feedbackByDelivery[d.id]||""})}>${t("agency.acceptDeliveryBtn")}</button><button class="text" type="button" onClick=${()=>deliveryAction(d.id,"accept",{accepted:false,feedback:feedbackByDelivery[d.id]||""})}>${t("agency.rejectDeliveryBtn")}</button>`}
                     </div>
+                    ${healthCheckByDelivery[d.id]&&html`<small class="agency-research-feedback">${healthCheckByDelivery[d.id].healthy?t("agency.deployHealthOk",{code:healthCheckByDelivery[d.id].statusCode,ms:healthCheckByDelivery[d.id].responseTimeMs}):t("agency.deployHealthFail",{error:healthCheckByDelivery[d.id].error||healthCheckByDelivery[d.id].statusCode})}</small>`}
                   </article>`;
                 })}
               </div>
+              ${deployResult&&html`<div class="agency-prospect-synthesis"><strong>${deployResult.adapter} · ref ${deployResult.rollbackRef}</strong><small>${deployResult.logPath}</small><pre>${deployResult.output}</pre></div>`}
             </section>
             <section class="agency-project-section">
               <div class="agency-commercial-head">
@@ -2148,27 +2295,40 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       </div>`}
       ${tab==="operations"&&html`<div class="agency-ops-stack">
         <div class="agency-quick-strip">
-          <button type="button" class="agency-quick-tile" onClick=${()=>{setProspectOpen(true);switchTab("companies");}}>
+          <button type="button" class="agency-quick-tile" onClick=${()=>{setProspectOpen(true);setQualificationForm(false);setCompanyForm(false);switchTab("companies");}}>
             <span class="agency-quick-icon tone-blue"><${Icon} name="globe" size="sm"/></span>
             <strong>${t("agency.prospectSearchTitle")}</strong>
+            <${Icon} name="chevRight" size="xs" class="agency-quick-arrow"/>
           </button>
           <button type="button" class="agency-quick-tile" onClick=${()=>switchTab("leads")}>
             <span class="agency-quick-icon tone-teal"><${Icon} name="user" size="sm"/></span>
             <strong>${t("agency.leads")}</strong>
+            <${Icon} name="chevRight" size="xs" class="agency-quick-arrow"/>
           </button>
           <button type="button" class="agency-quick-tile" onClick=${()=>switchTab("commercial")}>
             <span class="agency-quick-icon tone-amber"><${Icon} name="banknotes" size="sm"/></span>
             <strong>${t("agency.commercial")}</strong>
+            <${Icon} name="chevRight" size="xs" class="agency-quick-arrow"/>
           </button>
           <button type="button" class="agency-quick-tile" onClick=${()=>switchTab("copilot")}>
             <span class="agency-quick-icon tone-purple"><${Icon} name="spark" size="sm"/></span>
             <strong>${t("agency.copilot")}</strong>
+            <${Icon} name="chevRight" size="xs" class="agency-quick-arrow"/>
           </button>
         </div>
         <div class="agency-commercial-actions">
           <button class="btn" type="button" disabled=${!!busy} onClick=${bootstrapDefaults}>${busy==="bootstrap"?t("agency.loading"):t("agency.bootstrapBtn")}</button>
+          <button class="btn" type="button" disabled=${!!busy} onClick=${createBackupNow}>${t("agency.opsBackupBtn")}${opsBackups.length?` (${opsBackups.length})`:""}</button>
+          <a class="btn" target="_blank" rel="noopener noreferrer" href=${`/amb/api/agency/${enc(orgId)}/ops/export/companies.csv`}>${t("agency.opsExportCompaniesBtn")}</a>
+          <a class="btn" target="_blank" rel="noopener noreferrer" href=${`/amb/api/agency/${enc(orgId)}/ops/export/leads.csv`}>${t("agency.opsExportLeadsBtn")}</a>
           ${bootstrapNotice&&html`<span class="agency-research-feedback" role="status">${bootstrapNotice}</span>`}
+          ${opsBackupNotice&&html`<span class="agency-research-feedback" role="status">${opsBackupNotice}</span>`}
         </div>
+        ${llmUsage&&html`<div class="agency-prospect-synthesis">
+          <div class="agency-prospect-head">
+            <div><strong>${t("agency.opsLlmUsageTitle")}</strong><p>${t("agency.opsLlmCallsLabel",{calls:llmUsage.totalCalls||0,tokens:fmtNum(llmUsage.totalTokens||0),cost:(llmUsage.estimatedCostUsd||0).toFixed(4)})}</p></div>
+          </div>
+        </div>`}
         ${metrics&&html`<div class="agency-kpi-grid">
           <${Metric} label=${t("agency.kpiSignedRevenue")} value=${`${fmtNum(metrics.signedRevenue)} ${cur}`.trim()} icon="banknotes" tone="green"/>
           <${Metric} label=${t("agency.depositPaidLabel")} value=${`${fmtNum(metrics.collectedDeposits)} ${cur}`.trim()} icon="wallet" tone="teal"/>

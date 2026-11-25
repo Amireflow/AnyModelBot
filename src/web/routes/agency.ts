@@ -11,6 +11,7 @@ import type {
   QaCategory, QaCheckStatus, QuoteLineItem, QuoteTier, ServiceCatalogItem, SolutionType,
   UpdateQualificationProfileInput, UpsertNeedsQualificationInput,
 } from "../../agency/types.js";
+import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import { HttpError, readJson, send, webEvent, type Route, type WebContext } from "../http.js";
 import { CompanyResearchImportError, findActiveCompanyResearchJob, listCompanyResearchJobs, loadCompanyResearchSources } from "../../agency/company-research-import.js";
@@ -26,6 +27,21 @@ import { buildProjectZipArchive } from "../../agency/delivery-package.js";
 import { bootstrapAgencyDefaults } from "../../agency/presets.js";
 import { auditWebsiteSafely, prospectWebCompanies } from "../../agency/prospecting.js";
 import { runFourAxisQaAudit } from "../../agency/qa-auditor.js";
+import { runVisualE2eQa } from "../../agency/qa-e2e.js";
+import {
+  detectDeployAdapters,
+  executeProjectDeploy,
+  runDeploymentHealthCheck,
+  type DeployAdapterId,
+} from "../../agency/deployer.js";
+import {
+  createAgencyBackup,
+  exportCompaniesCsv,
+  exportLeadsCsv,
+  getLlmUsageSummary,
+  listAgencyBackups,
+  recordLlmUsage,
+} from "../../agency/ops-tools.js";
 import { listAgencySkills, resolveSkillsPromptBlock } from "../../agency/skills.js";
 import { appendCopilotHistory, clearCopilotHistory, loadCopilotHistory } from "../../agency/copilot-history.js";
 import {
@@ -37,6 +53,7 @@ import {
   listProjectFiles,
   planProjectLotsWithAi,
   readProjectFile,
+  resolveProjectFile,
   runProjectCommand,
   syncProjectBriefToDisk,
   type ProjectCommandAction,
@@ -55,6 +72,7 @@ import { buildProjectExecutionBrief, detectLocalDevTools } from "../../agency/or
 import {
   executeAgencyMission,
   initProjectWorkspace,
+  resolveProjectDirectory,
   runProjectWorkspaceQa,
   type AgencyCliAction,
   type AgencyMissionExecutionMode,
@@ -399,6 +417,18 @@ export function agencyRoutes(ctx: WebContext): Route {
           agentSkillsPrompt,
           findDuplicate:(name,website) => service.findDuplicateCompanies(organizationId,actor,name,website)[0]?.id,
         });
+        if (result.research.mode==="deep_llm") {
+          const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
+          try {
+            recordLlmUsage(dataDir,{
+              organizationId,
+              feature:"prospecting_deep_search",
+              model:result.research.model || "default",
+              inputChars:query.length + result.research.scannedCount * 180,
+              outputChars:JSON.stringify(result.candidates).length + result.research.strategySummary.length,
+            });
+          } catch { /* non-blocking usage telemetry */ }
+        }
         return send(res,200,{items:result.candidates,query:result.query,backend:result.backend,research:result.research});
       }
 
@@ -1577,6 +1607,47 @@ export function agencyRoutes(ctx: WebContext): Route {
               })});
             }
           }
+          if (seg.length===5 && seg[4]==="qa-e2e" && method==="POST") {
+            const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
+            const project=service.getProject(organizationId,actor,projectId);
+            const body=await readObject(req);
+            const targetUrl=typeof body.url==="string" ? body.url.trim() : "";
+            if (!targetUrl) throw new HttpError(400,"Target URL is required for E2E QA");
+            const e2eResult=await runVisualE2eQa({
+              dataDir,
+              project,
+              url:targetUrl,
+              skipBrowser:body.skipBrowser===true,
+            });
+            const checks=e2eResult.qaItems.map((item) => service.recordQaCheck(organizationId,actor,projectId,{
+              category:item.category,
+              title:item.title,
+              status:item.status,
+              evidence:item.evidence,
+              findings:item.findings,
+            }));
+            return send(res,200,{
+              result:e2eResult,
+              checks,
+              qaGate:service.evaluateProjectQaGate(organizationId,actor,projectId),
+            });
+          }
+          if (seg.length===6 && seg[4]==="qa-e2e" && seg[5]==="screenshot" && method==="GET") {
+            const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
+            const project=service.getProject(organizationId,actor,projectId);
+            const rel=url.searchParams.get("path") ?? "";
+            if (!rel.toLowerCase().endsWith(".png")) throw new HttpError(400,"Only PNG screenshots can be served");
+            const fileResolved=resolveProjectFile(dataDir,project,rel);
+            if (!fs.existsSync(fileResolved.absPath)) throw new HttpError(404,"Screenshot not found");
+            const png=fs.readFileSync(fileResolved.absPath);
+            res.writeHead(200,{
+              "content-type":"image/png",
+              "cache-control":"no-store",
+              "x-content-type-options":"nosniff",
+            });
+            res.end(png);
+            return true;
+          }
           if (seg.length>=5 && seg[4]==="deliveries") {
             if (seg.length===5 && method==="GET") {
               return send(res,200,{items:service.listDeliveries(organizationId,actor,projectId)});
@@ -1599,6 +1670,39 @@ export function agencyRoutes(ctx: WebContext): Route {
               }
               if (seg[6]==="accept") {
                 return send(res,200,service.recordClientAcceptance(organizationId,actor,projectId,deliveryId,Boolean(body.accepted),body.feedback as string ?? ""));
+              }
+              if (seg[6]==="health-check") {
+                const deliveries=service.listDeliveries(organizationId,actor,projectId);
+                const delivery=deliveries.find((d) => d.id===deliveryId);
+                if (!delivery) throw new HttpError(404,"Delivery not found");
+                const targetUrl=(typeof body.url==="string" && body.url.trim()) ? body.url.trim() : delivery.environmentUrl;
+                const check=await runDeploymentHealthCheck(targetUrl);
+                return send(res,200,{healthCheck:check});
+              }
+              if (seg[6]==="execute-deploy") {
+                const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
+                const project=service.getProject(organizationId,actor,projectId);
+                const deliveries=service.listDeliveries(organizationId,actor,projectId);
+                const delivery=deliveries.find((d) => d.id===deliveryId);
+                if (!delivery) throw new HttpError(404,"Delivery not found");
+                const approvals=service.listApprovals(organizationId,actor,200);
+                const approval=delivery.approvalId ? approvals.find((a) => a.id===delivery.approvalId) : undefined;
+                if (delivery.status!=="deployed" && approval?.status!=="approved") {
+                  throw new HttpError(409,"Production deployment requires an approved delivery approval");
+                }
+                const adapter=String(body.adapter || "docker_compose") as DeployAdapterId;
+                const deployResult=await executeProjectDeploy({
+                  dataDir,
+                  project,
+                  adapter,
+                  environmentUrl:typeof body.url==="string" ? body.url : delivery.environmentUrl,
+                  dryRun:body.dryRun===true,
+                });
+                let updatedDelivery=delivery;
+                if (deployResult.ok && delivery.status==="approval_requested" && approval?.status==="approved" && body.dryRun!==true) {
+                  updatedDelivery=service.markDeliveryDeployed(organizationId,actor,projectId,deliveryId).delivery;
+                }
+                return send(res,200,{deploy:deployResult,delivery:updatedDelivery});
               }
             }
           }
@@ -2020,7 +2124,73 @@ export function agencyRoutes(ctx: WebContext): Route {
             actions:Array.isArray(resultRecord.actions) ? resultRecord.actions as never : undefined,
           },
         ]).catch(() => undefined);
+        if (result.mode==="llm") {
+          try {
+            recordLlmUsage(dataDir,{
+              organizationId,
+              ...(projectId ? { projectId } : {}),
+              feature:"agency_copilot",
+              model:result.model || "default",
+              inputChars:question.length + attachments.reduce((sum,a) => sum + (a.textContent?.length ?? 0),0),
+              outputChars:result.answer.length,
+            });
+          } catch { /* non-blocking usage telemetry */ }
+        }
         return send(res,200,result);
+      }
+
+      if (seg[2]==="deploy" && seg.length===4 && seg[3]==="adapters" && method==="GET") {
+        service.getOrganization(organizationId,actor);
+        const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
+        const pid=url.searchParams.get("projectId") ?? "";
+        const projectDir=pid ? resolveProjectDirectory(dataDir,service.getProject(organizationId,actor,pid)).workspaceDir : undefined;
+        return send(res,200,{items:detectDeployAdapters(projectDir)});
+      }
+
+      if (seg[2]==="ops") {
+        service.getOrganization(organizationId,actor);
+        const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
+        if (seg.length===4 && seg[3]==="backups") {
+          if (method==="GET") return send(res,200,{items:listAgencyBackups(dataDir)});
+          if (method==="POST") return send(res,201,{backup:createAgencyBackup(dataDir),items:listAgencyBackups(dataDir)});
+        }
+        if (seg.length===4 && seg[3]==="llm-usage" && method==="GET") {
+          return send(res,200,{summary:getLlmUsageSummary(dataDir,organizationId)});
+        }
+        if (seg.length===5 && seg[3]==="export" && method==="GET") {
+          const collectPaged = <T>(fetchPage: (offset: number) => { items: T[]; total: number }) => {
+            const all: T[] = [];
+            for (let offset = 0; offset < 500; offset += 100) {
+              const p = fetchPage(offset);
+              all.push(...p.items);
+              if (p.items.length < 100 || all.length >= p.total) break;
+            }
+            return all;
+          };
+          if (seg[4]==="companies.csv") {
+            const companies=collectPaged((offset) => service.searchCompanies(organizationId,actor,{ limit:100, offset }));
+            const csv=exportCompaniesCsv(companies);
+            res.writeHead(200,{
+              "content-type":"text/csv; charset=utf-8",
+              "content-disposition":"attachment; filename=\"companies.csv\"",
+              "cache-control":"no-store",
+            });
+            res.end(csv);
+            return true;
+          }
+          if (seg[4]==="leads.csv") {
+            const companies=collectPaged((offset) => service.searchCompanies(organizationId,actor,{ limit:100, offset }));
+            const leads=collectPaged((offset) => service.searchLeads(organizationId,actor,{ limit:100, offset }));
+            const csv=exportLeadsCsv(leads,companies);
+            res.writeHead(200,{
+              "content-type":"text/csv; charset=utf-8",
+              "content-disposition":"attachment; filename=\"leads.csv\"",
+              "cache-control":"no-store",
+            });
+            res.end(csv);
+            return true;
+          }
+        }
       }
 
       if (seg[2]==="execution-node" && seg.length===3 && method==="GET") {
