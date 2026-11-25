@@ -146,13 +146,6 @@ export function AccountButton({ account, authUser, onLogout, onSettings, update,
           <span class="menu-icon"><${Icon} name="gear" size="md" /></span><span class="menu-label">${t("sidebar.settings")}</span><kbd>${isMac ? "⌘," : "Ctrl+,"}</kbd></button>
         <button type="button" role="menuitem" onClick=${() => { setOpen(false); onApps?.(); }}>
           <span class="menu-icon"><${Icon} name="link" size="md" /></span><span class="menu-label">${t("apps.menu")}</span>${appsAttention && html`<span class="dot warn" title=${t("apps.attention")}></span>`}</button>
-        <button type="button" role="menuitem" aria-haspopup="dialog" onClick=${() => { setOpen(false); openFeedback({ source: "account_menu" }); }}>
-          <span class="menu-icon"><${Icon} name="chat" size="md" /></span><span class="menu-label">${t("feedback.title")}</span></button>
-        <div class="account-community" role="group" aria-label=${t("firstUse.community")}>
-          <span class="menu-icon"><${Icon} name="chats" size="md" /></span><span class="menu-label">${t("firstUse.community")}</span>
-          <${CommunityLinks} icons role="menuitem" onPick=${() => setOpen(false)} /></div>
-        <button type="button" role="menuitem" disabled=${check === "checking" || updating || updateWorking || (ready && update.busy)} title=${ready && update.busy ? t("updates.busy") : ""} onClick=${checkUpdate}>
-          <span class="menu-icon"><${Icon} name="refresh" size="md" /></span><span class="menu-label" role="status">${checkLabel}${ready && update.busy && html`<small class="update-disabled-reason">${t("updates.busy")}</small>`}</span>${update?.available && html`<span class="dot new"></span>`}</button>
         ${authUser && onLogout && html`<hr /><button type="button" role="menuitem" class="danger" onClick=${() => { setOpen(false); onLogout(); }}>
           <span class="menu-icon"><${Icon} name="logout" size="md" /></span><span class="menu-label">${t("auth.signOut")}</span></button>`}
       </div>
@@ -465,9 +458,6 @@ export function Sidebar({ bots, botsError, reloadBots, selectedId, view, agencyT
         </button>`;
       })}
       <div class="side-nav-sep" aria-hidden="true"></div>
-      ${catalog.length > 0 && html`<button type="button" class=${`nav-item${discoverOn ? " sel" : ""}`} aria-current=${discoverOn ? "page" : undefined} onClick=${onDiscover}>
-        <${Icon} name="compass" size="md" /><span class="label">${t("botapp.sidebar.discover")}</span>${hasNew && html`<span class="thread-new-dot" title=${t("botapp.sidebar.new")}></span>`}
-      </button>`}
       <${ScheduledButton} active=${view === "scheduled"} />
       ${onOpenApps && html`<button type="button" class=${`nav-item${view === "apps" ? " sel" : ""}`} aria-current=${view === "apps" ? "page" : undefined} onClick=${onOpenApps}>
         <${Icon} name="link" size="md" /><span class="label">${t("apps.menu")}</span>
@@ -477,7 +467,7 @@ export function Sidebar({ bots, botsError, reloadBots, selectedId, view, agencyT
       </button>
       <${NeedsRow} count=${needs.n} on=${view === "needs"} onClick=${onNeeds} />
     </div>
-    <nav class="side-list" aria-label=${t("sidebar.list")} onDragLeave=${(e) => drag && !e.currentTarget.contains(e.relatedTarget) && setDrop(null)}>
+    <nav class="side-list" aria-label=${t("sidebar.list")} hidden=${!((bots && bots.length > 0) || groups.length > 0 || view === "new")} style=${!((bots && bots.length > 0) || groups.length > 0 || view === "new") ? "display:none" : undefined} onDragLeave=${(e) => drag && !e.currentTarget.contains(e.relatedTarget) && setDrop(null)}>
       ${sections.map((s) => {
         const rows = rowsIn(s);
         const name = secName(s);

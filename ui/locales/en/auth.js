@@ -32,4 +32,12 @@ export default {
   notConfiguredBadge: "Setup required",
   modelsHint: "Model API keys can be configured anytime in Settings after sign-in.",
   signedInAs: "Signed in as {email}",
+  aiPreset: "AI Provider Preset",
+  aiBaseUrl: "OpenAI-Compatible API URL",
+  aiBaseUrlSub: "Used directly by the app (OpenAI, Gemini OpenAI-compat, OpenRouter, DeepSeek, Ollama…).",
+  aiApiKey: "Provider API Key",
+  aiApiKeySub: "Stored locally in configuration and masked in the UI.",
+  aiApiKeyRemove: "Clear key",
+  aiCustom: "Custom",
+  aiSaved: "AI endpoint saved",
 };

@@ -325,17 +325,15 @@ export class App {
     if (config.magpie.mode === "managed") {
       this.magpie = new MagpieSupervisor({ dataDir: config.dataDir, binPath: config.magpie.binPath || undefined });
     }
-    this.models =
-      opts.models ??
-      new OpenAICompatClient(() =>
-        this.magpie
-          ? { baseUrl: this.magpie.baseUrl, apiKey: this.magpie.gatewayKey }
-          : { baseUrl: config.magpie.externalBaseUrl.replace(/\/+$/, ""), apiKey: config.magpie.externalApiKey },
-      );
-    const upstream = () =>
-      this.magpie
+    const resolveEndpoint = () => {
+      const externalUrl = config.magpie.externalBaseUrl.trim().replace(/\/+$/, "");
+      if (externalUrl) return { baseUrl: externalUrl, apiKey: config.magpie.externalApiKey };
+      return this.magpie
         ? { baseUrl: this.magpie.baseUrl, apiKey: this.magpie.gatewayKey }
-        : { baseUrl: config.magpie.externalBaseUrl.replace(/\/+$/, ""), apiKey: config.magpie.externalApiKey };
+        : { baseUrl: "", apiKey: "" };
+    };
+    this.models = opts.models ?? new OpenAICompatClient(resolveEndpoint);
+    const upstream = resolveEndpoint;
     this.webSearch = loadWebSearch(this.store);
     // 桌面版搜索走 Chromium 的网络栈（系统代理、PAC、系统证书）；命令行 / Docker 用 Node 的 fetch
     this.search = new SearchService({ settings: () => this.webSearch, fetch: () => this.desktop?.fetch });
@@ -1386,6 +1384,17 @@ export class App {
   setReasoningEffort(effort: ReasoningEffort): void {
     this.config.llm.reasoningEffort = effort;
     saveConfigFile(this.config.dataDir, (f) => (f.llm = { ...(f.llm ?? {}), reasoningEffort: effort }));
+  }
+
+  setExternalLlm(input: { baseUrl?: string; apiKey?: string }): void {
+    const prev = this.config.magpie;
+    const baseUrl = input.baseUrl !== undefined ? input.baseUrl.trim().replace(/\/+$/, "") : prev.externalBaseUrl;
+    const apiKey = input.apiKey !== undefined ? input.apiKey.trim() : prev.externalApiKey;
+    if (apiKey) registerSecret(apiKey);
+    this.config.magpie = { ...prev, externalBaseUrl: baseUrl, externalApiKey: apiKey };
+    saveConfigFile(this.config.dataDir, (f) => {
+      f.magpie = { ...(f.magpie ?? {}), externalBaseUrl: baseUrl, externalApiKey: apiKey };
+    });
   }
 
   /** 联网搜索设置（设置 › 网络）：Key 只给末 4 位 */

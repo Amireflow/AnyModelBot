@@ -32,4 +32,12 @@ export default {
   notConfiguredBadge: "Configuration requise",
   modelsHint: "Les clés API de modèles IA se configurent ensuite directement dans Paramètres.",
   signedInAs: "Connecté : {email}",
+  aiPreset: "Fournisseur IA prédéfini",
+  aiBaseUrl: "URL de l'API compatible OpenAI",
+  aiBaseUrlSub: "Utilisée directement par l'application (OpenAI, Gemini OpenAI-compat, OpenRouter, DeepSeek, Ollama…).",
+  aiApiKey: "Clé API du fournisseur",
+  aiApiKeySub: "Stockée localement dans la configuration et masquée dans l'interface.",
+  aiApiKeyRemove: "Effacer la clé",
+  aiCustom: "Personnalisé",
+  aiSaved: "Point d'accès IA enregistré",
 };

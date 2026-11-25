@@ -32,4 +32,12 @@ export default {
   notConfiguredBadge: "Kurulum gerekli",
   modelsHint: "Model API anahtarları giriş yaptıktan sonra Ayarlar bölümünden eklenebilir.",
   signedInAs: "{email} olarak giriş yapıldı",
+  aiPreset: "YZ Sağlayıcı Ön Ayarı",
+  aiBaseUrl: "OpenAI Uyumlu API URL",
+  aiBaseUrlSub: "Uygulama tarafından doğrudan kullanılır (OpenAI, Gemini, OpenRouter, DeepSeek, Ollama…).",
+  aiApiKey: "Sağlayıcı API Anahtarı",
+  aiApiKeySub: "Yerel yapılandırmada saklanır ve arayüzde gizlenir.",
+  aiApiKeyRemove: "Anahtarı temizle",
+  aiCustom: "Özel",
+  aiSaved: "YZ uç noktası kaydedildi",
 };

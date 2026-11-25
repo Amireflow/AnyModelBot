@@ -355,5 +355,18 @@ export default {
   "createMissionBtn": "Create mission",
   "startMissionBtn": "Start",
   "completeMissionBtn": "Complete",
-  "missionStatus": {"planned":"Planned","running":"Running","blocked":"Blocked","completed":"Completed","failed":"Failed"}
+  "missionStatus": {"planned":"Planned","running":"Running","blocked":"Blocked","completed":"Completed","failed":"Failed"},
+  "newOrganization": "New organization",
+  "createLeadFromCompany": "Create lead",
+  "openCommercial": "Open in Sales",
+  "launchProject": "Launch project",
+  "projectStatusAction": "Project status",
+  "missionProjectLabel": "Linked project",
+  "missionBriefLabel": "Structured brief",
+  "noLots": "No lots configured for this project.",
+  "noScopeChanges": "No scope change requests yet.",
+  "noQaChecks": "No QA checks recorded yet.",
+  "noDeliveries": "No delivery packages recorded yet.",
+  "noFollowUps": "No client follow-ups scheduled yet.",
+  "noMissions": "No agent missions planned for this project."
 };

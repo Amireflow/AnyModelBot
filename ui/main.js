@@ -697,7 +697,11 @@ function App() {
     { label: t("templates.title"), keys: "template role 模板 角色", run: () => openTemplates() }, // i18n-ignore: search aliases
     { label: t("app.cmd.newBot"), kbd: isMac ? "⌘N" : "Ctrl+N", keys: t("app.cmd.newBotKeys"), run: newBot },
     ...(needs.n > 0 ? [{ label: t("app.cmd.needs", { count: needs.n }), keys: t("app.cmd.needsKeys"), run: openNeeds }] : []),
-    ...(catalog.length > 0 ? [{ label: t("botapp.sidebar.discover"), keys: "discover", run: openDiscover }] : []),
+    ...(["operations", "companies", "leads", "commercial", "catalog", "projects"].map((tab) => ({
+      label: t(`agency.tabs.${tab}`),
+      keys: `agency ${tab}`,
+      run: () => openAgency(tab),
+    }))),
     { label: t("apps.menu"), keys: t("apps.commandKeys"), run: () => openApps() },
     ...(panelKind !== "resources" || resources.items.length ? [{ label: panelOpen ? t("app.cmd.closeInfo") : t("app.cmd.openInfo"), kbd: isMac ? "⌘⇧I" : "Ctrl+Shift+I", keys: t("app.cmd.infoKeys"), run: togglePanel }] : []),
     // 任务和规则在当前机器人右侧面板的「任务」标签里
@@ -785,7 +789,7 @@ function App() {
       ${view === "settings" && html`<${SettingsScreen} tab=${route.tab} query=${settingsQ} onQuery=${setSettingsQ} onTab=${(t) => openSettings(t)} focusRow=${route.row}
         mf=${mf} onMfChanged=${reloadMf} onSettings=${setSettings} models=${models} modelsError=${modelsError} reloadModels=${reloadModels}
         status=${status} update=${update} onUpdateChanged=${reloadUpdate} bots=${bots} onOpenBotSettings=${openBotSettings} account=${managed ? account : null} onAccount=${setAccount}
-        onOpenApps=${() => openApps("connected")} />`}
+        authUser=${authData?.user} onLogout=${logoutAuth} onOpenApps=${() => openApps("connected")} />`}
       ${view === "needs" && html`<${NeedsYouScreen} multiBot=${!!bots && bots.length > 1} onChanged=${pollWorking} onOpenChat=${openChat} onRelogin=${relogin} onOpenBotSettings=${openBotSettings} />`}
       ${view === "bot-settings" && routedBot && html`<${BotSettingsScreen} key=${routedBot.id} bot=${routedBot} section=${route.section}
         models=${models} modelsError=${modelsError} reloadModels=${reloadModels} defaultModel=${settings && settings.defaultModel}

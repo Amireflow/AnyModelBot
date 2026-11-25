@@ -32,4 +32,12 @@ export default {
   notConfiguredBadge: "設定が必要",
   modelsHint: "モデル API キーはサインイン後に設定画面からいつでも登録できます。",
   signedInAs: "{email} としてサインイン中",
+  aiPreset: "AI プロバイダープリセット",
+  aiBaseUrl: "OpenAI 互換 API URL",
+  aiBaseUrlSub: "アプリから直接接続します（OpenAI、Gemini、OpenRouter、DeepSeek、Ollama など）。",
+  aiApiKey: "プロバイダー API キー",
+  aiApiKeySub: "ローカル設定に保存され、画面上ではマスク表示されます。",
+  aiApiKeyRemove: "キーを消去",
+  aiCustom: "カスタム",
+  aiSaved: "AI エンドポイントを保存しました",
 };

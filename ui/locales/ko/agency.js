@@ -355,5 +355,18 @@ export default {
   "createMissionBtn": "미션 생성",
   "startMissionBtn": "시작",
   "completeMissionBtn": "완료",
-  "missionStatus": {"planned":"계획됨","running":"실행 중","blocked":"차단됨","completed":"완료됨","failed":"실패"}
+  "missionStatus": {"planned":"계획됨","running":"실행 중","blocked":"차단됨","completed":"완료됨","failed":"실패"},
+  "newOrganization": "새 조직",
+  "createLeadFromCompany": "리드 생성",
+  "openCommercial": "영업에서 열기",
+  "launchProject": "프로젝트 시작",
+  "projectStatusAction": "프로젝트 상태",
+  "missionProjectLabel": "연결된 프로젝트",
+  "missionBriefLabel": "구조화된 브리프",
+  "noLots": "이 프로젝트에 설정된 작업 단위가 없습니다.",
+  "noScopeChanges": "범위 변경 요청이 없습니다.",
+  "noQaChecks": "기록된 QA 검사가 없습니다.",
+  "noDeliveries": "등록된 납품 내역이 없습니다.",
+  "noFollowUps": "예정된 고객 후속 조치가 없습니다.",
+  "noMissions": "이 프로젝트에 계획된 미션이 없습니다."
 };

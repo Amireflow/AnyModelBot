@@ -355,5 +355,18 @@ export default {
   "createMissionBtn": "Создать миссию",
   "startMissionBtn": "Запустить",
   "completeMissionBtn": "Завершить",
-  "missionStatus": {"planned":"Запланирована","running":"Выполняется","blocked":"Заблокирована","completed":"Завершена","failed":"Ошибка"}
+  "missionStatus": {"planned":"Запланирована","running":"Выполняется","blocked":"Заблокирована","completed":"Завершена","failed":"Ошибка"},
+  "newOrganization": "Новая организация",
+  "createLeadFromCompany": "Создать лид",
+  "openCommercial": "Открыть в продажах",
+  "launchProject": "Запустить проект",
+  "projectStatusAction": "Статус проекта",
+  "missionProjectLabel": "Связанный проект",
+  "missionBriefLabel": "Структурированный бриф",
+  "noLots": "Для этого проекта ещё не настроены этапы.",
+  "noScopeChanges": "Запросов на изменение объёма пока нет.",
+  "noQaChecks": "Проверок QA пока нет.",
+  "noDeliveries": "Поставки ещё не оформлены.",
+  "noFollowUps": "Сопровождение клиента пока не запланировано.",
+  "noMissions": "Для этого проекта пока нет миссий."
 };

@@ -67,6 +67,28 @@ export function settingsRoutes(ctx: WebContext): Route {
             ...(url !== undefined ? { url } : {}),
           });
         }
+        if (b.llmEndpoint && typeof b.llmEndpoint === "object") {
+          const le = b.llmEndpoint as Record<string, unknown>;
+          let nextUrl: string | undefined;
+          if (le.baseUrl !== undefined) {
+            const raw = String(le.baseUrl).trim();
+            if (raw === "") {
+              nextUrl = "";
+            } else {
+              try {
+                const parsed = new URL(raw);
+                if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("protocol");
+                nextUrl = raw.replace(/\/+$/, "");
+              } catch {
+                throw new HttpError(400, "invalid llm baseUrl");
+              }
+            }
+          }
+          app.setExternalLlm({
+            ...(nextUrl !== undefined ? { baseUrl: nextUrl } : {}),
+            ...(le.apiKey !== undefined ? { apiKey: String(le.apiKey).trim() } : {}),
+          });
+        }
       } else if (m !== "GET") throw new HttpError(405, "method not allowed");
       return send(res, 200, {
         defaultModel: cfg.llm.defaultModel,
@@ -84,6 +106,11 @@ export function settingsRoutes(ctx: WebContext): Route {
         listen: { host, port: ctx.boundPort, tokenRequired: !!token },
         dataDir: cfg.dataDir,
         webSearch: app.webSearchView(),
+        llmEndpoint: {
+          baseUrl: cfg.magpie.externalBaseUrl,
+          hasKey: !!cfg.magpie.externalApiKey,
+          keyHint: cfg.magpie.externalApiKey ? `••${cfg.magpie.externalApiKey.slice(-4)}` : "",
+        },
       });
     }
     // 侧栏分组（domain/sidebar-layout.ts）：还没存过时 layout 为 null，界面用默认的两个分组

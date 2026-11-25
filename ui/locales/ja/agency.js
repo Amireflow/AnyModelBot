@@ -355,5 +355,18 @@ export default {
   "createMissionBtn": "ミッションを作成",
   "startMissionBtn": "開始",
   "completeMissionBtn": "完了",
-  "missionStatus": {"planned":"計画済み","running":"実行中","blocked":"ブロック中","completed":"完了","failed":"失敗"}
+  "missionStatus": {"planned":"計画済み","running":"実行中","blocked":"ブロック中","completed":"完了","failed":"失敗"},
+  "newOrganization": "新規組織",
+  "createLeadFromCompany": "リードを作成",
+  "openCommercial": "営業タブで開く",
+  "launchProject": "プロジェクト開始",
+  "projectStatusAction": "プロジェクト状態",
+  "missionProjectLabel": "対象プロジェクト",
+  "missionBriefLabel": "構造化ブリーフ",
+  "noLots": "このプロジェクトにロットはまだありません。",
+  "noScopeChanges": "スコープ変更リクエストはまだありません。",
+  "noQaChecks": "QA チェックはまだありません。",
+  "noDeliveries": "納品パッケージはまだありません。",
+  "noFollowUps": "フォローアップはまだ予定されていません。",
+  "noMissions": "このプロジェクトのミッションはまだありません。"
 };

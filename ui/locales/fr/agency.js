@@ -356,5 +356,18 @@ export default {
   "createMissionBtn": "Créer la mission",
   "startMissionBtn": "Démarrer",
   "completeMissionBtn": "Terminer",
-  "missionStatus": {"planned":"Planifiée","running":"En cours","blocked":"Bloquée","completed":"Terminée","failed":"Échouée"}
+  "missionStatus": {"planned":"Planifiée","running":"En cours","blocked":"Bloquée","completed":"Terminée","failed":"Échouée"},
+  "newOrganization": "Nouvelle organisation",
+  "createLeadFromCompany": "Créer un prospect",
+  "openCommercial": "Ouvrir en ventes",
+  "launchProject": "Lancer le projet",
+  "projectStatusAction": "Statut du projet",
+  "missionProjectLabel": "Projet lié",
+  "missionBriefLabel": "Brief structuré",
+  "noLots": "Aucun lot configuré pour ce projet.",
+  "noScopeChanges": "Aucune demande de changement de périmètre.",
+  "noQaChecks": "Aucun contrôle qualité enregistré.",
+  "noDeliveries": "Aucune livraison ni preuve enregistrée.",
+  "noFollowUps": "Aucun suivi client planifié.",
+  "noMissions": "Aucune mission planifiée pour ce projet."
 };

@@ -355,5 +355,18 @@ export default {
   "createMissionBtn": "Crear misión",
   "startMissionBtn": "Iniciar",
   "completeMissionBtn": "Completar",
-  "missionStatus": {"planned":"Planificada","running":"En curso","blocked":"Bloqueada","completed":"Completada","failed":"Fallida"}
+  "missionStatus": {"planned":"Planificada","running":"En curso","blocked":"Bloqueada","completed":"Completada","failed":"Fallida"},
+  "newOrganization": "Nueva organización",
+  "createLeadFromCompany": "Crear oportunidad",
+  "openCommercial": "Abrir en ventas",
+  "launchProject": "Lanzar proyecto",
+  "projectStatusAction": "Estado del proyecto",
+  "missionProjectLabel": "Proyecto vinculado",
+  "missionBriefLabel": "Brief estructurado",
+  "noLots": "Sin lotes configurados para este proyecto.",
+  "noScopeChanges": "Sin cambios de alcance todavía.",
+  "noQaChecks": "Sin controles QA registrados.",
+  "noDeliveries": "Sin entregas registradas todavía.",
+  "noFollowUps": "Sin seguimientos programados.",
+  "noMissions": "Sin misiones planificadas para este proyecto."
 };

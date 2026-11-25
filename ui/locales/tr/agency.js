@@ -355,5 +355,18 @@ export default {
   "createMissionBtn": "Görev oluştur",
   "startMissionBtn": "Başlat",
   "completeMissionBtn": "Tamamla",
-  "missionStatus": {"planned":"Planlandı","running":"Çalışıyor","blocked":"Engellendi","completed":"Tamamlandı","failed":"Başarısız"}
+  "missionStatus": {"planned":"Planlandı","running":"Çalışıyor","blocked":"Engellendi","completed":"Tamamlandı","failed":"Başarısız"},
+  "newOrganization": "Yeni organizasyon",
+  "createLeadFromCompany": "Fırsat oluştur",
+  "openCommercial": "Satışta aç",
+  "launchProject": "Projeyi başlat",
+  "projectStatusAction": "Proje durumu",
+  "missionProjectLabel": "Bağlı proje",
+  "missionBriefLabel": "Yapılandırılmış özet",
+  "noLots": "Bu proje için henüz lot tanımlanmadı.",
+  "noScopeChanges": "Henüz kapsam değişikliği talebi yok.",
+  "noQaChecks": "Henüz kalite kontrol kaydı yok.",
+  "noDeliveries": "Henüz teslimat paketi yok.",
+  "noFollowUps": "Planlanmış müşteri takibi yok.",
+  "noMissions": "Bu proje için planlanmış görev yok."
 };

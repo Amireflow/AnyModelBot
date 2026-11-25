@@ -32,4 +32,12 @@ export default {
   notConfiguredBadge: "需要配置",
   modelsHint: "登录后可随时在设置中配置各家大模型 API Key。",
   signedInAs: "当前登录：{email}",
+  aiPreset: "AI 提供商预设",
+  aiBaseUrl: "OpenAI 兼容接口地址",
+  aiBaseUrlSub: "由应用直接调用（支持 OpenAI、Gemini、OpenRouter、DeepSeek、Ollama 等）。",
+  aiApiKey: "提供商 API Key",
+  aiApiKeySub: "仅保存在本地配置中并在界面脱敏显示。",
+  aiApiKeyRemove: "清除密钥",
+  aiCustom: "自定义",
+  aiSaved: "AI 接口配置已保存",
 };

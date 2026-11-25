@@ -355,5 +355,18 @@ export default {
   "createMissionBtn": "创建任务",
   "startMissionBtn": "开始",
   "completeMissionBtn": "完成",
-  "missionStatus": {"planned":"已计划","running":"执行中","blocked":"受阻","completed":"已完成","failed":"失败"}
+  "missionStatus": {"planned":"已计划","running":"执行中","blocked":"受阻","completed":"已完成","failed":"失败"},
+  "newOrganization": "新建组织",
+  "createLeadFromCompany": "创建线索",
+  "openCommercial": "转到销售报价",
+  "launchProject": "启动项目",
+  "projectStatusAction": "项目状态",
+  "missionProjectLabel": "关联项目",
+  "missionBriefLabel": "结构化简报",
+  "noLots": "该项目暂未配置交付批次。",
+  "noScopeChanges": "暂无范围变更申请。",
+  "noQaChecks": "暂无 QA 检查记录。",
+  "noDeliveries": "暂无交付包记录。",
+  "noFollowUps": "暂无客户回访计划。",
+  "noMissions": "该项目暂无执行任务。"
 };

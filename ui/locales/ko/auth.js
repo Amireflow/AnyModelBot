@@ -32,4 +32,12 @@ export default {
   notConfiguredBadge: "설정 필요",
   modelsHint: "모델 API 키는 로그인 후 설정에서 언제든지 구성할 수 있습니다.",
   signedInAs: "{email}(으)로 로그인됨",
+  aiPreset: "AI 공급자 프리셋",
+  aiBaseUrl: "OpenAI 호환 API URL",
+  aiBaseUrlSub: "앱에서 직접 사용합니다 (OpenAI, Gemini, OpenRouter, DeepSeek, Ollama 등).",
+  aiApiKey: "공급자 API 키",
+  aiApiKeySub: "로컬 설정에 저장되며 UI에는 가려져 표시됩니다.",
+  aiApiKeyRemove: "키 지우기",
+  aiCustom: "사용자 지정",
+  aiSaved: "AI 엔드포인트가 저장되었습니다",
 };

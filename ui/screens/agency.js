@@ -5,6 +5,7 @@ import { fmtNum, t, useLang } from "../lib/i18n.js";
 
 const SIZE=25;
 const NEXT={new:["researching","archived"],researching:["new","qualified","lost","archived"],qualified:["researching","contact_pending","lost","archived"],contact_pending:["qualified","contacted","lost"],contacted:["qualified","engaged","lost"],engaged:["contacted","opportunity","lost"],opportunity:["engaged","proposal","lost"],proposal:["opportunity","won","lost"],won:["archived"],lost:["qualified","archived"],archived:[]};
+const PROJECT_NEXT={handoff_pending:["scoping","archived"],scoping:["in_progress","archived"],in_progress:["qa_review","archived"],qa_review:["in_progress","ready_for_delivery","archived"],ready_for_delivery:["qa_review","delivered","archived"],delivered:["accepted","maintenance","qa_review","archived"],accepted:["maintenance","archived"],maintenance:["in_progress","archived"],archived:[]};
 const blankCompany={name:"",website:"",industry:"",countryCode:"SN",city:""};
 const blankLead={companyId:"",source:"",notes:""};
 const blankContact={displayName:"",role:"",email:"",phone:""};
@@ -56,6 +57,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const [orgs,setOrgs]=useState([]);
   const [orgId,setOrgId]=useState(storedOrg);
   const [orgName,setOrgName]=useState("");
+  const [orgFormOpen,setOrgFormOpen]=useState(false);
   const [orgLoading,setOrgLoading]=useState(true);
   const [orgError,setOrgError]=useState("");
   const [dashboard,setDashboard]=useState(null);
@@ -391,7 +393,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
     e.preventDefault();setBusy("org");setOrgError("");
     try{
       const d=await api("/agency/organizations",{method:"POST",body:{name:orgName,countryCode:"SN",currency:"XOF"}});
-      setOrgs(list=>[...list,d.organization]);changeOrg(d.organization.id);setOrgName("");
+      setOrgs(list=>[...list,d.organization]);changeOrg(d.organization.id);setOrgName("");setOrgFormOpen(false);
     }catch(err){setOrgError(err.message);}finally{setBusy("");}
   };
   const createCompany=async(e)=>{
@@ -401,7 +403,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   };
   const createLead=async(e)=>{
     e.preventDefault();setBusy("create");setError("");
-    try{await api(`/agency/${enc(orgId)}/leads`,{method:"POST",body:lead});setLead(blankLead);setLeadForm(false);setTab("leads");setPage(0);setRevision(v=>v+1);}
+    try{await api(`/agency/${enc(orgId)}/leads`,{method:"POST",body:lead});setLead(blankLead);setLeadForm(false);switchTab("leads");setRevision(v=>v+1);}
     catch(err){setError(err.message);}finally{setBusy("");}
   };
   const createContact=async(e)=>{
@@ -764,6 +766,14 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
+  const updateProjectStatus=async(projectId,status)=>{
+    if(!projectId||!status)return;
+    setBusy("proj-status");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/projects/${enc(projectId)}/status`,{method:"PATCH",body:{status}});
+      setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
   const createProjectLot=async(e)=>{
     e.preventDefault();if(!selectedProjectId)return;
     setBusy("lot-create");setError("");
@@ -898,27 +908,33 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const failedResearchJobs=researchJobs.filter(job=>job.status==="failed"||job.status==="cancelled");
   const completedResearchJobs=researchJobs.filter(job=>job.status==="completed");
   const selectedCompany=(tab==="companies"?(rows.items||[]).find(x=>x.id===selected):null);
+  const selectedProject=(tab==="projects"?projects.find(p=>p.id===selectedProjectId):null);
   const totalPages=Math.max(1,Math.ceil((rows.total||0)/SIZE));
 
   return html`<section class="agency-screen view" data-screen="agency">
     <header class="agency-header">
-      <div><span class="agency-eyebrow">${t("agency.eyebrow")}</span><h1 class="t-page">${t("agency.title")}</h1><p>${t("agency.description")}</p></div>
-      ${orgs.length>0&&html`<label class="agency-org-picker"><span>${t("agency.organization")}</span><select class="field" value=${orgId} onChange=${e=>changeOrg(e.currentTarget.value)}>${orgs.map(o=>html`<option value=${o.id}>${o.name}</option>`)}</select></label>`}
+      <div><span class="agency-eyebrow">${t("agency.title")}</span><h1 class="t-page">${t(`agency.tabs.${tab}`)}</h1><p>${t("agency.description")}</p></div>
+      ${orgs.length>0&&html`<div class="agency-org-bar">
+        <label class="agency-org-picker"><span>${t("agency.organization")}</span><select class="field" value=${orgId} onChange=${e=>changeOrg(e.currentTarget.value)}>${orgs.map(o=>html`<option value=${o.id}>${o.name}</option>`)}</select></label>
+        <button class="btn" type="button" aria-expanded=${orgFormOpen} title=${t("agency.newOrganization")} onClick=${()=>setOrgFormOpen(v=>!v)}><${Icon} name=${orgFormOpen?"close":"plus"}/></button>
+      </div>`}
     </header>
     ${orgError&&html`<div class="agency-alert" role="alert">${orgError}</div>`}
     ${orgLoading&&html`<div class="agency-loading"><${Spinner}/>${t("agency.loading")}</div>`}
+    ${orgs.length>0&&orgFormOpen&&html`<form class="agency-form agency-create-org" onSubmit=${createOrg}><${Field} label=${t("agency.organizationName")} value=${orgName} required onInput=${setOrgName}/>
+      <button class="btn primary" type="submit" disabled=${!!busy||!orgName.trim()}>${busy==="org"?t("agency.creating"):t("agency.createOrganization")}</button></form>`}
     ${!orgLoading&&!orgs.length&&html`<div class="agency-first-org"><h2>${t("agency.firstTitle")}</h2><p>${t("agency.firstDescription")}</p>
       <form class="agency-form agency-create-org" onSubmit=${createOrg}><${Field} label=${t("agency.organizationName")} value=${orgName} required onInput=${setOrgName}/>
         <button class="btn primary" type="submit" disabled=${!!busy||!orgName.trim()}>${busy==="org"?t("agency.creating"):t("agency.createOrganization")}</button></form></div>`}
 
     ${orgId&&html`
-      <div class="agency-metrics">
+      ${(tab==="companies"||tab==="leads")&&html`<div class="agency-metrics">
         <${Metric} label=${t("agency.companies")} value=${dashboard?.companyCount} icon="folder"/>
         <${Metric} label=${t("agency.contacts")} value=${dashboard?.contactCount} icon="user"/>
         <${Metric} label=${t("agency.leads")} value=${dashboard?.leadCount} icon="clipboardCheck"/>
         <${Metric} label=${t("agency.won")} value=${dashboard?.wonLeadCount} icon="check"/>
-      </div>
-      <div class="agency-channels-bar">
+      </div>`}
+      ${(tab==="companies"||tab==="commercial")&&html`<div class="agency-channels-bar">
         <div class="agency-whatsapp-status">
           <span class=${"agency-whatsapp-dot "+(whatsappConfig?.configured?"ready":"")}></span>
           <strong>${t("agency.whatsappTitle")}</strong>
@@ -934,8 +950,8 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             ${whatsappWorkflowOpen?t("agency.cancel"):t("agency.whatsappWorkflowOpen")}
           </button>
         </div>
-      </div>
-      ${whatsappOpen&&html`<section class="agency-whatsapp-card">
+      </div>`}
+      ${(tab==="companies"||tab==="commercial")&&whatsappOpen&&html`<section class="agency-whatsapp-card">
         <div class="agency-whatsapp-heading">
           <div><span class="agency-eyebrow">${t("agency.whatsappEyebrow")}</span><h2>${t("agency.whatsappTitle")}</h2><p>${t("agency.whatsappDescription")}</p></div>
         </div>
@@ -965,7 +981,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               :html`<span>${t("agency.whatsappConfirmRemove")}</span><button class="btn" type="button" disabled=${whatsappBusy==="clear"} onClick=${clearWhatsAppConfig}>${whatsappBusy==="clear"?t("agency.whatsappRemoving"):t("agency.whatsappConfirm")}</button><button class="text" type="button" onClick=${()=>setWhatsappClearConfirm(false)}>${t("agency.cancel")}</button>`}
           </div>`}
       </section>`}
-      ${whatsappWorkflowOpen&&html`<section class="agency-whatsapp-workflow">
+      ${(tab==="companies"||tab==="commercial")&&whatsappWorkflowOpen&&html`<section class="agency-whatsapp-workflow">
         <div class="agency-whatsapp-heading">
           <div><span class="agency-eyebrow">${t("agency.whatsappWorkflowEyebrow")}</span><h2>${t("agency.whatsappWorkflowTitle")}</h2><p>${t("agency.whatsappWorkflowHint")}</p></div>
           <div class="agency-whatsapp-workflow-actions">
@@ -1069,6 +1085,9 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         </table></div>
         ${selectedCompany&&html`<aside class="agency-detail"><div class="agency-detail-head"><div><span class="agency-eyebrow">${t("agency.companyDetails")}</span><h2>${selectedCompany.name}</h2></div><button class="icon-btn" aria-label=${t("agency.close")} onClick=${()=>{setSelected("");setConsentContactId("");}}><${Icon} name="close"/></button></div>
           <dl class="agency-detail-facts"><div><dt>${t("agency.website")}</dt><dd>${selectedCompany.website||"—"}</dd></div><div><dt>${t("agency.industry")}</dt><dd>${selectedCompany.industry||"—"}</dd></div><div><dt>${t("agency.city")}</dt><dd>${selectedCompany.city||"—"}</dd></div></dl>
+          <div class="agency-commercial-actions">
+            <button class="btn primary" type="button" onClick=${()=>{setLead({companyId:selectedCompany.id,source:"crm",notes:""});setLeadForm(true);switchTab("leads");}}><${Icon} name="plus"/>${t("agency.createLeadFromCompany")}</button>
+          </div>
           <div class="agency-contact-heading"><h3>${t("agency.contacts")}</h3><button class="text" onClick=${()=>setContactForm(v=>!v)}>${t("agency.addContact")}</button></div>
           ${contactForm&&html`<form class="agency-form agency-contact-form" onSubmit=${createContact}><${Field} label=${t("agency.contactName")} value=${contact.displayName} required onInput=${v=>update(setContact,"displayName",v)}/><${Field} label=${t("agency.role")} value=${contact.role} onInput=${v=>update(setContact,"role",v)}/><${Field} label=${t("agency.email")} value=${contact.email} type="email" onInput=${v=>update(setContact,"email",v)}/><${Field} label=${t("agency.phone")} value=${contact.phone} type="tel" onInput=${v=>update(setContact,"phone",v)}/><button class="btn primary block" type="submit">${t("agency.saveContact")}</button></form>`}
           ${contacts.map(p=>{
@@ -1144,7 +1163,12 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         </aside>`}
       </div>`}
       ${tab==="leads"&&rows.items?.length>0&&html`<div class="agency-lead-list">${rows.items.map(l=>html`<article class="agency-lead-card"><div class="agency-lead-main"><div><strong>${companyOptions.find(c=>c.id===l.companyId)?.name||l.companyId}</strong><p>${l.notes||l.source||t("agency.noLeadNotes")}</p></div><${Badge} s=${t(`agency.stage.${l.stage}`)}/></div>
-        <div class="agency-lead-footer"><span>${t("agency.updated")} · ${new Date(l.updatedAt).toLocaleDateString()}</span><label class="agency-stage-select"><span>${t("agency.moveTo")}</span><select class="field" value=${l.stage} disabled=${busy==="stage"||!NEXT[l.stage]?.length} onChange=${e=>moveLead(l.id,e.currentTarget.value)}><option value=${l.stage}>${t(`agency.stage.${l.stage}`)}</option>${(NEXT[l.stage]||[]).map(s=>html`<option value=${s}>${t(`agency.stage.${s}`)}</option>`)}</select></label></div>
+        <div class="agency-lead-footer"><span>${t("agency.updated")} · ${new Date(l.updatedAt).toLocaleDateString()}</span>
+          <div class="agency-commercial-actions">
+            <button class="btn" type="button" onClick=${()=>{setSelectedLeadId(l.id);setSelectedConvId("");switchTab("commercial");}}>${t("agency.openCommercial")}</button>
+            <label class="agency-stage-select"><span>${t("agency.moveTo")}</span><select class="field" value=${l.stage} disabled=${busy==="stage"||!NEXT[l.stage]?.length} onChange=${e=>moveLead(l.id,e.currentTarget.value)}><option value=${l.stage}>${t(`agency.stage.${l.stage}`)}</option>${(NEXT[l.stage]||[]).map(s=>html`<option value=${s}>${t(`agency.stage.${s}`)}</option>`)}</select></label>
+          </div>
+        </div>
       </article>`)}</div>`}
       ${tab==="leads"&&!busy&&!rows.items?.length&&html`<${Empty} title=${t("agency.noLeads")} detail=${query?t("agency.noSearchResults"):t("agency.noLeadsHint")}/>`}
       ${(tab==="companies"||tab==="leads")&&rows.total>SIZE&&html`<div class="agency-pagination"><button class="btn" disabled=${page===0} onClick=${()=>setPage(v=>Math.max(0,v-1))}>${t("agency.previous")}</button><span>${t("agency.page",{current:page+1,total:Math.ceil(rows.total/SIZE)})}</span><button class="btn" disabled=${(page+1)*SIZE>=rows.total} onClick=${()=>setPage(v=>v+1)}>${t("agency.next")}</button></div>`}
@@ -1285,6 +1309,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                     ${c.status==="pending_approval"&&ap?.status==="pending"&&html`<button class="btn primary" type="button" onClick=${()=>approveRecord(ap.id)}>${t("agency.approveAndSend")}</button>`}
                     ${c.status==="pending_approval"&&ap?.status==="approved"&&html`<button class="btn primary" type="button" onClick=${()=>contractAction(c.id,"sign")}>${t("agency.signContractBtn")}</button>`}
                     ${c.status==="signed"&&c.depositStatus==="unpaid"&&html`<input class="field" placeholder=${t("agency.depositRef")} value=${depositRefByContract[c.id]||""} onInput=${e=>setDepositRefByContract(p=>({...p,[c.id]:e.currentTarget.value}))}/><button class="btn primary" type="button" disabled=${!(depositRefByContract[c.id]||"").trim()} onClick=${()=>contractAction(c.id,"deposit",{status:"paid",reference:depositRefByContract[c.id]})}>${t("agency.recordDepositBtn")}</button>`}
+                    ${c.status==="signed"&&(c.depositAmount===0||c.depositStatus==="paid")&&html`<button class="btn primary" type="button" onClick=${()=>{setProjectDraft(cur=>({...cur,contractId:c.id,title:c.title}));switchTab("projects");}}>${t("agency.launchProject")}</button>`}
                   </div>
                 </article>`;
               })}
@@ -1316,7 +1341,16 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             </article>`)}
           </div>
         </section>
-        ${selectedProjectId&&html`<div class="agency-commercial-col">
+        ${selectedProject&&html`<div class="agency-commercial-col">
+          <div class="agency-project-bar">
+            <strong>${selectedProject.title}</strong>
+            <label class="agency-stage-select"><span>${t("agency.projectStatusAction")}</span>
+              <select class="field" value=${selectedProject.status} disabled=${busy==="proj-status"||!(PROJECT_NEXT[selectedProject.status]||[]).length} onChange=${e=>updateProjectStatus(selectedProject.id,e.currentTarget.value)}>
+                <option value=${selectedProject.status}>${t(`agency.projectStatus.${selectedProject.status}`)}</option>
+                ${(PROJECT_NEXT[selectedProject.status]||[]).map(st=>html`<option value=${st}>${t(`agency.projectStatus.${st}`)}</option>`)}
+              </select>
+            </label>
+          </div>
           <section class="agency-project-section">
             <h3>${t("agency.projectLotsTitle")}</h3>
             <form class="agency-form agency-form-grid" onSubmit=${createProjectLot}>
@@ -1328,6 +1362,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.createLotBtn")}</button></div>
             </form>
             <div class="agency-commercial-list">
+              ${!projectLots.length&&html`<p class="agency-muted">${t("agency.noLots")}</p>`}
               ${projectLots.map(lot=>html`<article class="agency-commercial-card">
                 <div class="agency-commercial-head"><strong>#${lot.lotOrder} · ${lot.title} (${lot.ownerRole})</strong><span class="agency-whatsapp-state">${t(`agency.lotStatus.${lot.status}`)}</span></div>
                 ${lot.evidenceSummary&&html`<small>${lot.evidenceSummary}</small>`}
@@ -1350,6 +1385,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.proposeScopeChangeBtn")}</button></div>
             </form>
             <div class="agency-commercial-list">
+              ${!scopeChanges.length&&html`<p class="agency-muted">${t("agency.noScopeChanges")}</p>`}
               ${scopeChanges.map(sc=>{
                 const ap=approvals.find(a=>a.id===sc.approvalId);
                 return html`<article class="agency-commercial-card">
@@ -1379,6 +1415,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.recordQaCheckBtn")}</button></div>
             </form>
             <div class="agency-commercial-list">
+              ${!qaChecks.length&&html`<p class="agency-muted">${t("agency.noQaChecks")}</p>`}
               ${qaChecks.map(c=>html`<article class="agency-commercial-card">
                 <div class="agency-commercial-head"><strong>${t(`agency.qaCategory.${c.category}`)} · ${c.title}</strong><span class="agency-whatsapp-state">${t(`agency.qaCheckStatus.${c.status}`)}</span></div>
                 ${c.evidence&&html`<small>${c.evidence}</small>`}
@@ -1393,6 +1430,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!qaGate?.readyForDelivery}>${t("agency.prepareDeliveryBtn")}</button></div>
             </form>
             <div class="agency-commercial-list">
+              ${!deliveries.length&&html`<p class="agency-muted">${t("agency.noDeliveries")}</p>`}
               ${deliveries.map(d=>{
                 const ap=approvals.find(a=>a.id===d.approvalId);
                 return html`<article class="agency-commercial-card">
@@ -1416,6 +1454,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.scheduleFollowUpBtn")}</button></div>
             </form>
             <div class="agency-commercial-list">
+              ${!followUps.filter(f=>f.projectId===selectedProjectId).length&&html`<p class="agency-muted">${t("agency.noFollowUps")}</p>`}
               ${followUps.filter(f=>f.projectId===selectedProjectId).map(fu=>html`<article class="agency-commercial-card">
                 <div class="agency-commercial-head"><strong>${t(`agency.followUpType.${fu.type}`)}</strong><span class="agency-whatsapp-state">${t(`agency.followUpStatus.${fu.status}`)}</span></div>
                 <small>${fu.notes||"—"}</small>
@@ -1458,6 +1497,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           <section class="agency-project-section">
             <h3>${t("agency.missionsTitle")}</h3>
             <form class="agency-form agency-form-grid" onSubmit=${createMission}>
+              <label class="agency-field"><span>${t("agency.missionProjectLabel")}</span><select class="field" value=${missionDraft.projectId} onChange=${e=>update(setMissionDraft,"projectId",e.currentTarget.value)}><option value="">—</option>${projects.map(p=>html`<option value=${p.id}>${p.title}</option>`)}</select></label>
               <label class="agency-field"><span>${t("agency.missionRoleLabel")}</span><select class="field" value=${missionDraft.agentRole} onChange=${e=>update(setMissionDraft,"agentRole",e.currentTarget.value)}>${AGENT_ROLES.map(r=>html`<option value=${r}>${r}</option>`)}</select></label>
               <${Field} label=${t("agency.missionTitle")} value=${missionDraft.title} required onInput=${v=>update(setMissionDraft,"title",v)}/>
               <${Field} label=${t("agency.missionObjective")} value=${missionDraft.objective} onInput=${v=>update(setMissionDraft,"objective",v)}/>
@@ -1465,9 +1505,11 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.createMissionBtn")}</button></div>
             </form>
             <div class="agency-commercial-list">
+              ${!missions.length&&html`<p class="agency-muted">${t("agency.noMissions")}</p>`}
               ${missions.map(m=>html`<article class="agency-commercial-card">
                 <div class="agency-commercial-head"><strong>${m.title} · ${m.agentRole}</strong><span class="agency-whatsapp-state">${t(`agency.missionStatus.${m.status}`)}</span></div>
-                <small>${m.preferredTool||"—"}</small>
+                <small>${m.preferredTool||"—"}${m.projectId?` · ${projects.find(p=>p.id===m.projectId)?.title||m.projectId}`:""}</small>
+                ${m.brief&&html`<details class="agency-brief-details"><summary>${t("agency.missionBriefLabel")}</summary><pre>${m.brief}</pre></details>`}
                 <div class="agency-commercial-actions">
                   ${m.status==="planned"&&html`<button class="btn" type="button" onClick=${()=>updateMission(m.id,"running")}>${t("agency.startMissionBtn")}</button>`}
                   ${(m.status==="planned"||m.status==="running")&&html`<button class="btn primary" type="button" onClick=${()=>updateMission(m.id,"completed")}>${t("agency.completeMissionBtn")}</button>`}

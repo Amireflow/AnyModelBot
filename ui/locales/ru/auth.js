@@ -32,4 +32,12 @@ export default {
   notConfiguredBadge: "Требуется настройка",
   modelsHint: "Ключи API моделей можно настроить после входа в разделе Настройки.",
   signedInAs: "Вы вошли как {email}",
+  aiPreset: "Провайдер ИИ",
+  aiBaseUrl: "URL OpenAI-совместимого API",
+  aiBaseUrlSub: "Используется приложением напрямую (OpenAI, Gemini, OpenRouter, DeepSeek, Ollama…).",
+  aiApiKey: "API-ключ провайдера",
+  aiApiKeySub: "Хранится локально и скрыт в интерфейсе.",
+  aiApiKeyRemove: "Очистить ключ",
+  aiCustom: "Другой",
+  aiSaved: "Точка доступа ИИ сохранена",
 };
