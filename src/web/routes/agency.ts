@@ -1144,13 +1144,6 @@ export function agencyRoutes(ctx: WebContext): Route {
           }
           if (seg.length===6 && seg[4]==="workspace" && seg[5]==="init" && method==="POST") {
             const project=service.getProject(organizationId,actor,projectId);
-            const executionKey=studioExecutionKey(organizationId,projectId);
-            if (seg.length===6 && seg[5]==="cancel" && method==="POST") {
-              const active=STUDIO_EXECUTION_CONTROLLERS.get(executionKey);
-              if (!active || active.signal.aborted) return send(res,200,{cancelled:false});
-              active.abort(new Error("Studio generation cancelled by user"));
-              return send(res,200,{cancelled:true});
-            }
             const contract=service.getContract(organizationId,actor,project.contractId);
             const lots=service.listProjectLots(organizationId,actor,projectId);
             const workspace=initProjectWorkspace({
@@ -1312,6 +1305,13 @@ export function agencyRoutes(ctx: WebContext): Route {
           if (seg.length>=6 && seg[4]==="studio") {
             const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
             const project=service.getProject(organizationId,actor,projectId);
+            const executionKey=studioExecutionKey(organizationId,projectId);
+            if (seg.length===6 && seg[5]==="cancel" && method==="POST") {
+              const active=STUDIO_EXECUTION_CONTROLLERS.get(executionKey);
+              if (!active || active.signal.aborted) return send(res,200,{cancelled:false});
+              active.abort(new Error("Studio generation cancelled by user"));
+              return send(res,200,{cancelled:true});
+            }
             if (seg.length===6 && seg[5]==="state" && method==="GET") {
               const st=await loadStudioState(dataDir,projectId);
               const subagents=STUDIO_SUBAGENTS.map((spec) => {
