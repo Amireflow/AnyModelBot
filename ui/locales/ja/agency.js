@@ -477,5 +477,9 @@ export default {
   "agentSaveBtn": "設定を保存",
   "agentResetBtn": "リセット",
   "agentSavedNotice": "設定を保存しました。",
-  "agentGuardrailsNote": "安全制御ロック中：外部送信は常に承認が必要です。"
+  "agentGuardrailsNote": "安全制御ロック中：外部送信は常に承認が必要です。",
+  "agentSkillsLabel": "有効なスキル (SKILL.md)",
+  "studioNewFileBtn": "+",
+  "studioNewFilePlaceholder": "src/new.js",
+  "studioStepsTitle": "AI実行ログ"
 };

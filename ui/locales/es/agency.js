@@ -477,5 +477,9 @@ export default {
   "agentSaveBtn": "Guardar agente",
   "agentResetBtn": "Restablecer",
   "agentSavedNotice": "Configuración guardada.",
-  "agentGuardrailsNote": "Seguridad bloqueada: ninguna aprobación externa sin tu validación."
+  "agentGuardrailsNote": "Seguridad bloqueada: ninguna aprobación externa sin tu validación.",
+  "agentSkillsLabel": "Skills activas (SKILL.md)",
+  "studioNewFileBtn": "+",
+  "studioNewFilePlaceholder": "src/archivo.js",
+  "studioStepsTitle": "Traza de ejecución IA"
 };

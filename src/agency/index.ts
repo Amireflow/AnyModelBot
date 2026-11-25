@@ -19,3 +19,5 @@ export * from "./prospecting.js";
 export * from "./delivery-package.js";
 export * from "./qa-auditor.js";
 export * from "./studio.js";
+export * from "./skills.js";
+export * from "./presets.js";

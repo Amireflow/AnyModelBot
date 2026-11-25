@@ -478,5 +478,9 @@ export default {
   "agentSaveBtn": "Enregistrer l'agent",
   "agentResetBtn": "Réinitialiser",
   "agentSavedNotice": "Configuration enregistrée.",
-  "agentGuardrailsNote": "Sécurité verrouillée : aucune approbation externe sans votre validation."
+  "agentGuardrailsNote": "Sécurité verrouillée : aucune approbation externe sans votre validation.",
+  "agentSkillsLabel": "Skills activés (protocole SKILL.md)",
+  "studioNewFileBtn": "+",
+  "studioNewFilePlaceholder": "src/nouveau.js",
+  "studioStepsTitle": "Trace d'exécution IA"
 };

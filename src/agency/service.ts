@@ -2643,6 +2643,7 @@ export class AgencyService {
       autonomyMode: "supervised",
       systemPrompt: profile.mission,
       rules: [],
+      skills: [],
       allowedTools: [...profile.defaultTools],
       maxSteps: 8,
       updatedAt: 0,
@@ -2701,6 +2702,7 @@ export class AgencyService {
         ? optionalText(input.systemPrompt, "systemPrompt", 4000)
         : current.systemPrompt,
       rules: input.rules !== undefined ? stringList(input.rules, "rules", 30, 400) : current.rules,
+      skills: input.skills !== undefined ? stringList(input.skills, "skills", 12, 80) : current.skills,
       allowedTools: input.allowedTools !== undefined
         ? stringList(input.allowedTools, "allowedTools", 30, 100)
         : current.allowedTools,
@@ -2716,6 +2718,7 @@ export class AgencyService {
         autonomyMode: saved.autonomyMode,
         maxSteps: saved.maxSteps,
         rulesCount: saved.rules.length,
+        skillsCount: saved.skills.length,
       });
       return this.mergeAgentProfile(organizationId, profile, saved);
     });

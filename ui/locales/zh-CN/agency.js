@@ -477,5 +477,9 @@ export default {
   "agentSaveBtn": "保存配置",
   "agentResetBtn": "恢复默认",
   "agentSavedNotice": "配置已保存。",
-  "agentGuardrailsNote": "安全护栏已锁定：外部审批始终需要人工确认。"
+  "agentGuardrailsNote": "安全护栏已锁定：外部审批始终需要人工确认。",
+  "agentSkillsLabel": "启用技能 (SKILL.md)",
+  "studioNewFileBtn": "+",
+  "studioNewFilePlaceholder": "src/new.js",
+  "studioStepsTitle": "AI 执行轨迹"
 };

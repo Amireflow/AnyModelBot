@@ -477,5 +477,9 @@ export default {
   "agentSaveBtn": "Kaydet",
   "agentResetBtn": "Sıfırla",
   "agentSavedNotice": "Ayarlar kaydedildi.",
-  "agentGuardrailsNote": "Güvenlik kilidi: dış onaylar her zaman sahip onayı gerektirir."
+  "agentGuardrailsNote": "Güvenlik kilidi: dış onaylar her zaman sahip onayı gerektirir.",
+  "agentSkillsLabel": "Etkin Yetenekler (SKILL.md)",
+  "studioNewFileBtn": "+",
+  "studioNewFilePlaceholder": "src/yeni.js",
+  "studioStepsTitle": "YZ Çalışma İzleme"
 };

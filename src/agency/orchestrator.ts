@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { AgencyError } from "./errors.js";
 import type {
   AgencyAgentRole,
@@ -161,15 +163,26 @@ const TOOL_PROBES: readonly ToolProbeSpec[] = [
  */
 export function detectLocalDevTools(): DetectedDevTool[] {
   const isWin = process.platform === "win32";
+  const npmCli = isWin ? path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js") : "";
   return TOOL_PROBES.map((spec) => {
-    const executable = isWin && spec.winCmd ? spec.winCmd : spec.command;
     try {
-      const output = execFileSync(executable, ["--version"], {
-        timeout: 1500,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true,
-      });
+      let output = "";
+      if (isWin && spec.id === "npm" && fs.existsSync(npmCli)) {
+        output = execFileSync(process.execPath, [npmCli, "--version"], {
+          timeout: 1500,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
+        });
+      } else {
+        const executable = isWin && spec.winCmd ? spec.winCmd : spec.command;
+        output = execFileSync(executable, ["--version"], {
+          timeout: 1500,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
+        });
+      }
       const version = output.split(/\r?\n/)[0]?.trim() || "detected";
       return {
         id: spec.id,

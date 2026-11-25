@@ -166,6 +166,15 @@
 .agency-agent-row.selected{background:var(--side-active)}
 .agency-agent-row-main{display:flex;align-items:center;gap:var(--space-2-5);min-width:0}
 .agency-agent-editor{position:sticky;top:var(--space-4)}
+.agency-skills-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--space-2)}
+.agency-skill-check{display:flex;align-items:flex-start;gap:var(--space-2);padding:var(--space-2-5);border-radius:var(--r-item-sm);background:var(--card);cursor:pointer;font-size:var(--fs-xs)}
+.agency-skill-check.selected{background:var(--side-active)}
+.agency-skill-check span{display:grid;gap:var(--space-0-5)}
+.agency-skill-check strong{color:var(--fg);font-weight:var(--fw-medium)}
+.agency-skill-check small{color:var(--muted)}
+.agency-studio-new-file{display:flex;gap:var(--space-1-5);align-items:center}
+.agency-studio-new-file .field{min-width:0;flex:1}
+.agency-studio-steps{display:grid;gap:var(--space-1-5);margin-top:var(--space-2)}
 .agency-audit-row{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);padding:var(--space-2) var(--space-3);border-radius:var(--r-item-sm);background:var(--card);font-size:var(--fs-xs)}
 .agency-audit-row strong{color:var(--fg);font-weight:var(--fw-medium)}
 .agency-audit-row span{color:var(--muted)}

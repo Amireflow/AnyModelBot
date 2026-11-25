@@ -477,5 +477,9 @@ export default {
   "agentSaveBtn": "Save agent",
   "agentResetBtn": "Reset",
   "agentSavedNotice": "Configuration saved.",
-  "agentGuardrailsNote": "Locked guardrails: external approvals always require owner consent."
+  "agentGuardrailsNote": "Locked guardrails: external approvals always require owner consent.",
+  "agentSkillsLabel": "Active Skills (SKILL.md)",
+  "studioNewFileBtn": "+",
+  "studioNewFilePlaceholder": "src/new-file.js",
+  "studioStepsTitle": "AI Execution Trace"
 };

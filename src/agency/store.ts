@@ -705,6 +705,7 @@ CREATE TABLE IF NOT EXISTS agency_agent_configs (
   autonomy_mode TEXT NOT NULL CHECK(autonomy_mode IN ('draft_only','supervised','autonomous_internal')) DEFAULT 'supervised',
   system_prompt TEXT NOT NULL DEFAULT '',
   rules_json TEXT NOT NULL DEFAULT '[]',
+  skills_json TEXT NOT NULL DEFAULT '[]',
   allowed_tools_json TEXT NOT NULL DEFAULT '[]',
   max_steps INTEGER NOT NULL DEFAULT 8,
   updated_at INTEGER NOT NULL,
@@ -1076,6 +1077,7 @@ function agentConfigOf(r: Row): AgentConfig {
     autonomyMode: text(r, "autonomy_mode") as AgentAutonomyMode,
     systemPrompt: text(r, "system_prompt"),
     rules: jsonStringArray(text(r, "rules_json")),
+    skills: jsonStringArray(text(r, "skills_json")),
     allowedTools: jsonStringArray(text(r, "allowed_tools_json")),
     maxSteps: number(r, "max_steps") || 8,
     updatedAt: number(r, "updated_at"),
@@ -1115,6 +1117,13 @@ export class AgencyStore {
     this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(7, ?)").run(Date.now());
     // v8 adds governed outbound email outbox.
     this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(8, ?)").run(Date.now());
+    // v9 adds skills_json to agency_agent_configs cleanly for existing databases.
+    const agentCols = this.db.prepare("PRAGMA table_info(agency_agent_configs)").all() as Row[];
+    const existingAgentCols = new Set(agentCols.map((row) => text(row, "name")));
+    if (!existingAgentCols.has("skills_json")) {
+      this.db.exec("ALTER TABLE agency_agent_configs ADD COLUMN skills_json TEXT NOT NULL DEFAULT '[]'");
+    }
+    this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(9, ?)").run(Date.now());
   }
 
   close(): void { this.db.close(); }
@@ -2041,8 +2050,8 @@ export class AgencyStore {
     this.db.prepare(`
       INSERT INTO agency_agent_configs(
         organization_id, role, enabled, display_name, model, autonomy_mode,
-        system_prompt, rules_json, allowed_tools_json, max_steps, updated_at
-      ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+        system_prompt, rules_json, skills_json, allowed_tools_json, max_steps, updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(organization_id, role) DO UPDATE SET
         enabled=excluded.enabled,
         display_name=excluded.display_name,
@@ -2050,6 +2059,7 @@ export class AgencyStore {
         autonomy_mode=excluded.autonomy_mode,
         system_prompt=excluded.system_prompt,
         rules_json=excluded.rules_json,
+        skills_json=excluded.skills_json,
         allowed_tools_json=excluded.allowed_tools_json,
         max_steps=excluded.max_steps,
         updated_at=excluded.updated_at
@@ -2062,6 +2072,7 @@ export class AgencyStore {
       cfg.autonomyMode,
       cfg.systemPrompt,
       JSON.stringify(cfg.rules),
+      JSON.stringify(cfg.skills),
       JSON.stringify(cfg.allowedTools),
       cfg.maxSteps,
       cfg.updatedAt,

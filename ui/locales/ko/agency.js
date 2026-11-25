@@ -477,5 +477,9 @@ export default {
   "agentSaveBtn": "저장",
   "agentResetBtn": "초기화",
   "agentSavedNotice": "설정이 저장되었습니다.",
-  "agentGuardrailsNote": "보안 잠금: 외부 승인은 항상 소유자 확인이 필요합니다."
+  "agentGuardrailsNote": "보안 잠금: 외부 승인은 항상 소유자 확인이 필요합니다.",
+  "agentSkillsLabel": "활성 스킬 (SKILL.md)",
+  "studioNewFileBtn": "+",
+  "studioNewFilePlaceholder": "src/new.js",
+  "studioStepsTitle": "AI 실행 로그"
 };

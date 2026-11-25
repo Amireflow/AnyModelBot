@@ -21,8 +21,10 @@ import {
   suggestCommercialReply,
 } from "../../agency/commercial-ai.js";
 import { buildProjectZipArchive } from "../../agency/delivery-package.js";
+import { bootstrapAgencyDefaults } from "../../agency/presets.js";
 import { auditWebsiteSafely, prospectWebCompanies } from "../../agency/prospecting.js";
 import { runFourAxisQaAudit } from "../../agency/qa-auditor.js";
+import { listAgencySkills, resolveSkillsPromptBlock } from "../../agency/skills.js";
 import {
   deleteWorkspaceFile,
   listWorkspaceFiles,
@@ -76,10 +78,12 @@ function resolveAgentRuntime(
   if (!configured.config.enabled) {
     throw new AgencyError("CONFLICT", `Agent "${configured.config.displayName}" (${role}) is currently disabled`);
   }
+  const skillsPrompt = resolveSkillsPromptBlock(configured.config.skills);
+  const combinedInstructions = [configured.config.systemPrompt.trim(), skillsPrompt].filter(Boolean).join("\n\n");
   return {
     model: configured.config.model || fallbackModel,
     maxSteps: configured.config.maxSteps,
-    agentInstructions: configured.config.systemPrompt,
+    agentInstructions: combinedInstructions,
     agentRules: configured.config.rules,
   };
 }
@@ -861,6 +865,16 @@ export function agencyRoutes(ctx: WebContext): Route {
         return send(res,200,{metrics:service.getMetrics(organizationId,actor)});
       }
 
+      if (seg[2]==="skills" && seg.length===3 && method==="GET") {
+        service.getOrganization(organizationId,actor);
+        return send(res,200,{items:listAgencySkills()});
+      }
+
+      if (seg[2]==="bootstrap-defaults" && seg.length===3 && method==="POST") {
+        const body=await readObject(req);
+        return send(res,200,{bootstrapped:bootstrapAgencyDefaults(service,organizationId,actor,{overwriteAgents:body.overwriteAgents===true})});
+      }
+
       if (seg[2]==="agents") {
         if (seg.length===3 && method==="GET") {
           return send(res,200,{items:service.listAgentProfiles(organizationId,actor)});
@@ -879,6 +893,7 @@ export function agencyRoutes(ctx: WebContext): Route {
               autonomyMode:typeof body.autonomyMode==="string" ? (body.autonomyMode as AgentAutonomyMode) : undefined,
               systemPrompt:typeof body.systemPrompt==="string" ? body.systemPrompt : undefined,
               rules:Array.isArray(body.rules) ? body.rules.map(String) : undefined,
+              skills:Array.isArray(body.skills) ? body.skills.map(String) : undefined,
               allowedTools:Array.isArray(body.allowedTools) ? body.allowedTools.map(String) : undefined,
               maxSteps:body.maxSteps == null ? undefined : Number(body.maxSteps),
             })});
@@ -1084,7 +1099,10 @@ export function agencyRoutes(ctx: WebContext): Route {
             }
             if (seg.length===6 && seg[5]==="ai-agent" && method==="POST") {
               const body=await readObject(req);
-              const runtime=resolveAgentRuntime(service,organizationId,actor,"developer",ctx.app?.config?.llm?.defaultModel);
+              const requestedRole=typeof body.agentRole==="string" && ["developer","ui_ux","architect"].includes(body.agentRole)
+                ? (body.agentRole as AgencyAgentRole)
+                : "developer";
+              const runtime=resolveAgentRuntime(service,organizationId,actor,requestedRole,ctx.app?.config?.llm?.defaultModel);
               const lot=typeof body.lotId==="string" && body.lotId.trim()
                 ? service.listProjectLots(organizationId,actor,projectId).find((l) => l.id===body.lotId)
                 : undefined;

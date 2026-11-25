@@ -9,6 +9,7 @@ const AUTONOMY_MODES = ["draft_only", "supervised", "autonomous_internal"];
 export function AgencyAgents({ orgId, agents = [], onSaved }) {
   const [selectedRole, setSelectedRole] = useState(agents[0]?.role || "developer");
   const [models, setModels] = useState([]);
+  const [skillsCatalog, setSkillsCatalog] = useState([]);
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
@@ -23,6 +24,17 @@ export function AgencyAgents({ orgId, agents = [], onSaved }) {
       live = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!orgId) return;
+    let live = true;
+    api(`/agency/${enc(orgId)}/skills`)
+      .then((res) => live && setSkillsCatalog(Array.isArray(res?.items) ? res.items : []))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [orgId]);
 
   useEffect(() => {
     if (!agents.length) return;
@@ -47,11 +59,20 @@ export function AgencyAgents({ orgId, agents = [], onSaved }) {
       maxSteps: String(cfg.maxSteps ?? 8),
       systemPrompt: cfg.systemPrompt || active.mission || "",
       rulesText: Array.isArray(cfg.rules) ? cfg.rules.join("\n") : "",
+      skills: Array.isArray(cfg.skills) ? cfg.skills : [],
       toolsText: Array.isArray(cfg.allowedTools) ? cfg.allowedTools.join(", ") : (active.defaultTools || []).join(", "),
     });
     setNotice("");
     setError("");
   }, [active?.role, active?.config?.updatedAt]);
+
+  const toggleSkill = (slug) => {
+    setDraft((d) => {
+      if (!d) return d;
+      const exists = d.skills.includes(slug);
+      return { ...d, skills: exists ? d.skills.filter((s) => s !== slug) : [...d.skills, slug] };
+    });
+  };
 
   const saveConfig = async (e) => {
     e.preventDefault();
@@ -72,6 +93,7 @@ export function AgencyAgents({ orgId, agents = [], onSaved }) {
           maxSteps: Number(draft.maxSteps || 8),
           systemPrompt: draft.systemPrompt,
           rules,
+          skills: draft.skills,
           allowedTools,
         },
       });
@@ -173,6 +195,15 @@ export function AgencyAgents({ orgId, agents = [], onSaved }) {
           <span>${t("agency.agentRulesLabel")}</span>
           <textarea class="field" rows="4" value=${draft.rulesText} onInput=${(e) => setDraft((d) => ({ ...d, rulesText: e.currentTarget.value }))}></textarea>
         </label>
+        ${skillsCatalog.length > 0 && html`<div class="agency-field agency-form-wide">
+          <span>${t("agency.agentSkillsLabel")} (${draft.skills.length})</span>
+          <div class="agency-skills-grid">
+            ${skillsCatalog.map((sk) => html`<label class=${"agency-skill-check" + (draft.skills.includes(sk.slug) ? " selected" : "")}>
+              <input type="checkbox" checked=${draft.skills.includes(sk.slug)} onChange=${() => toggleSkill(sk.slug)} />
+              <span><strong>${sk.name}</strong><small>${sk.description}</small></span>
+            </label>`)}
+          </div>
+        </div>`}
         <p class="agency-muted agency-form-wide"><${Icon} name="shield" size="sm" /> ${t("agency.agentGuardrailsNote")}</p>
         <div class="agency-form-actions">
           ${active.customized && html`<button class="btn" type="button" disabled=${!!busy} onClick=${resetConfig}>${t("agency.agentResetBtn")}</button>`}

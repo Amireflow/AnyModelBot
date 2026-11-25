@@ -1881,21 +1881,6 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                 ${auditEvents.slice(0,6).map(ev=>html`<div class="agency-audit-row"><strong>${ev.action}</strong><span>${new Date(ev.createdAt).toLocaleTimeString()}</span></div>`)}
               </div>
             </section>
-            <section class="agency-project-section">
-              <div class="agency-commercial-head">
-                <h3>${t("agency.executionNodeTitle")}</h3>
-                <span class="agency-tool-chip">
-                  <span class=${"agency-dot "+(execNodeStatus?.connected?"ok":execNodeStatus?.state==="active"?"warn":"off")}></span>
-                  <span>${execNodeStatus?(typeof execNodeStatus==="string"?execNodeStatus:(execNodeStatus.state||execNodeStatus.mode||"—")):"—"}</span>
-                </span>
-              </div>
-              <div class="agency-tool-list">
-                ${devTools.map(tool=>html`<div class="agency-tool-chip"><span class=${"agency-dot "+(tool.available?"ok":"off")}></span><strong>${tool.name}</strong><span>${tool.available?(tool.version||t("agency.toolAvailable")):t("agency.toolMissing")}</span></div>`)}
-              </div>
-              <div class="agency-role-grid">
-                ${agentProfiles.map(ag=>html`<button type="button" class="agency-tool-chip" onClick=${()=>switchTab("agents")}><span class=${"agency-dot "+(ag.config?.enabled===false?"off":"ok")}></span><strong>${t(`agency.agentRoleNames.${ag.role}`)}</strong></button>`)}
-              </div>
-            </section>
           </div>
           <section class="agency-project-section">
             <div class="agency-commercial-head">

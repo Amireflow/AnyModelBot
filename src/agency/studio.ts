@@ -6,7 +6,12 @@ import { AgencyError } from "./errors.js";
 import type { AgencyAgentRole, Contract, CreateProjectLotInput, Project, ProjectLot } from "./types.js";
 import { initProjectWorkspace, resolveSafeWorkspacePath } from "./workspace-runner.js";
 
-export type StudioTemplateId = "vitrine-html" | "webapp-node-preact" | "api-node-ts";
+export type StudioTemplateId =
+  | "vitrine-html"
+  | "webapp-node-preact"
+  | "api-node-ts"
+  | "saas-dashboard-app"
+  | "ecommerce-storefront";
 export type StudioCommandAction = "npm_test" | "npm_typecheck" | "npm_build" | "git_status" | "npm_install";
 
 export interface StudioFileEntry {
@@ -154,6 +159,56 @@ export function deleteWorkspaceFile(dataDir: string, project: Project, relFilePa
     fs.rmSync(absPath, { force: true });
   }
   return { deleted: relPath };
+}
+
+export function patchWorkspaceFile(
+  dataDir: string,
+  project: Project,
+  relFilePath: string,
+  search: string,
+  replace: string,
+): { path: string; size: number; replacements: number } {
+  if (!search) {
+    throw new AgencyError("VALIDATION_ERROR", "patch_file requires a non-empty search block");
+  }
+  const current = readWorkspaceFile(dataDir, project, relFilePath);
+  const idx = current.content.indexOf(search);
+  if (idx < 0) {
+    throw new AgencyError("CONFLICT", `Search snippet not found in ${current.path}`);
+  }
+  const next = current.content.slice(0, idx) + replace + current.content.slice(idx + search.length);
+  const saved = writeWorkspaceFile(dataDir, project, current.path, next);
+  return { path: saved.path, size: saved.size, replacements: 1 };
+}
+
+export function searchWorkspaceFiles(
+  dataDir: string,
+  project: Project,
+  query: string,
+): Array<{ path: string; line: number; text: string }> {
+  const needle = query.trim().toLowerCase();
+  if (!needle) {
+    throw new AgencyError("VALIDATION_ERROR", "search_files query is required");
+  }
+  const files = listWorkspaceFiles(dataDir, project);
+  const hits: Array<{ path: string; line: number; text: string }> = [];
+  for (const entry of files) {
+    if (hits.length >= 30) break;
+    let content = "";
+    try {
+      content = readWorkspaceFile(dataDir, project, entry.path).content;
+    } catch {
+      continue;
+    }
+    const lines = content.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].toLowerCase().includes(needle)) {
+        hits.push({ path: entry.path, line: i + 1, text: lines[i].trim().slice(0, 160) });
+        if (hits.length >= 30) break;
+      }
+    }
+  }
+  return hits;
 }
 
 export function scaffoldProjectTemplate(input: {
@@ -357,6 +412,290 @@ test("healthz returns ok", async () => {
   } finally {
     srv.close();
   }
+});
+`,
+    };
+    for (const [rel, content] of Object.entries(files)) {
+      writeWorkspaceFile(input.dataDir, input.project, rel, content);
+      written.push(rel);
+    }
+  } else if (input.template === "saas-dashboard-app") {
+    const files: Record<string, string> = {
+      "index.html": `<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${safeTitle} — Tableau de bord</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">${safeTitle}</div>
+      <nav aria-label="Navigation principale">
+        <button type="button" class="nav-btn active" data-view="overview">Vue d'ensemble</button>
+        <button type="button" class="nav-btn" data-view="clients">Clients</button>
+        <button type="button" class="nav-btn" data-view="settings">Paramètres</button>
+      </nav>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <h1 id="view-title">Vue d'ensemble</h1>
+        <form id="record-form" class="inline-form">
+          <input id="record-name" type="text" placeholder="Nouvelle entrée…" required />
+          <input id="record-amount" type="number" min="0" placeholder="Montant" required />
+          <button type="submit">Ajouter</button>
+        </form>
+      </header>
+      <section id="kpi-row" class="kpi-grid" aria-label="Indicateurs"></section>
+      <section class="card">
+        <div class="card-head">
+          <h2>Registre opérationnel</h2>
+          <input id="filter-input" type="search" placeholder="Filtrer…" aria-label="Filtrer" />
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Libellé</th><th>Montant</th><th>Statut</th></tr></thead>
+            <tbody id="records-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
+`,
+      "styles.css": `:root {
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --accent: #0f766e;
+  --line: #e2e8f0;
+  --radius: 14px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--ink); }
+.layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: 100vh; }
+.sidebar { background: #0f172a; color: #f8fafc; padding: 24px 16px; display: grid; align-content: start; gap: 20px; }
+.brand { font-weight: 700; font-size: 1.05rem; }
+.sidebar nav { display: grid; gap: 6px; }
+.nav-btn { text-align: start; border: 0; background: transparent; color: #cbd5e1; padding: 10px 12px; border-radius: 10px; cursor: pointer; }
+.nav-btn.active, .nav-btn:hover { background: rgba(255,255,255,.12); color: #fff; }
+.main { padding: 28px; display: grid; align-content: start; gap: 20px; }
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.topbar h1 { margin: 0; font-size: 1.5rem; }
+.inline-form { display: flex; gap: 8px; flex-wrap: wrap; }
+input, button { padding: 9px 12px; border-radius: 10px; font: inherit; }
+input { border: 1px solid var(--line); background: var(--surface); }
+button[type="submit"] { border: 0; background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+.kpi-card, .card { background: var(--surface); border-radius: var(--radius); padding: 18px; border: 1px solid var(--line); }
+.kpi-card small { color: var(--muted); display: block; margin-bottom: 6px; }
+.kpi-card strong { font-size: 1.45rem; font-variant-numeric: tabular-nums; }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.card-head h2 { margin: 0; font-size: 1.05rem; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: start; font-size: 0.92rem; }
+@media (max-width: 760px) { .layout { grid-template-columns: 1fr; } .main { padding: 16px; } }
+`,
+      "app.js": `const records = [
+  { name: "Contrat Initial", amount: 1500000, status: "Actif" },
+  { name: "Extension Portail", amount: 750000, status: "En cours" },
+];
+const kpiRow = document.getElementById("kpi-row");
+const tbody = document.getElementById("records-body");
+const form = document.getElementById("record-form");
+const filterInput = document.getElementById("filter-input");
+const viewTitle = document.getElementById("view-title");
+
+function renderKpis(list) {
+  const total = list.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const cards = [
+    ["Total suivi", total.toLocaleString("fr-FR") + " XOF"],
+    ["Dossiers", String(list.length)],
+    ["Taux actif", Math.round((list.filter((r) => r.status === "Actif").length / Math.max(1, list.length)) * 100) + "%"],
+  ];
+  kpiRow.replaceChildren(...cards.map(([label, val]) => {
+    const div = document.createElement("article");
+    div.className = "kpi-card";
+    const sm = document.createElement("small");
+    sm.textContent = label;
+    const st = document.createElement("strong");
+    st.textContent = val;
+    div.append(sm, st);
+    return div;
+  }));
+}
+
+function renderTable(query = "") {
+  const needle = query.trim().toLowerCase();
+  const filtered = needle ? records.filter((r) => r.name.toLowerCase().includes(needle)) : records;
+  renderKpis(records);
+  tbody.replaceChildren(...filtered.map((item) => {
+    const tr = document.createElement("tr");
+    for (const val of [item.name, Number(item.amount).toLocaleString("fr-FR") + " XOF", item.status]) {
+      const td = document.createElement("td");
+      td.textContent = val;
+      tr.appendChild(td);
+    }
+    return tr;
+  }));
+}
+
+form?.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const nameEl = document.getElementById("record-name");
+  const amtEl = document.getElementById("record-amount");
+  if (!nameEl?.value.trim()) return;
+  records.unshift({ name: nameEl.value.trim(), amount: Number(amtEl?.value || 0), status: "Actif" });
+  nameEl.value = "";
+  if (amtEl) amtEl.value = "";
+  renderTable(filterInput?.value || "");
+});
+
+filterInput?.addEventListener("input", () => renderTable(filterInput.value));
+document.querySelectorAll(".nav-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".nav-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    if (viewTitle) viewTitle.textContent = btn.textContent || "Vue d'ensemble";
+  });
+});
+renderTable();
+`,
+      "package.json": JSON.stringify({
+        name: slug,
+        version: "1.0.0",
+        private: true,
+        type: "module",
+        scripts: { test: "node --test test/app.test.mjs" },
+      }, null, 2),
+      "test/app.test.mjs": `import assert from "node:assert/strict";
+import fs from "node:fs";
+import test from "node:test";
+
+test("SaaS dashboard has HTML, CSS and JS modules", () => {
+  const html = fs.readFileSync("index.html", "utf8");
+  assert.match(html, /kpi-row/);
+  assert.ok(fs.existsSync("styles.css"));
+  assert.ok(fs.existsSync("app.js"));
+});
+`,
+    };
+    for (const [rel, content] of Object.entries(files)) {
+      writeWorkspaceFile(input.dataDir, input.project, rel, content);
+      written.push(rel);
+    }
+  } else if (input.template === "ecommerce-storefront") {
+    const files: Record<string, string> = {
+      "index.html": `<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${safeTitle} — Boutique</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="header">
+    <strong>${safeTitle}</strong>
+    <div class="cart-pill" aria-live="polite">Panier : <span id="cart-count">0</span> · <span id="cart-total">0 XOF</span></div>
+  </header>
+  <main class="container">
+    <section class="hero">
+      <h1>Collection & Commandes en ligne</h1>
+      <p>Catalogue clair, panier temps réel et prise de commande rapide sur mobile et ordinateur.</p>
+    </section>
+    <section id="product-grid" class="grid" aria-label="Catalogue produits"></section>
+  </main>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
+`,
+      "styles.css": `:root {
+  --bg: #fafaf9;
+  --card: #ffffff;
+  --ink: #1c1917;
+  --muted: #57534e;
+  --primary: #111827;
+  --line: #e7e5e4;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--ink); }
+.header { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; }
+.cart-pill { padding: 8px 14px; border-radius: 999px; background: #f5f5f4; font-weight: 600; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+.container { max-width: 1020px; margin: 0 auto; padding: 28px 20px; display: grid; gap: 24px; }
+.hero { padding: 28px; border-radius: 16px; background: var(--primary); color: #fff; }
+.hero h1 { margin: 0 0 8px; font-size: 1.75rem; }
+.hero p { margin: 0; opacity: 0.85; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+.product { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: grid; gap: 10px; }
+.product h2 { margin: 0; font-size: 1.05rem; }
+.product p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.price { font-weight: 700; font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+.btn { border: 0; border-radius: 999px; padding: 10px 14px; background: var(--primary); color: #fff; font-weight: 600; cursor: pointer; }
+@media (max-width: 600px) { .header { flex-direction: column; gap: 8px; align-items: flex-start; } }
+`,
+      "app.js": `const products = [
+  { id: "p1", name: "Pack Essentiel", desc: "Solution clé en main prête à l'emploi.", price: 45000 },
+  { id: "p2", name: "Pack Pro", desc: "Fonctionnalités avancées et support prioritaire.", price: 95000 },
+  { id: "p3", name: "Extension Mobile", desc: "Accès mobile rapide et notifications.", price: 65000 },
+];
+let count = 0;
+let total = 0;
+const grid = document.getElementById("product-grid");
+const countEl = document.getElementById("cart-count");
+const totalEl = document.getElementById("cart-total");
+
+function updateCart() {
+  if (countEl) countEl.textContent = String(count);
+  if (totalEl) totalEl.textContent = total.toLocaleString("fr-FR") + " XOF";
+}
+
+grid?.replaceChildren(...products.map((p) => {
+  const card = document.createElement("article");
+  card.className = "product";
+  const h2 = document.createElement("h2");
+  h2.textContent = p.name;
+  const desc = document.createElement("p");
+  desc.textContent = p.desc;
+  const price = document.createElement("div");
+  price.className = "price";
+  price.textContent = p.price.toLocaleString("fr-FR") + " XOF";
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "btn";
+  btn.textContent = "Ajouter au panier";
+  btn.addEventListener("click", () => {
+    count += 1;
+    total += p.price;
+    updateCart();
+  });
+  card.append(h2, desc, price, btn);
+  return card;
+}));
+updateCart();
+`,
+      "package.json": JSON.stringify({
+        name: slug,
+        version: "1.0.0",
+        private: true,
+        type: "module",
+        scripts: { test: "node --test test/store.test.mjs" },
+      }, null, 2),
+      "test/store.test.mjs": `import assert from "node:assert/strict";
+import fs from "node:fs";
+import test from "node:test";
+
+test("ecommerce storefront assets exist", () => {
+  const html = fs.readFileSync("index.html", "utf8");
+  assert.match(html, /product-grid/);
+  assert.ok(fs.existsSync("styles.css"));
+  assert.ok(fs.existsSync("app.js"));
 });
 `,
     };
@@ -611,11 +950,14 @@ export async function runStudioAiAgent(input: {
     input.agentRules?.length ? `Configured agency rules:\n${input.agentRules.map((r) => `- ${r}`).join("\n")}` : "",
     `You MUST respond with a single JSON object representing your next tool action:`,
     `1) {"tool":"list_files"}`,
-    `2) {"tool":"read_file","path":"relative/path"}`,
-    `3) {"tool":"write_file","path":"relative/path","content":"full file content"}`,
-    `4) {"tool":"delete_file","path":"relative/path"}`,
-    `5) {"tool":"run_check","action":"npm_test"|"npm_typecheck"|"npm_build"|"git_status"}`,
-    `6) {"tool":"finish","summary":"concise factual summary of work done and verified"}`,
+    `2) {"tool":"search_files","query":"keyword"}`,
+    `3) {"tool":"read_file","path":"relative/path"}`,
+    `4) {"tool":"patch_file","path":"relative/path","search":"exact snippet","replace":"updated snippet"}`,
+    `5) {"tool":"write_file","path":"relative/path","content":"full file content"}`,
+    `6) {"tool":"delete_file","path":"relative/path"}`,
+    `7) {"tool":"run_check","action":"npm_test"|"npm_typecheck"|"npm_build"|"git_status"}`,
+    `8) {"tool":"finish","summary":"concise factual summary of work done and verified"}`,
+    `Prefer search_files/read_file then patch_file for existing files, run run_check before finish when tests exist, and fix any errors before finishing.`,
     `Return ONLY valid JSON without markdown code fences.`,
   ].filter(Boolean).join("\n");
 
@@ -656,10 +998,27 @@ export async function runStudioAiAgent(input: {
       if (tool === "list_files") {
         const list = listWorkspaceFiles(input.dataDir, input.project);
         observation = JSON.stringify(list.map((f) => ({ path: f.path, size: f.size })));
+      } else if (tool === "search_files") {
+        target = String(action.query || "");
+        const hits = searchWorkspaceFiles(input.dataDir, input.project, target);
+        observation = hits.length
+          ? hits.map((h) => `${h.path}:${h.line}: ${h.text}`).join("\n")
+          : "(no matches)";
       } else if (tool === "read_file") {
         target = String(action.path || "");
         const file = readWorkspaceFile(input.dataDir, input.project, target);
         observation = file.content.slice(0, 8000);
+      } else if (tool === "patch_file") {
+        target = String(action.path || "");
+        const patched = patchWorkspaceFile(
+          input.dataDir,
+          input.project,
+          target,
+          String(action.search ?? ""),
+          String(action.replace ?? ""),
+        );
+        modified.add(patched.path);
+        observation = `Patched ${patched.path} (${patched.size} bytes)`;
       } else if (tool === "write_file") {
         target = String(action.path || "");
         const content = String(action.content ?? "");

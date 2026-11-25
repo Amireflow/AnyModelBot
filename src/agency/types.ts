@@ -1021,6 +1021,7 @@ export interface AgentConfig {
   autonomyMode: AgentAutonomyMode;
   systemPrompt: string;
   rules: string[];
+  skills: string[];
   allowedTools: string[];
   maxSteps: number;
   updatedAt: number;
@@ -1033,6 +1034,7 @@ export interface UpdateAgentConfigInput {
   autonomyMode?: AgentAutonomyMode;
   systemPrompt?: string;
   rules?: string[];
+  skills?: string[];
   allowedTools?: string[];
   maxSteps?: number;
 }

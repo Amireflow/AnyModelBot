@@ -477,5 +477,9 @@ export default {
   "agentSaveBtn": "Salvar agente",
   "agentResetBtn": "Redefinir",
   "agentSavedNotice": "Configuração salva.",
-  "agentGuardrailsNote": "Segurança bloqueada: aprovações externas exigem sua confirmação."
+  "agentGuardrailsNote": "Segurança bloqueada: aprovações externas exigem sua confirmação.",
+  "agentSkillsLabel": "Skills ativas (SKILL.md)",
+  "studioNewFileBtn": "+",
+  "studioNewFilePlaceholder": "src/novo.js",
+  "studioStepsTitle": "Trilha de execução IA"
 };

@@ -10,7 +10,9 @@ import {
   auditWebsiteSafely,
   buildProjectZipArchive,
   isPrivateOrReservedIp,
+  listAgencySkills,
   prospectWebCompanies,
+  resolveSkillsPromptBlock,
   runAgencyCopilot,
   runFourAxisQaAudit,
   runStudioAiAgent,
@@ -549,5 +551,76 @@ describe("AnyModelBot Full Agency Platform (Phases 1-6)", () => {
     expect(resetDev.status).toBe(200);
     expect(resetDev.json.agent.customized).toBe(false);
     expect(resetDev.json.agent.config.enabled).toBe(true);
+
+    // Skills engine + Studio v2 patch_file/search_files + pro templates + idempotent bootstrap
+    const skills = listAgencySkills();
+    expect(skills.length).toBe(12);
+    const skillBlock = resolveSkillsPromptBlock(["tdd-systematic-debugging", "owasp-security-review"]);
+    expect(skillBlock).toContain("Active Agent Skills:");
+    expect(skillBlock).toContain("tdd-systematic-debugging");
+
+    const skillsHttp = await invoke("GET", `/agency/${orgId}/skills`);
+    expect(skillsHttp.status).toBe(200);
+    expect(skillsHttp.json.items).toHaveLength(12);
+
+    const saasScaf = await invoke("POST", `/agency/${orgId}/projects/${projectId}/studio/scaffold`, {
+      template: "saas-dashboard-app",
+    });
+    expect(saasScaf.status).toBe(201);
+    expect(saasScaf.json.files).toContain("index.html");
+
+    const saasQa = await runFourAxisQaAudit({
+      dataDir: tmpDir,
+      project: service.getProject(orgId, "local-owner", projectId),
+      contract: service.getContract(orgId, "local-owner", contractId),
+      lots: service.listProjectLots(orgId, "local-owner", projectId),
+    });
+    expect(saasQa.items.every((i) => i.status === "passed")).toBe(true);
+
+    const ecomScaf = await invoke("POST", `/agency/${orgId}/projects/${projectId}/studio/scaffold`, {
+      template: "ecommerce-storefront",
+    });
+    expect(ecomScaf.status).toBe(201);
+
+    let studioStep = 0;
+    const patchRes = await runStudioAiAgent({
+      dataDir: tmpDir,
+      project: service.getProject(orgId, "local-owner", projectId),
+      instruction: "Mettre à jour le titre de la boutique via patch_file",
+      hasLlmEndpoint: true,
+      defaultModel: "GLM-5.3",
+      modelClient: {
+        async listModels() {
+          return ["GLM-5.3"];
+        },
+        async streamChat() {
+          studioStep += 1;
+          if (studioStep === 1) {
+            return JSON.stringify({ tool: "search_files", query: "Collection" });
+          }
+          if (studioStep === 2) {
+            return JSON.stringify({
+              tool: "patch_file",
+              path: "index.html",
+              search: "<h1>Collection & Commandes en ligne</h1>",
+              replace: "<h1>Boutique Dakar Express</h1>",
+            });
+          }
+          return JSON.stringify({ tool: "finish", summary: "Boutique patched cleanly" });
+        },
+      } as unknown as ModelClient,
+    });
+    expect(patchRes.modifiedFiles).toContain("index.html");
+    expect(readWorkspaceFile(tmpDir, service.getProject(orgId, "local-owner", projectId), "index.html").content).toContain("Boutique Dakar Express");
+
+    const boot1 = await invoke("POST", `/agency/${orgId}/bootstrap-defaults`, {});
+    expect(boot1.status).toBe(200);
+    expect(boot1.json.bootstrapped.catalogCreated).toBe(6);
+    expect(boot1.json.bootstrapped.agentsConfigured).toBe(13);
+
+    const boot2 = await invoke("POST", `/agency/${orgId}/bootstrap-defaults`, {});
+    expect(boot2.status).toBe(200);
+    expect(boot2.json.bootstrapped.catalogCreated).toBe(0);
+    expect(boot2.json.bootstrapped.catalogSkipped).toBe(6);
   });
 });

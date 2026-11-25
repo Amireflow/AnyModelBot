@@ -8,6 +8,8 @@ const TEMPLATES = [
   ["vitrine-html", "Site vitrine (HTML/CSS/JS)"],
   ["webapp-node-preact", "Application Web (Node + Tests)"],
   ["api-node-ts", "API Service (Node + TypeScript)"],
+  ["saas-dashboard-app", "Dashboard SaaS (KPIs + Filtres)"],
+  ["ecommerce-storefront", "Boutique E-commerce (Catalogue + Panier)"],
 ];
 const COMMANDS = [
   ["npm_test", "npm test"],
@@ -16,14 +18,18 @@ const COMMANDS = [
   ["git_status", "git status"],
   ["npm_install", "npm install"],
 ];
+const STUDIO_ROLES = ["developer", "ui_ux", "architect"];
 
 export function ProjectStudio({ orgId, project, onChanged }) {
   const [files, setFiles] = useState([]);
   const [selectedPath, setSelectedPath] = useState("");
   const [content, setContent] = useState("");
+  const [newFilePath, setNewFilePath] = useState("");
   const [template, setTemplate] = useState("vitrine-html");
   const [command, setCommand] = useState("npm_test");
+  const [agentRole, setAgentRole] = useState("developer");
   const [instruction, setInstruction] = useState("");
+  const [lastSteps, setLastSteps] = useState([]);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -58,6 +64,7 @@ export function ProjectStudio({ orgId, project, onChanged }) {
   useEffect(() => {
     setNotice("");
     setError("");
+    setLastSteps([]);
     void loadFiles();
   }, [orgId, project?.id]);
 
@@ -71,6 +78,21 @@ export function ProjectStudio({ orgId, project, onChanged }) {
       await loadFiles(res.files?.[0] || res.created?.[0] || "index.html");
       setPreviewNonce((n) => n + 1);
       onChanged?.();
+    } catch (err) { setError(err.message); } finally { setBusy(""); }
+  };
+
+  const createFile = async (e) => {
+    e.preventDefault();
+    const rel = newFilePath.trim();
+    if (!rel) return;
+    setBusy("create"); setError(""); setNotice("");
+    try {
+      await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/file`, {
+        method: "PUT",
+        body: { path: rel, content: "" },
+      });
+      setNewFilePath("");
+      await loadFiles(rel);
     } catch (err) { setError(err.message); } finally { setBusy(""); }
   };
 
@@ -116,9 +138,10 @@ export function ProjectStudio({ orgId, project, onChanged }) {
     try {
       const res = await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/ai-agent`, {
         method: "POST",
-        body: { instruction },
+        body: { instruction, agentRole },
       });
       setNotice(res.summary || "");
+      setLastSteps(Array.isArray(res.steps) ? res.steps : []);
       setInstruction("");
       await loadFiles(res.modifiedFiles?.[0] || "");
       setPreviewNonce((n) => n + 1);
@@ -148,6 +171,9 @@ export function ProjectStudio({ orgId, project, onChanged }) {
       </div>
     </div>
     <form class="agency-copilot-form" onSubmit=${runAiBuilder}>
+      <select class="field" aria-label=${t("agency.missionRoleLabel")} value=${agentRole} onChange=${(e) => setAgentRole(e.currentTarget.value)}>
+        ${STUDIO_ROLES.map((r) => html`<option value=${r}>${t(`agency.agentRoleNames.${r}`)}</option>`)}
+      </select>
       <input class="field" value=${instruction} placeholder=${t("agency.studioAgentPlaceholder")} onInput=${(e) => setInstruction(e.currentTarget.value)} />
       <button class="btn primary" type="submit" disabled=${!!busy || !instruction.trim()}>
         ${busy === "ai" ? html`<${Spinner} />` : html`<${Icon} name="spark" size="sm" />`}${t("agency.studioAgentRunBtn")}
@@ -155,12 +181,25 @@ export function ProjectStudio({ orgId, project, onChanged }) {
     </form>
     ${error && html`<div class="agency-alert" role="alert">${error}</div>`}
     ${notice && html`<p class="agency-research-feedback" role="status">${notice}</p>`}
+    ${lastSteps.length > 0 && html`<details class="agency-brief-details">
+      <summary>${t("agency.studioStepsTitle")} (${lastSteps.length})</summary>
+      <div class="agency-studio-steps">
+        ${lastSteps.map((st) => html`<div class="agency-audit-row">
+          <strong>#${st.step} · ${st.tool}${st.target ? ` (${st.target})` : ""}</strong>
+          <span class=${"agency-whatsapp-state " + (st.ok ? "accepted" : "blocked")}>${st.ok ? "OK" : "ERR"}</span>
+        </div>`)}
+      </div>
+    </details>`}
     <div class="agency-studio-grid">
       <div class="agency-studio-tree">
         <div class="agency-commercial-head">
           <strong>${t("agency.studioFilesTitle")}</strong>
           <span class="agency-count-pill">${files.length}</span>
         </div>
+        <form class="agency-studio-new-file" onSubmit=${createFile}>
+          <input class="field" value=${newFilePath} placeholder=${t("agency.studioNewFilePlaceholder")} onInput=${(e) => setNewFilePath(e.currentTarget.value)} />
+          <button class="btn" type="submit" disabled=${!!busy || !newFilePath.trim()}>${t("agency.studioNewFileBtn")}</button>
+        </form>
         <div class="agency-studio-file-list">
           ${files.map((f) => html`<button type="button" class=${"agency-studio-file" + (f.path === selectedPath ? " active" : "")} onClick=${() => openFile(f.path)}>${f.path}</button>`)}
         </div>

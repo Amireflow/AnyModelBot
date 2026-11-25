@@ -477,5 +477,9 @@ export default {
   "agentSaveBtn": "Сохранить",
   "agentResetBtn": "Сбросить",
   "agentSavedNotice": "Настройки сохранены.",
-  "agentGuardrailsNote": "Защита: внешние одобрения всегда требуют подтверждения владельца."
+  "agentGuardrailsNote": "Защита: внешние одобрения всегда требуют подтверждения владельца.",
+  "agentSkillsLabel": "Активные навыки (SKILL.md)",
+  "studioNewFileBtn": "+",
+  "studioNewFilePlaceholder": "src/new.js",
+  "studioStepsTitle": "Трассировка ИИ"
 };
