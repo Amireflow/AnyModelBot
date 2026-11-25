@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
-import { html, Icon, IconButton, Notice, Spinner } from "../components/ui.js";
+import { html, Icon, IconButton, Notice, Select as UiSelect, Spinner } from "../components/ui.js";
 import { Markdown, Linkified } from "../components/markdown.js";
 import { DeliveredFiles } from "../components/files.js";
 import { HighlightedText, ConversationFind, HistoryBar, HistoryPageButton, searchChannel, useMessageHistory } from "../components/chat-search.js";
@@ -11,7 +11,7 @@ import { t, useLang } from "../lib/i18n.js";
 import { fold } from "../lib/text-fold.js";
 
 function Select({ label, value, onChange, options }) {
-  return html`<label class="search-filter"><span class="sr-only">${label}</span><select class="field" aria-label=${label} value=${value} onChange=${(e) => onChange(e.target.value)}>${options.map(([id, name]) => html`<option value=${id}>${name}</option>`)}</select></label>`;
+  return html`<div class="search-filter"><span class="sr-only">${label}</span><${UiSelect} block=${false} width=${220} label=${label} value=${value} options=${options} onChange=${onChange} /></div>`;
 }
 
 /** 最近对话按天分组：今天 / 昨天 / 前 7 天 / 更早 */

@@ -3,7 +3,7 @@
 // 工具旁写着它的类别（只读 / 写入 / 删除 / 对外发送）；点过「以后这个工具都允许」的在这里能看到、能撤销。
 // 应用页的「谁能用」是同一份设置的另一头：应用那边没把这个机器人算进去的，这里勾不了。
 import { useEffect, useState } from "preact/hooks";
-import { html, Button, Icon, Spinner, Switch } from "./ui.js";
+import { html, Button, Checkbox, Icon, Spinner, Switch } from "./ui.js";
 import { AppMark } from "./app-mark.js";
 import { ATTENTION, appLabel, appsStore, loadApps, openConnect, openCustom, repairActions, stateText, stateTone } from "../lib/apps.js";
 import { useStore } from "../lib/store.js";
@@ -35,8 +35,8 @@ function ToolRows({ view, apps, onChange }) {
   };
   return html`<ul class="apps-tools in-bot">
     ${tools.map((x) => html`<li key=${x.name}>
-      <label class="sheet-check"><input type="checkbox" checked=${!off.includes(x.name)} onChange=${(e) => toggle(x.name, e.target.checked)} />
-        <span class="apps-tool-text"><span class="apps-tool-name mono">${x.title || x.name}</span>${x.description && html`<span class="hint">${x.description}</span>`}</span></label>
+      <${Checkbox} class="sheet-check" checked=${!off.includes(x.name)} onChange=${(checked) => toggle(x.name, checked)}
+        label=${html`<span class="apps-tool-text"><span class="apps-tool-name mono">${x.title || x.name}</span>${x.description && html`<span class="hint">${x.description}</span>`}</span>`} />
       <span class="apps-tool-side">
         <span class="badge">${t(`apps.category.${x.category}`)}</span>
         ${granted[x.name] === x.hash && html`<span class="apps-granted">${t("apps.bot.always")}<button type="button" class="text" onClick=${() => revoke(x.name)}>${t("apps.bot.revoke")}</button></span>`}
@@ -84,7 +84,9 @@ export function BotApps({ bot, apps, readonly = false, onPut, onOpenApps, onOpen
         return html`<div key=${v.key} class=${`row apps-bot-row${on ? "" : " off"}`}>
           <${AppMark} app=${v.custom ? undefined : v.app} name=${name} size="sm" />
           <div class="who">
-            <label class="sheet-check apps-bot-name">${apps.mode === "selected" && html`<input type="checkbox" checked=${on} disabled=${!can} onChange=${(e) => pick(v.key, e.target.checked)} />`}<span class="name">${name}</span></label>
+            ${apps.mode === "selected"
+              ? html`<${Checkbox} class="sheet-check apps-bot-name" checked=${on} disabled=${!can} label=${html`<span class="name">${name}</span>`} onChange=${(checked) => pick(v.key, checked)} />`
+              : html`<div class="sheet-check apps-bot-name"><span class="name">${name}</span></div>`}
             <div class="sub"><span class=${`apps-state ${stateTone(v.state)}`}>${stateText(v.state, tools)}</span>${!can ? ` · ${t("apps.bot.notShared")}` : ""}</div>
             ${on && (() => {
               // 「试试这样说」：应用连上就能用，不经过重启，所以这里不另标生效状态（连接状态就在上一行）

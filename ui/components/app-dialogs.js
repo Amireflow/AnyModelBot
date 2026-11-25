@@ -5,7 +5,7 @@
 // - 自定义连接器在 custom-connector.js。
 // 关掉连接弹窗就取消这一次连接：授权登录的流程作废，不会过一会儿冒出一个账号。令牌不会回到界面。
 import { useEffect, useRef, useState } from "preact/hooks";
-import { html, Button, CopyButton, Icon, IconButton, MenuButton, Notice, Seg, Sheet, Spinner, Switch } from "./ui.js";
+import { html, Button, Checkbox, CopyButton, Icon, IconButton, MenuButton, Notice, Seg, Sheet, Spinner, Switch } from "./ui.js";
 import { AppMark } from "./app-mark.js";
 import { api } from "../lib/api.js";
 import { ATTENTION, appDialog, appLabel, appsStore, builtinName, closeAppDialog, methodLabel, openConnect, openCustom, repairActions, setApps, stateText, stateTone, stepsOf } from "../lib/apps.js";
@@ -413,8 +413,8 @@ function AccessEditor({ view, bots }) {
       <${Seg} label=${t("apps.manage.who")} value=${all ? "all" : "some"} onChange=${(v) => put(v === "all" ? "all" : list.map((b) => b.id))}
         options=${[["all", t("apps.manage.allBots")], ["some", t("apps.manage.someBots")]]} /></div>
     ${!all && html`<div class="apps-checks">
-      ${list.map((b) => html`<label key=${b.id} class="sheet-check"><input type="checkbox" checked=${picked.includes(b.id)}
-        onChange=${(e) => put(e.target.checked ? [...picked, b.id] : picked.filter((x) => x !== b.id))} /><span>${b.name}</span></label>`)}
+      ${list.map((b) => html`<${Checkbox} key=${b.id} class="sheet-check" checked=${picked.includes(b.id)} label=${b.name}
+        onChange=${(checked) => put(checked ? [...picked, b.id] : picked.filter((x) => x !== b.id))} />`)}
       ${!list.length && html`<p class="hint">${t("apps.manage.noBots")}</p>`}
     </div>`}
   </div>`;

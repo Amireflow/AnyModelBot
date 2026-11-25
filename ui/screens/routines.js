@@ -3,7 +3,7 @@
 // 任务数据和文案从 GET /routines 来（lib/routines.js）；规则名称和原话由服务端按参数写（POST /routines/draft），
 // 「打开」「先试一次」都走 POST /routines/save，试跑的结果轮询 GET /routines/trial/<规则>。
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { html, Icon, Button, IconButton, Notice, Seg, Sheet, Spinner, Popover } from "../components/ui.js";
+import { html, Icon, Button, IconButton, Notice, Seg, Select, Sheet, Spinner, Popover } from "../components/ui.js";
 import { BotAvatar } from "../components/avatar.js";
 import { Markdown } from "../components/markdown.js";
 import { formOf, scheduleOf, ScheduleFields, useSchedulePreview, DestinationPicker, fmtNext } from "../components/rules.js";
@@ -179,7 +179,10 @@ function ParamField({ p, value, onChange, error, groups, apps }) {
     if (p.type === "app" && !opts.length) return html`<div class="routine-field">${label}<span class="hint">${t("routines.appNone")}</span></div>`;
     const options = opts.map((o) => [o.value, p.type === "app" ? appName(apps, o.value) : o.label]);
     // 选项少而短时用分段，多了（语言、品种）用下拉
-    if (options.length > 3 || options.some(([, text]) => [...text].length > 12)) return html`<label class="routine-field" for=${id}>${label}<select class="field" id=${id} value=${value ?? ""} onChange=${(e) => onChange(e.target.value)}>${!p.default && html`<option value="">${t("routines.pickOne")}</option>`}${options.map(([v, text]) => html`<option value=${v}>${text}</option>`)}</select></label>`;
+    if (options.length > 3 || options.some(([, text]) => [...text].length > 12)) {
+      const selOpts = !p.default ? [["", t("routines.pickOne")], ...options] : options;
+      return html`<div class="routine-field">${label}<${Select} label=${p.label} value=${value ?? ""} placeholder=${t("routines.pickOne")} options=${selOpts} onChange=${onChange} /></div>`;
+    }
     return html`<div class="routine-field">${label}<${Seg} label=${p.label} value=${value ?? ""} onChange=${onChange} options=${options} /></div>`;
   }
   if (p.type === "multiselect") {
@@ -188,18 +191,21 @@ function ParamField({ p, value, onChange, error, groups, apps }) {
     return html`<div class="routine-field">${label}<div class="routine-chips">${p.options.map((o) => html`<button type="button" class=${`chip${list.includes(o.value) ? " on" : ""}`} aria-pressed=${list.includes(o.value)} onClick=${() => toggle(o.value)}>${o.label}</button>`)}</div></div>`;
   }
   if (p.type === "group") {
-    return html`<div class="routine-field">${label}${groups?.length ? html`<select class="field" id=${id} value=${value || ""} onChange=${(e) => onChange(e.target.value)}><option value="">${t("scheduled.groupMissing")}</option>${groups.map((g) => html`<option value=${g.id}>${g.name}</option>`)}</select>` : html`<span class="hint">${t("routines.noGroups")}</span>`}</div>`;
+    return html`<div class="routine-field">${label}${groups?.length ? html`<${Select} label=${p.label} value=${value || ""} placeholder=${t("scheduled.groupMissing")} options=${[["", t("scheduled.groupMissing")], ...groups.map((g) => [g.id, g.name])]} onChange=${onChange} />` : html`<span class="hint">${t("routines.noGroups")}</span>`}</div>`;
   }
   if (p.type === "dayOfMonth") {
-    return html`<label class="routine-field" for=${id}>${label}<select class="field" id=${id} value=${value ?? ""} onChange=${(e) => onChange(e.target.value)}><option value="">${t("routines.pickDay")}</option>${Array.from({ length: 31 }, (_, i) => html`<option value=${i + 1}>${t("routines.dayOption", { day: i + 1 })}</option>`)}<option value="last">${t("scheduled.lastDay")}</option></select></label>`;
+    const dayOpts = [["", t("routines.pickDay")], ...Array.from({ length: 31 }, (_, i) => [String(i + 1), t("routines.dayOption", { day: i + 1 })]), ["last", t("scheduled.lastDay")]];
+    return html`<div class="routine-field">${label}<${Select} label=${p.label} value=${value == null ? "" : String(value)} placeholder=${t("routines.pickDay")} options=${dayOpts} onChange=${onChange} /></div>`;
   }
   if (p.type === "date") {
     const [m, d] = String(value || "").split("-");
     const max = m ? new Date(2024, Number(m), 0).getDate() : 31;
     const set = (mm, dd) => onChange(mm && dd ? `${String(mm).padStart(2, "0")}-${String(Math.min(Number(dd), new Date(2024, Number(mm), 0).getDate())).padStart(2, "0")}` : mm ? `${String(mm).padStart(2, "0")}-` : "");
+    const monthOpts = [["", t("routines.pickMonth")], ...Array.from({ length: 12 }, (_, i) => [String(i + 1), new Date(2024, i, 1).toLocaleDateString(locale(), { month: "long" })])];
+    const dayOpts = [["", t("routines.pickDay")], ...Array.from({ length: max }, (_, i) => [String(i + 1), String(i + 1)])];
     return html`<div class="routine-field">${label}<div class="routine-date">
-      <select class="field" aria-label=${p.label} value=${m ? Number(m) : ""} onChange=${(e) => set(e.target.value, d || 1)}><option value="">${t("routines.pickMonth")}</option>${Array.from({ length: 12 }, (_, i) => html`<option value=${i + 1}>${new Date(2024, i, 1).toLocaleDateString(locale(), { month: "long" })}</option>`)}</select>
-      <select class="field" aria-label=${p.label} value=${d ? Number(d) : ""} onChange=${(e) => set(m || 1, e.target.value)}><option value="">${t("routines.pickDay")}</option>${Array.from({ length: max }, (_, i) => html`<option value=${i + 1}>${i + 1}</option>`)}</select></div>
+      <${Select} label=${p.label} value=${m ? String(Number(m)) : ""} placeholder=${t("routines.pickMonth")} options=${monthOpts} onChange=${(v) => set(v, d || 1)} />
+      <${Select} label=${p.label} value=${d ? String(Number(d)) : ""} placeholder=${t("routines.pickDay")} options=${dayOpts} onChange=${(v) => set(m || 1, v)} /></div>
       ${errorText && html`<span class="tone-danger">${errorText}</span>`}</div>`;
   }
   if (p.type === "list" || p.type === "repo") {

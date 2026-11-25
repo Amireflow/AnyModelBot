@@ -140,7 +140,7 @@ function blocks(list, ctx) {
       case "ol":
         return h(b.t, { key: i, start: b.t === "ol" && b.start !== 1 ? b.start : undefined, class: b.items.some((it) => it.task !== undefined) ? "tasks" : undefined }, b.items.map((it, k) =>
           h("li", { key: k, class: it.task !== undefined ? "task" : undefined },
-            it.task !== undefined ? h("input", { type: "checkbox", checked: it.task, disabled: true, tabIndex: -1, "aria-label": t(it.task ? "markdown.taskDone" : "markdown.taskTodo") }) : null,
+            it.task !== undefined ? h("span", { class: `chk${it.task ? " on" : ""}`, role: "img", "aria-label": t(it.task ? "markdown.taskDone" : "markdown.taskTodo") }, h("span", { class: "chk-box", "aria-hidden": "true" }, it.task ? h(Icon, { name: "check", size: "xs", strong: true }) : null)) : null,
             inline(it.c, ctx), it.sub.length ? blocks(it.sub, { ...ctx, top: false }) : null)));
       case "table":
         return h(

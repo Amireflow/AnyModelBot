@@ -21,6 +21,20 @@
 .pick.block { display: flex; width: 100%; max-width: none; min-width: 0; text-align: left; }
 .pick.block .v { flex: 1; min-width: 0; }
 .pick.block > .ic:last-child { flex: none; margin-left: auto; }
+.pick.field-like {
+  height: var(--ctl-lg); padding: 0 var(--space-3);
+  border-radius: var(--r-field); background: var(--fill-field);
+  justify-content: space-between;
+}
+.pick.field-like:hover:not(:disabled), .pick.field-like[aria-expanded="true"] {
+  background: var(--fill-field-hover); color: var(--fg);
+}
+.pop.menu-pop .pop-search {
+  flex: none; padding: var(--pop-pad) var(--pop-pad) 0;
+}
+.pop.menu-pop .pop-search .field {
+  --field-h: var(--ctl-md);
+}
 
 /* —— 弹出层：只淡入，不位移、不缩放。挂在 <body> 下（ui.js 的 Popover），定位不受祖先的 backdrop-filter / transform 影响 —— */
 .pop {

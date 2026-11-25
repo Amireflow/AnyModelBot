@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { html, Icon, Sheet, Spinner } from "../../components/ui.js";
+import { Checkbox, html, Icon, Sheet, Spinner } from "../../components/ui.js";
 import { api } from "../../lib/api.js";
 import { t } from "../../lib/i18n.js";
 
@@ -150,10 +150,12 @@ export function SecureDeleteModal({ orgId, target, onClose, onDeleted, onArchive
                 ${impactItems.map(([k, label]) => html`<li><span>${label}</span><strong>${willDelete[k]}</strong></li>`)}
               </ul>
             </div>
-            <label class="agency-qualification-checkbox">
-              <input type="checkbox" checked=${cascadeChecked} onChange=${(e) => setCascadeChecked(e.currentTarget.checked)} />
-              <span>${t("agency.deleteCascadeLabel")}</span>
-            </label>
+            <${Checkbox}
+              class="agency-qualification-checkbox"
+              checked=${cascadeChecked}
+              label=${t("agency.deleteCascadeLabel")}
+              onChange=${(v) => setCascadeChecked(v)}
+            />
           `}
 
           ${preview.requiresNameConfirmation && html`

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { BotAvatar } from "../../components/avatar.js";
-import { html, Icon, Spinner } from "../../components/ui.js";
+import { Checkbox, html, Icon, Select, Spinner, Switch } from "../../components/ui.js";
 import { api } from "../../lib/api.js";
 import { t } from "../../lib/i18n.js";
 import { agentAvatarOf } from "./agent-avatars.js";
@@ -175,23 +175,29 @@ export function AgencyAgents({ orgId, agents = [], onSaved }) {
       ${error && html`<div class="agency-alert" role="alert">${error}</div>`}
       ${notice && html`<p class="agency-research-feedback" role="status">${notice}</p>`}
       <form class="agency-form agency-form-grid" onSubmit=${saveConfig}>
-        <label class="agency-qualification-checkbox agency-form-wide">
-          <input type="checkbox" checked=${draft.enabled} onChange=${(e) => setDraft((d) => ({ ...d, enabled: e.currentTarget.checked }))} />
+        <div class="agency-qualification-checkbox agency-form-wide">
+          <${Switch} value=${draft.enabled} label=${draft.enabled ? t("agency.agentEnabled") : t("agency.agentDisabled")} onChange=${(v) => setDraft((d) => ({ ...d, enabled: v }))} />
           <span>${draft.enabled ? t("agency.agentEnabled") : t("agency.agentDisabled")}</span>
-        </label>
-        <label class="agency-field">
+        </div>
+        <div class="agency-field">
           <span>${t("agency.agentModelLabel")}</span>
-          <select class="field" value=${draft.model} onChange=${(e) => setDraft((d) => ({ ...d, model: e.currentTarget.value }))}>
-            <option value="">${t("agency.agentModelDefault")}</option>
-            ${models.map((m) => html`<option value=${m}>${m}</option>`)}
-          </select>
-        </label>
-        <label class="agency-field">
+          <${Select}
+            label=${t("agency.agentModelLabel")}
+            value=${draft.model}
+            searchable
+            options=${[["", t("agency.agentModelDefault")], ...models.map((m) => [m, m])]}
+            onChange=${(v) => setDraft((d) => ({ ...d, model: v }))}
+          />
+        </div>
+        <div class="agency-field">
           <span>${t("agency.agentAutonomyLabel")}</span>
-          <select class="field" value=${draft.autonomyMode} onChange=${(e) => setDraft((d) => ({ ...d, autonomyMode: e.currentTarget.value }))}>
-            ${AUTONOMY_MODES.map((mode) => html`<option value=${mode}>${t(`agency.agentAutonomy.${mode}`)}</option>`)}
-          </select>
-        </label>
+          <${Select}
+            label=${t("agency.agentAutonomyLabel")}
+            value=${draft.autonomyMode}
+            options=${AUTONOMY_MODES.map((mode) => [mode, t(`agency.agentAutonomy.${mode}`)])}
+            onChange=${(v) => setDraft((d) => ({ ...d, autonomyMode: v }))}
+          />
+        </div>
         <label class="agency-field">
           <span>${t("agency.agentMaxStepsLabel")}</span>
           <input class="field" type="number" min="1" max="20" value=${draft.maxSteps} onInput=${(e) => setDraft((d) => ({ ...d, maxSteps: e.currentTarget.value }))} />
@@ -211,10 +217,14 @@ export function AgencyAgents({ orgId, agents = [], onSaved }) {
         ${skillsCatalog.length > 0 && html`<div class="agency-field agency-form-wide">
           <span>${t("agency.agentSkillsLabel")} (${draft.skills.length})</span>
           <div class="agency-skills-grid">
-            ${skillsCatalog.map((sk) => html`<label class=${"agency-skill-check" + (draft.skills.includes(sk.slug) ? " selected" : "")}>
-              <input type="checkbox" checked=${draft.skills.includes(sk.slug)} onChange=${() => toggleSkill(sk.slug)} />
-              <span><strong>${sk.name}</strong><small class="agency-clamp-2" title=${sk.description}>${sk.description}</small></span>
-            </label>`)}
+            ${skillsCatalog.map((sk) => html`<div key=${sk.slug} class=${"agency-skill-check" + (draft.skills.includes(sk.slug) ? " selected" : "")}>
+              <${Checkbox}
+                checked=${draft.skills.includes(sk.slug)}
+                label=${html`<strong>${sk.name}</strong>`}
+                sub=${html`<span class="agency-clamp-2" title=${sk.description}>${sk.description}</span>`}
+                onChange=${() => toggleSkill(sk.slug)}
+              />
+            </div>`)}
           </div>
         </div>`}
         <p class="agency-muted agency-form-wide"><${Icon} name="shield" size="sm" /> ${t("agency.agentGuardrailsNote")}</p>

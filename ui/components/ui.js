@@ -87,6 +87,32 @@ export function Switch({ value, onChange, disabled, label, size }) {
     disabled=${disabled} onClick=${() => onChange(!value)}></button>`;
 }
 
+/** 自绘复选框：隐藏原生 input，改用设计系统 .chk-box + check 图标 */
+export function Checkbox({ checked = false, onChange, disabled = false, label, sub, name, class: cls = "", ariaLabel, tabIndex, children }) {
+  const on = !!checked;
+  const text = label ?? children;
+  return html`<label class=${cx("chk", on && "on", disabled && "disabled", cls)}>
+    <input class="sr-only" type="checkbox" name=${name} checked=${on} disabled=${disabled} tabIndex=${tabIndex}
+      aria-label=${ariaLabel || (typeof text === "string" ? text : undefined)}
+      onChange=${(e) => !disabled && onChange?.(e.currentTarget.checked)} />
+    <span class="chk-box" aria-hidden="true">${on && html`<${Icon} name="check" size="xs" strong />`}</span>
+    ${(text || sub) && html`<span class="chk-txt">${text && html`<span>${text}</span>`}${sub && html`<small class="chk-sub">${sub}</small>`}</span>`}
+  </label>`;
+}
+
+/** 自绘单选框：隐藏原生 radio，改用设计系统 .rad-dot */
+export function Radio({ checked = false, onChange, disabled = false, name, value, label, sub, class: cls = "", ariaLabel, children }) {
+  const on = !!checked;
+  const text = label ?? children;
+  return html`<label class=${cx("rad", on && "on", disabled && "disabled", cls)}>
+    <input class="sr-only" type="radio" name=${name} value=${value} checked=${on} disabled=${disabled}
+      aria-label=${ariaLabel || (typeof text === "string" ? text : undefined)}
+      onChange=${() => !disabled && onChange?.(value)} />
+    <span class="rad-dot" aria-hidden="true"></span>
+    ${(text || sub) && html`<span class="rad-txt">${text && html`<span>${text}</span>`}${sub && html`<small class="rad-sub">${sub}</small>`}</span>`}
+  </label>`;
+}
+
 // —— 分段控件：滑动的 thumb ——
 export function Seg({ options, value, onChange, disabled, label }) {
   const ref = useRef(null);
@@ -393,12 +419,21 @@ export function Popover({ anchor, trigger, onClose, class: cls = "", width = 280
  * sub：点了打开下一层（右边一个箭头，代替勾）。custom：自己画的一行（缩放条、搜索框），不参与键盘选择，点里面不收起菜单。
  * 键盘：↑↓ 选择，Enter 执行，Esc 关闭。
  */
-export function Menu({ anchor, items, onClose, width = 240, prefer, align, label, class: cls = "" }) {
-  const hasIcons = items.some((it) => it.icon);
-  const pickable = items.map((it, i) => (it.sep || it.group || it.custom || it.disabled ? -1 : i)).filter((i) => i >= 0);
+export function Menu({ anchor, items, onClose, width = 240, prefer, align, label, class: cls = "", searchable = false, searchPlaceholder = "" }) {
+  const [query, setQuery] = useState("");
+  const needle = query.trim().toLowerCase();
+  const visible = needle
+    ? items.filter((it) => !it.sep && !it.group && !it.custom && (`${it.label ?? ""} ${it.note ?? ""}`).toLowerCase().includes(needle))
+    : items;
+  const hasIcons = visible.some((it) => it.icon);
+  const pickable = visible.map((it, i) => (it.sep || it.group || it.custom || it.disabled ? -1 : i)).filter((i) => i >= 0);
   // 打开时指着当前项（有勾的那项），没有就指第一项；列表长时把它滚到看得见的地方
-  const [sel, setSel] = useState(() => pickable.find((i) => items[i].cur) ?? pickable[0] ?? -1);
+  const [sel, setSel] = useState(() => pickable.find((i) => visible[i].cur) ?? pickable[0] ?? -1);
   const listRef = useRef(null);
+  const searchRef = useRef(null);
+  useEffect(() => {
+    setSel(pickable.find((i) => visible[i].cur) ?? pickable[0] ?? -1);
+  }, [needle]);
   useEffect(() => listRef.current?.querySelector("li.sel")?.scrollIntoView?.({ block: "nearest" }), [sel]);
   const run = (it) => {
     onClose();
@@ -407,21 +442,26 @@ export function Menu({ anchor, items, onClose, width = 240, prefer, align, label
   const onKey = (e) => {
     if (e.target.closest?.("li.custom")) return;
     const k = pickable.indexOf(sel);
-    if (e.key === "ArrowDown") {
+    if (e.key === "ArrowDown" && pickable.length) {
       e.preventDefault();
       setSel(pickable[(k + 1) % pickable.length]);
-    } else if (e.key === "ArrowUp") {
+    } else if (e.key === "ArrowUp" && pickable.length) {
       e.preventDefault();
       setSel(pickable[(k - 1 + pickable.length) % pickable.length]);
-    } else if (e.key === "Enter" && sel >= 0) {
+    } else if (e.key === "Enter" && sel >= 0 && visible[sel]) {
       e.preventDefault();
-      run(items[sel]);
+      run(visible[sel]);
     }
   };
-  useEffect(() => listRef.current?.focus(), []);
+  useEffect(() => {
+    if (searchable && searchRef.current) searchRef.current.focus();
+    else listRef.current?.focus();
+  }, []);
   return html`<${Popover} class=${cx("menu-pop", cls)} anchor=${anchor} onClose=${onClose} width=${width} prefer=${prefer} align=${align} label=${label}>
+    ${searchable && html`<div class="pop-search"><input ref=${searchRef} class="field" type="search" value=${query} placeholder=${searchPlaceholder || t("common.search")} onInput=${(e) => setQuery(e.currentTarget.value)} onKeyDown=${onKey} /></div>`}
     <ul role="menu" tabindex="-1" ref=${listRef} onKeyDown=${onKey} style="outline:none">
-      ${items.map((it, i) =>
+      ${visible.length === 0 && html`<li class="empty" role="none">${t("common.none")}</li>`}
+      ${visible.map((it, i) =>
         it.sep
           ? html`<li class="sep" role="separator"></li>`
           : it.group
@@ -439,6 +479,65 @@ export function Menu({ anchor, items, onClose, width = 240, prefer, align, label
       )}
     </ul>
   <//>`;
+}
+
+/**
+ * 表单自绘下拉选择器（完全替代原生 <select>）：外观与 .field 对齐，点击弹出设计系统玻璃菜单。
+ * options 支持 [value, label, note?] 或 { value, label, note?, disabled? }。
+ */
+export function Select({
+  value = "",
+  options = [],
+  onChange,
+  disabled = false,
+  label,
+  placeholder = "—",
+  width = 260,
+  align = "left",
+  block = true,
+  allowSame = false,
+  searchable = "auto",
+  variant = "field",
+  class: cls = "",
+  title,
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const norm = options.map((o) =>
+    Array.isArray(o)
+      ? { value: String(o[0] ?? ""), label: String(o[1] ?? o[0] ?? ""), note: o[2], disabled: !!o[3]?.disabled }
+      : (o && typeof o === "object")
+        ? { value: String(o.value ?? ""), label: String(o.label ?? o.value ?? ""), note: o.note, disabled: !!o.disabled }
+        : { value: String(o ?? ""), label: String(o ?? ""), disabled: false },
+  );
+  const valStr = value == null ? "" : String(value);
+  const cur = norm.find((o) => o.value === valStr);
+  const text = cur ? cur.label : (valStr || placeholder);
+  const full = title ?? (typeof text === "string" ? text : undefined);
+  const isSearchable = searchable === true || (searchable === "auto" && norm.length >= 8);
+  const popW = block ? Math.max(width, ref.current?.offsetWidth || 0) : width;
+  const onKeyDown = (e) => {
+    if ((e.key !== "ArrowDown" && e.key !== "Enter" && e.key !== " ") || open || disabled) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setOpen(true);
+    }
+  };
+  return html`<button type="button" class=${cx("pick", block && "block", variant === "field" && "field-like", cls)}
+      ref=${ref} disabled=${disabled} aria-haspopup="menu" aria-expanded=${open} aria-label=${label || full}
+      title=${full} onClick=${() => !disabled && setOpen((v) => !v)} onKeyDown=${onKeyDown}>
+      <span class="v">${text}</span><${Icon} name="chevDown" size="xs" />
+    </button>
+    ${open && html`<${Menu} anchor=${ref.current} width=${Math.min(popW, Math.max(200, window.innerWidth - 16))} align=${align}
+      label=${label || full} class=${block ? "block-pop" : ""} searchable=${isSearchable}
+      onClose=${() => setOpen(false)}
+      items=${norm.map((o) => ({
+        label: o.label,
+        note: o.note,
+        disabled: o.disabled,
+        cur: o.value === valStr,
+        onSelect: () => { if (allowSame || o.value !== valStr) onChange?.(o.value); },
+      }))} />`}`;
 }
 
 /**
@@ -595,7 +694,7 @@ export function DialogHost() {
   };
   return html`<${Sheet} title=${d.title} leaving=${leaving} closable=${false} onClose=${() => done(false)}>
     ${d.body && html`<p class="body">${d.body}</p>`}
-    ${d.check && html`<label class="sheet-check"><input type="checkbox" checked=${d.check.value} onChange=${(e) => (d.check.value = e.target.checked)} /><span>${d.check.label}</span></label>`}
+    ${d.check && html`<${Checkbox} class="sheet-check" checked=${d.check.value} label=${d.check.label} onChange=${(v) => (d.check.value = v)} />`}
     <div class="actions">
       <${Button} variant=${d.cancelVariant} data-autofocus onClick=${() => done(false)}>${d.cancelLabel || t("common.cancel")}<//>
       <${Button} variant=${d.confirmVariant || (d.danger ? "danger" : "primary")} onClick=${() => done(true)}>${d.confirmLabel || t("common.confirm")}<//>

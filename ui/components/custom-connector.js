@@ -3,7 +3,7 @@
 // 保存后马上测试：通过就开启；不通过也保存，但保持关闭，写明原因。需要授权登录时自动打开浏览器。
 // 本地命令在添加前一定先确认要运行的完整命令。密钥在界面上打码；已保存的密钥界面手里没有，原样发回掩码，后端保留已存的。
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { html, Button, Icon, IconButton, MenuButton, Notice, Seg, Sheet, Spinner } from "./ui.js";
+import { html, Button, Checkbox, Icon, IconButton, MenuButton, Notice, Seg, Sheet, Spinner } from "./ui.js";
 import { api } from "../lib/api.js";
 import { setApps, stateText } from "../lib/apps.js";
 import { MASK, autoName, draftProblem, draftSummary, draftToJson, emptyDraft, jsonToDraft, parsePaste, placeholdersIn, shellSplit, splitHeaderLine } from "../lib/connector-config.js";
@@ -256,9 +256,9 @@ export function CustomConnectorSheet({ id, apps, full, chatBot, onClose }) {
       </label>`}
       ${found && found.drafts.length > 1 && html`<div class="apps-block">
         <b>${t("apps.custom.many", { n: found.drafts.length })}</b>
-        <div class="apps-checks">${found.drafts.map((d, i) => html`<label key=${i} class="sheet-check"><input type="checkbox" checked=${picked.includes(i)}
-          onChange=${(e) => setPicked((p) => (e.target.checked ? [...p, i] : p.filter((x) => x !== i)))} />
-          <span>${d.name || autoName(d)} <span class="hint">${t(`apps.custom.type.${draftSummary(d).type}`)} · ${t(`apps.method.${draftSummary(d).auth}`)}${placeholdersIn(d).length ? ` · ${t("apps.custom.placeholderShort")}` : ""}</span></span></label>`)}</div>
+        <div class="apps-checks">${found.drafts.map((d, i) => html`<${Checkbox} key=${i} class="sheet-check" checked=${picked.includes(i)}
+          onChange=${(checked) => setPicked((p) => (checked ? [...p, i] : p.filter((x) => x !== i)))}
+          label=${html`${d.name || autoName(d)} <span class="hint">${t(`apps.custom.type.${draftSummary(d).type}`)} · ${t(`apps.method.${draftSummary(d).auth}`)}${placeholdersIn(d).length ? ` · ${t("apps.custom.placeholderShort")}` : ""}</span>`} />`)}</div>
         <${ErrorLine} text=${error} />
         <div class="actions"><${Button} onClick=${onClose}>${t("common.cancel")}<//><${Button} variant="primary" loading=${busy} disabled=${!picked.length || limitHit} onClick=${addMany}>${t("apps.custom.addMany", { n: picked.length })}<//></div>
       </div>`}
@@ -293,7 +293,7 @@ export function CustomConnectorSheet({ id, apps, full, chatBot, onClose }) {
               <label class="set-field"><span class="k">${t("apps.custom.clientId")}</span><input class="field mono" spellcheck="false" value=${draft.oauth.clientId} onInput=${(e) => patch({ oauth: { ...draft.oauth, clientId: e.target.value } })} /></label>
               <label class="set-field"><span class="k">${t("apps.custom.clientSecret")}</span><input class="field mono" type=${draft.oauth.clientSecret === MASK ? "text" : "password"} autocomplete="off" value=${draft.oauth.clientSecret} onInput=${(e) => patch({ oauth: { ...draft.oauth, clientSecret: e.target.value } })} /></label>
               <label class="set-field"><span class="k">Scopes</span><input class="field mono" spellcheck="false" placeholder="offline_access" value=${draft.oauth.scopes.join(" ")} onInput=${(e) => patch({ oauth: { ...draft.oauth, scopes: e.target.value.split(/[\s,]+/).filter(Boolean) } })} /></label>
-              <label class="sheet-check"><input type="checkbox" checked=${draft.oauth.pkce !== false} onChange=${(e) => patch({ oauth: { ...draft.oauth, pkce: e.target.checked } })} /><span>${t("apps.custom.pkce")}</span></label>
+              <${Checkbox} class="sheet-check" checked=${draft.oauth.pkce !== false} label=${t("apps.custom.pkce")} onChange=${(checked) => patch({ oauth: { ...draft.oauth, pkce: checked } })} />
             </div>`}</div>`}`}
         ${!remote && html`
           <label class="set-field"><span class="k">${t("apps.custom.command")} *</span>

@@ -20,6 +20,7 @@
 @import url("components/seg.css") layer(components);
 @import url("components/tabs.css") layer(components);
 @import url("components/switch.css") layer(components);
+@import url("components/checkbox.css") layer(components);
 @import url("components/stops.css") layer(components);
 @import url("components/popover.css") layer(components);
 @import url("components/model-family.css") layer(components);

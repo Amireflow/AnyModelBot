@@ -1,7 +1,7 @@
 // 对话里的「存成技能」草稿卡（src/skills/drafts.ts）：生成中 → 等你确认 → 保存中 → 已保存 / 已更新；另有已取消、已过期、失败（带重试）。
 // 不点「保存」或「更新」不写任何文件。处理过的卡片只留结果、没有按钮，重启后不变。按钮都是原生按钮：Tab 聚焦、回车触发；状态变化经 aria-live 播报。
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import { html, Button, Spinner } from "./ui.js";
+import { html, Button, Checkbox, Spinner } from "./ui.js";
 import { api } from "../lib/api.js";
 import { failed } from "../lib/store.js";
 import { getLang, t } from "../lib/i18n.js";
@@ -201,8 +201,8 @@ export function SkillDraftCard({ id }) {
       ${d.description && html`<div class="draft-sec"><div class="t-label">${t("mySkills.card.when")}</div><div class="skill-card-desc">${d.description}</div></div>`}
       ${!d.edited && d.steps.length > 0 && html`<div class="draft-sec"><div class="t-label">${t("mySkills.card.steps")}</div><ol class="draft-steps">${d.steps.map((x, i) => html`<li key=${i}>${x}</li>`)}</ol></div>`}
       ${!d.edited && fixes.length > 0 && html`<div class="draft-sec"><div class="t-label">${t("mySkills.card.corrections")}</div>
-        <ul class="draft-fixes">${fixes.map((f, i) => html`<li key=${i}><label class="draft-fix"><input type="checkbox" checked=${f.on} disabled=${busy} onChange=${(e) => act("correction", { index: i, on: e.target.checked })} />
-          <span>${f.quote && html`<span class="draft-quote">${t("mySkills.card.said", { quote: f.quote })}</span>`}<span class=${f.on ? "" : "off"}>${f.rule}</span></span></label></li>`)}</ul></div>`}
+        <ul class="draft-fixes">${fixes.map((f, i) => html`<li key=${i}><${Checkbox} class="draft-fix" checked=${f.on} disabled=${busy} onChange=${(on) => act("correction", { index: i, on })}
+          label=${html`${f.quote && html`<span class="draft-quote">${t("mySkills.card.said", { quote: f.quote })}</span>`}<span class=${f.on ? "" : "off"}>${f.rule}</span>`} /></li>`)}</ul></div>`}
       ${d.apps.length > 0 && html`<div class="draft-sec"><div class="t-label">${t("mySkills.card.apps")}</div><div class="skill-card-meta">${d.apps.map((a) => html`<span key=${a.key + (a.alias || "")}>${a.alias ? t("mySkills.card.appAlias", { app: a.name, alias: a.alias }) : a.name}</span>`)}</div></div>`}
       ${d.uses.length > 0 && html`<div class="draft-sec"><div class="t-label">${t("mySkills.card.skills")}</div><div class="skill-card-meta">${d.uses.map((u) => html`<span key=${u.name}>${u.title || u.name} · ${sourceText(u.source)}</span>`)}</div></div>`}
       ${d.example && html`<div class="draft-sec"><div class="t-label">${t("mySkills.card.tryLabel")}</div><p class="skill-card-try">${d.example}</p></div>`}

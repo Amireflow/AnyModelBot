@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { BotAvatar } from "../components/avatar.js";
-import { html, Icon, Spinner, Badge } from "../components/ui.js";
+import { html, Icon, Select, Spinner, Badge, Switch } from "../components/ui.js";
 import { Markdown } from "../components/markdown.js";
 import { api } from "../lib/api.js";
 import { fmtNum, t, useLang } from "../lib/i18n.js";
@@ -1366,7 +1366,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         ${cur&&!["studio","copilot","agents"].includes(tab)&&html`<span class="agency-org-pill">${cur}</span>`}
       </div>
       ${orgs.length>0&&html`<div class="agency-org-bar">
-        <label class="agency-org-picker"><select class="field" aria-label=${t("agency.organization")} value=${orgId} onChange=${e=>changeOrg(e.currentTarget.value)}>${orgs.map(o=>html`<option value=${o.id}>${o.name}</option>`)}</select></label>
+        <div class="agency-org-picker"><${Select} label=${t("agency.organization")} value=${orgId} options=${orgs.map(o=>[o.id,o.name])} onChange=${changeOrg}/></div>
         ${!["studio","copilot"].includes(tab)&&html`<button class="btn" type="button" aria-expanded=${orgFormOpen} title=${t("agency.newOrganization")} onClick=${()=>setOrgFormOpen(v=>!v)}><${Icon} name=${orgFormOpen?"close":"plus"} size="sm"/></button>`}
       </div>`}
     </header>
@@ -1420,7 +1420,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         ${emailError&&html`<div class="agency-alert" role="alert">${emailError}</div>`}
         ${emailNotice&&html`<p class="agency-research-feedback" role="status">${emailNotice}</p>`}
         <form class="agency-form agency-form-grid" onSubmit=${saveEmailConfig}>
-          <label class="agency-field"><span>${t("agency.emailProviderLabel")}</span><select class="field" value=${emailConfigDraft.provider} onChange=${e=>update(setEmailConfigDraft,"provider",e.currentTarget.value)}><option value="resend">Resend API</option><option value="webhook">Webhook SMTP / Relay</option></select></label>
+          <div class="agency-field"><span>${t("agency.emailProviderLabel")}</span><${Select} label=${t("agency.emailProviderLabel")} value=${emailConfigDraft.provider} options=${[["resend","Resend API"],["webhook","Webhook SMTP / Relay"]]} onChange=${v=>update(setEmailConfigDraft,"provider",v)}/></div>
           <${Field} label=${t("agency.emailFromLabel")} value=${emailConfigDraft.fromAddress} type="email" required=${emailConfigDraft.provider==="resend"} placeholder="contact@agence.com" onInput=${v=>update(setEmailConfigDraft,"fromAddress",v)}/>
           <${Field} label=${t("agency.emailReplyToLabel")} value=${emailConfigDraft.replyTo} type="email" placeholder="equipe@agence.com" onInput=${v=>update(setEmailConfigDraft,"replyTo",v)}/>
           ${emailConfigDraft.provider==="resend"
@@ -1439,10 +1439,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         ${emailError&&html`<div class="agency-alert" role="alert">${emailError}</div>`}
         ${emailNotice&&html`<p class="agency-research-feedback" role="status">${emailNotice}</p>`}
         <form class="agency-form agency-form-grid" onSubmit=${requestEmailApproval}>
-          <label class="agency-field"><span>${t("agency.emailRecipientLabel")}</span><select class="field" value=${emailCompose.contactId} required onChange=${e=>update(setEmailCompose,"contactId",e.currentTarget.value)}>
-            <option value="">${t("agency.chooseOption")}</option>
-            ${commercialContacts.filter(c=>c.email).map(c=>html`<option value=${c.id}>${c.displayName} (${c.email})</option>`)}
-          </select></label>
+          <div class="agency-field"><span>${t("agency.emailRecipientLabel")}</span><${Select} label=${t("agency.emailRecipientLabel")} value=${emailCompose.contactId} placeholder=${t("agency.chooseOption")} searchable options=${[["",t("agency.chooseOption")],...commercialContacts.filter(c=>c.email).map(c=>[c.id,`${c.displayName} (${c.email})`])]} onChange=${v=>update(setEmailCompose,"contactId",v)}/></div>
           <${Field} label=${t("agency.whatsappPurpose")} value=${emailCompose.purpose} required onInput=${v=>update(setEmailCompose,"purpose",v)}/>
           <${Field} label=${t("agency.subject")} value=${emailCompose.subject} required onInput=${v=>update(setEmailCompose,"subject",v)}/>
           <${Field} label=${t("agency.whatsappApprovalReason")} value=${emailCompose.reason} onInput=${v=>update(setEmailCompose,"reason",v)}/>
@@ -1589,7 +1586,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         <${Field} label=${t("agency.targetCountries")} value=${qualificationDraft.targetCountries} placeholder="SN, CI, BJ" onInput=${v=>update(setQualificationDraft,"targetCountries",v)}/>
         <${Field} label=${t("agency.excludedIndustries")} value=${qualificationDraft.excludedIndustries} placeholder="secteurs à exclure" onInput=${v=>update(setQualificationDraft,"excludedIndustries",v)}/>
         <${Field} label=${t("agency.requiredEvidenceDomains")} value=${qualificationDraft.requiredEvidenceDomains} placeholder="company, financial, news" onInput=${v=>update(setQualificationDraft,"requiredEvidenceDomains",v)}/>
-        <label class="agency-qualification-checkbox"><input type="checkbox" checked=${qualificationDraft.requireWebsite} onChange=${e=>update(setQualificationDraft,"requireWebsite",e.currentTarget.checked)}/><span>${t("agency.requireWebsite")}</span></label>
+        <div class="agency-qualification-checkbox"><${Switch} value=${qualificationDraft.requireWebsite} label=${t("agency.requireWebsite")} onChange=${v=>update(setQualificationDraft,"requireWebsite",v)}/><span>${t("agency.requireWebsite")}</span></div>
         <p class="agency-muted agency-form-wide">${t("agency.qualificationProfileNote")}</p>
         <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${busy==="qualification-profile"}>${busy==="qualification-profile"?t("agency.creating"):t("agency.saveProfile")}</button></div>
       </form>`}
@@ -1603,9 +1600,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       </form>`}
       ${leadForm&&tab==="leads"&&html`<form class="agency-form agency-form-grid" onSubmit=${createLead}>
         <div class="agency-form-head"><h2>${t("agency.newLead")}</h2><button type="button" class="text" onClick=${()=>setLeadForm(false)}>${t("agency.cancel")}</button></div>
-        <label class="agency-field"><span>${t("agency.company")}</span><select class="field" value=${lead.companyId} required onChange=${e=>update(setLead,"companyId",e.currentTarget.value)}>
-          <option value="">${t("agency.chooseCompany")}</option>${companyOptions.map(c=>html`<option value=${c.id}>${c.name}</option>`)}
-        </select></label>
+        <div class="agency-field"><span>${t("agency.company")}</span><${Select} label=${t("agency.company")} value=${lead.companyId} placeholder=${t("agency.chooseCompany")} searchable options=${[["",t("agency.chooseCompany")],...companyOptions.map(c=>[c.id,c.name])]} onChange=${v=>update(setLead,"companyId",v)}/></div>
         <${Field} label=${t("agency.source")} value=${lead.source} onInput=${v=>update(setLead,"source",v)}/>
         <${Field} label=${t("agency.notes")} value=${lead.notes} onInput=${v=>update(setLead,"notes",v)}/>
         <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!lead.companyId}>${t("agency.saveLead")}</button></div>
@@ -1708,7 +1703,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                   ${whatsappConsentBusy&&html`<div class="agency-loading"><${Spinner}/>${t("agency.loading")}</div>`}
                   <form class="agency-form agency-consent-form" onSubmit=${saveWhatsAppConsent}>
                     <${Field} label=${t("agency.whatsappPurpose")} value=${whatsappConsentDraft.purpose} required onInput=${v=>update(setWhatsappConsentDraft,"purpose",v)}/>
-                    <label class="agency-field"><span>${t("agency.whatsappConsentAction")}</span><select class="field" value=${whatsappConsentDraft.status} onChange=${e=>update(setWhatsappConsentDraft,"status",e.currentTarget.value)}><option value="granted">${t("agency.whatsappGrant")}</option><option value="withdrawn">${t("agency.whatsappWithdraw")}</option></select></label>
+                    <div class="agency-field"><span>${t("agency.whatsappConsentAction")}</span><${Select} label=${t("agency.whatsappConsentAction")} value=${whatsappConsentDraft.status} options=${[["granted",t("agency.whatsappGrant")],["withdrawn",t("agency.whatsappWithdraw")]]} onChange=${v=>update(setWhatsappConsentDraft,"status",v)}/></div>
                     <${Field} label=${t("agency.whatsappConsentSource")} value=${whatsappConsentDraft.source} required onInput=${v=>update(setWhatsappConsentDraft,"source",v)}/>
                     <${Field} label=${t("agency.whatsappConsentProof")} value=${whatsappConsentDraft.proof} required placeholder=${t("agency.whatsappConsentProofHint")} onInput=${v=>update(setWhatsappConsentDraft,"proof",v)}/>
                     ${whatsappConsentDraft.status==="granted"&&html`<${Field} label=${t("agency.whatsappConsentTextVersion")} value=${whatsappConsentDraft.textVersion} required onInput=${v=>update(setWhatsappConsentDraft,"textVersion",v)}/>`}
@@ -1744,7 +1739,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             ${activeResearchJobs.map(job=>html`<div class="agency-active-job"><div><strong>${t(`agency.jobStatus.${job.status}`)}</strong><span class="num">${job.progress}%</span></div><div class="agency-job-progress"><i style=${{width:Math.max(0,Math.min(100,job.progress))+"%"}}></i></div><small>${job.currentStep||job.id}</small></div>`)}
             ${stalledResearchJobs.map(job=>html`<div class="agency-research-stalled"><strong>${t("agency.researchStalled")}</strong><span>${job.company} · ${job.id}</span></div>`)}
             ${failedResearchJobs.map(job=>html`<div class="agency-research-failed"><strong>${t(`agency.jobStatus.${job.status}`)}</strong><span>${job.company} · ${job.id}</span></div>`)}
-            ${completedResearchJobs.length>0&&html`<div class="agency-research-import"><label class="agency-field"><span>${t("agency.chooseResearchJob")}</span><select class="field" value=${researchJobId} onChange=${e=>setResearchJobId(e.currentTarget.value)}><option value="">${t("agency.chooseOption")}</option>${completedResearchJobs.map(job=>html`<option value=${job.id}>${job.company} · ${job.sourceCount} ${t("agency.sources")} · ${job.id}</option>`)}</select></label><button class="btn" disabled=${!researchJobId||!!busy} onClick=${importResearch}>${busy==="research-import"?t("agency.importingResearch"):t("agency.importResearch")}</button></div>`}
+            ${completedResearchJobs.length>0&&html`<div class="agency-research-import"><div class="agency-field"><span>${t("agency.chooseResearchJob")}</span><${Select} label=${t("agency.chooseResearchJob")} value=${researchJobId} placeholder=${t("agency.chooseOption")} options=${[["",t("agency.chooseOption")],...completedResearchJobs.map(job=>[job.id,`${job.company} · ${job.sourceCount} ${t("agency.sources")} · ${job.id}`])]} onChange=${setResearchJobId}/></div><button class="btn" disabled=${!researchJobId||!!busy} onClick=${importResearch}>${busy==="research-import"?t("agency.importingResearch"):t("agency.importResearch")}</button></div>`}
             ${researchImportMessage&&html`<p class="agency-research-feedback" role="status">${researchImportMessage}</p>`}
             <div class="agency-contact-heading"><h3>${t("agency.researchTitle")}</h3><button class="text" onClick=${()=>setEvidenceForm(v=>!v)}>${t("agency.addEvidence")}</button></div>
             ${research.assessment&&html`<div class="agency-research-score"><strong>${research.assessment.score}/100</strong><span>${t(`agency.researchStatus.${research.assessment.status}`)}</span><small>${research.assessment.evidenceCount} ${t("agency.evidenceCount")} · ${research.assessment.distinctSourceHosts} ${t("agency.sources")}</small></div>`}
@@ -1783,7 +1778,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           <div class="agency-commercial-actions">
             <button class="btn" type="button" onClick=${()=>{setEditingLeadId(id=>id===l.id?"":l.id);setEditLeadDraft({source:l.source||"",notes:l.notes||""});}}>${editingLeadId===l.id?t("agency.cancel"):t("agency.editBtn")}</button>
             <button class="btn" type="button" onClick=${()=>{setSelectedLeadId(l.id);setSelectedConvId("");switchTab("commercial");}}>${t("agency.openCommercial")}</button>
-            <label class="agency-stage-select"><span>${t("agency.moveTo")}</span><select class="field" value=${l.stage} disabled=${busy==="stage"||!NEXT[l.stage]?.length} onChange=${e=>moveLead(l.id,e.currentTarget.value)}><option value=${l.stage}>${t(`agency.stage.${l.stage}`)}</option>${(NEXT[l.stage]||[]).map(s=>html`<option value=${s}>${t(`agency.stage.${s}`)}</option>`)}</select></label>
+            <div class="agency-stage-select"><span>${t("agency.moveTo")}</span><${Select} block=${false} width=${190} label=${t("agency.moveTo")} value=${l.stage} disabled=${busy==="stage"||!NEXT[l.stage]?.length} options=${[l.stage,...(NEXT[l.stage]||[])].map(s=>[s,t(`agency.stage.${s}`)])} onChange=${v=>moveLead(l.id,v)}/></div>
             <button class="text agency-danger-btn" type="button" disabled=${!!busy} onClick=${()=>setDeleteTarget({entityType:"lead",entityId:l.id,label:companyName})}>${t("agency.deleteBtn")}</button>
           </div>
         </div>
@@ -1805,7 +1800,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                 <strong title=${companyName}>${companyName}</strong>
                 <p class="agency-kanban-note" title=${noteText}>${noteText}</p>
                 <div class="agency-kanban-actions">
-                  <select class="field" aria-label=${t("agency.moveTo")} value=${l.stage} disabled=${busy==="stage"||!NEXT[l.stage]?.length} onChange=${e=>moveLead(l.id,e.currentTarget.value)}><option value=${l.stage}>${t(`agency.stage.${l.stage}`)}</option>${(NEXT[l.stage]||[]).map(s=>html`<option value=${s}>${t(`agency.stage.${s}`)}</option>`)}</select>
+                  <${Select} block=${false} width=${180} label=${t("agency.moveTo")} value=${l.stage} disabled=${busy==="stage"||!NEXT[l.stage]?.length} options=${[l.stage,...(NEXT[l.stage]||[])].map(s=>[s,t(`agency.stage.${s}`)])} onChange=${v=>moveLead(l.id,v)}/>
                   <button class="btn" type="button" onClick=${()=>{setSelectedLeadId(l.id);setSelectedConvId("");switchTab("commercial");}}>${t("agency.openCommercial")}</button>
                   <button class="text agency-danger-btn" type="button" disabled=${!!busy} onClick=${()=>setDeleteTarget({entityType:"lead",entityId:l.id,label:companyName})}>${t("agency.deleteBtn")}</button>
                 </div>
@@ -1825,7 +1820,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           ${catalogFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${createCatalogItem}>
             <${Field} label=${t("agency.catalogCode")} value=${catalogDraft.code} required onInput=${v=>update(setCatalogDraft,"code",v)}/>
             <${Field} label=${t("agency.catalogName")} value=${catalogDraft.name} required onInput=${v=>update(setCatalogDraft,"name",v)}/>
-            <label class="agency-field"><span>${t("agency.catalogCategory")}</span><select class="field" value=${catalogDraft.category} onChange=${e=>update(setCatalogDraft,"category",e.currentTarget.value)}>${SOLUTION_TYPES.map(st=>html`<option value=${st}>${t(`agency.solutionType.${st}`)}</option>`)}</select></label>
+            <div class="agency-field"><span>${t("agency.catalogCategory")}</span><${Select} label=${t("agency.catalogCategory")} value=${catalogDraft.category} options=${SOLUTION_TYPES.map(st=>[st,t(`agency.solutionType.${st}`)])} onChange=${v=>update(setCatalogDraft,"category",v)}/></div>
             <${Field} label=${t("agency.catalogDays")} value=${catalogDraft.estimatedDays} type="number" required onInput=${v=>update(setCatalogDraft,"estimatedDays",v)}/>
             <${Field} label=${t("agency.catalogPriceMin")} value=${catalogDraft.priceMin} type="number" required onInput=${v=>update(setCatalogDraft,"priceMin",v)}/>
             <${Field} label=${t("agency.catalogPriceBase")} value=${catalogDraft.priceBase} type="number" required onInput=${v=>update(setCatalogDraft,"priceBase",v)}/>
@@ -1851,7 +1846,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               </div>
               ${editingCatalogId===item.id&&html`<form class="agency-form agency-form-grid agency-inline-edit" onSubmit=${e=>saveCatalogEdit(e,item.id)}>
                 <${Field} label=${t("agency.catalogName")} value=${editCatalogDraft.name} required onInput=${v=>update(setEditCatalogDraft,"name",v)}/>
-                <label class="agency-field"><span>${t("agency.catalogCategory")}</span><select class="field" value=${editCatalogDraft.category} onChange=${e=>update(setEditCatalogDraft,"category",e.currentTarget.value)}>${SOLUTION_TYPES.map(st=>html`<option value=${st}>${t(`agency.solutionType.${st}`)}</option>`)}</select></label>
+                <div class="agency-field"><span>${t("agency.catalogCategory")}</span><${Select} label=${t("agency.catalogCategory")} value=${editCatalogDraft.category} options=${SOLUTION_TYPES.map(st=>[st,t(`agency.solutionType.${st}`)])} onChange=${v=>update(setEditCatalogDraft,"category",v)}/></div>
                 <${Field} label=${t("agency.catalogDays")} value=${editCatalogDraft.estimatedDays} type="number" required onInput=${v=>update(setEditCatalogDraft,"estimatedDays",v)}/>
                 <${Field} label=${t("agency.catalogPriceMin")} value=${editCatalogDraft.priceMin} type="number" required onInput=${v=>update(setEditCatalogDraft,"priceMin",v)}/>
                 <${Field} label=${t("agency.catalogPriceBase")} value=${editCatalogDraft.priceBase} type="number" required onInput=${v=>update(setEditCatalogDraft,"priceBase",v)}/>
@@ -1886,9 +1881,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       </div>`}
       ${tab==="commercial"&&html`<div class="agency-ops-stack">
         <div class="agency-context-bar">
-          <label class="agency-stage-select"><span>${t("agency.selectLead")}</span><select class="field" value=${selectedLeadId} onChange=${e=>{setSelectedLeadId(e.currentTarget.value);setSelectedConvId("");}}>
-            <option value="">${t("agency.chooseOption")}</option>${leadOptions.map(l=>html`<option value=${l.id}>${companyOptions.find(c=>c.id===l.companyId)?.name||l.companyId} · ${t(`agency.stage.${l.stage}`)}</option>`)}
-          </select></label>
+          <div class="agency-stage-select"><span>${t("agency.selectLead")}</span><${Select} block=${false} width=${240} searchable label=${t("agency.selectLead")} value=${selectedLeadId} placeholder=${t("agency.chooseOption")} options=${[["",t("agency.chooseOption")],...leadOptions.map(l=>[l.id,`${companyOptions.find(c=>c.id===l.companyId)?.name||l.companyId} · ${t(`agency.stage.${l.stage}`)}`])]} onChange=${v=>{setSelectedLeadId(v);setSelectedConvId("");}}/></div>
           ${selectedLeadId&&html`<div class="agency-subtabs" role="tablist">
             <button type="button" role="tab" aria-selected=${commercialSubTab==="conversations"} class=${commercialSubTab==="conversations"?"active":""} onClick=${()=>setCommercialSubTab("conversations")}>${t("agency.subtabConversations")}</button>
             <button type="button" role="tab" aria-selected=${commercialSubTab==="quotes"} class=${commercialSubTab==="quotes"?"active":""} onClick=${()=>setCommercialSubTab("quotes")}>${t("agency.subtabQuotes")}</button>
@@ -1904,7 +1897,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               <button class="btn primary" type="button" onClick=${()=>setConvFormOpen(v=>!v)}><${Icon} name=${convFormOpen?"close":"plus"} size="sm"/>${convFormOpen?t("agency.cancel"):t("agency.newConversation")}</button>
             </div>
             ${convFormOpen&&html`<form class="agency-form" onSubmit=${startConversation}>
-              <label class="agency-field"><span>${t("agency.channel")}</span><select class="field" value=${convDraft.channel} onChange=${e=>update(setConvDraft,"channel",e.currentTarget.value)}>${CHANNELS.map(ch=>html`<option value=${ch}>${ch}</option>`)}</select></label>
+              <div class="agency-field"><span>${t("agency.channel")}</span><${Select} label=${t("agency.channel")} value=${convDraft.channel} options=${CHANNELS.map(ch=>[ch,ch])} onChange=${v=>update(setConvDraft,"channel",v)}/></div>
               <${Field} label=${t("agency.subject")} value=${convDraft.subject} required onInput=${v=>update(setConvDraft,"subject",v)}/>
               <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.startConversation")}</button></div>
             </form>`}
@@ -1933,12 +1926,12 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             ${needsNotice&&html`<p class="agency-research-feedback" role="status">${needsNotice}</p>`}
             <form class="agency-form" onSubmit=${saveNeeds}>
               <label class="agency-field"><span>${t("agency.problemStatement")}</span><textarea class="field" rows="2" required value=${needsDraft.problemStatement} onInput=${e=>update(setNeedsDraft,"problemStatement",e.currentTarget.value)}></textarea></label>
-              <label class="agency-field"><span>${t("agency.solutionTypeLabel")}</span><select class="field" value=${needsDraft.solutionType} onChange=${e=>update(setNeedsDraft,"solutionType",e.currentTarget.value)}>${SOLUTION_TYPES.map(st=>html`<option value=${st}>${t(`agency.solutionType.${st}`)}</option>`)}</select></label>
+              <div class="agency-field"><span>${t("agency.solutionTypeLabel")}</span><${Select} label=${t("agency.solutionTypeLabel")} value=${needsDraft.solutionType} options=${SOLUTION_TYPES.map(st=>[st,t(`agency.solutionType.${st}`)])} onChange=${v=>update(setNeedsDraft,"solutionType",v)}/></div>
               <${Field} label=${t("agency.mustHaveFeatures")} value=${needsDraft.mustHaveFeatures} onInput=${v=>update(setNeedsDraft,"mustHaveFeatures",v)}/>
               <${Field} label=${t("agency.desiredTimeline")} value=${needsDraft.desiredTimeline} onInput=${v=>update(setNeedsDraft,"desiredTimeline",v)}/>
               <${Field} label=${t("agency.budgetMin")} value=${needsDraft.budgetMin} type="number" onInput=${v=>update(setNeedsDraft,"budgetMin",v)}/>
               <${Field} label=${t("agency.budgetMax")} value=${needsDraft.budgetMax} type="number" onInput=${v=>update(setNeedsDraft,"budgetMax",v)}/>
-              <label class="agency-qualification-checkbox"><input type="checkbox" checked=${needsDraft.clientConfirmed} onChange=${e=>update(setNeedsDraft,"clientConfirmed",e.currentTarget.checked)}/><span>${t("agency.clientConfirmed")}</span></label>
+              <div class="agency-qualification-checkbox"><${Switch} value=${needsDraft.clientConfirmed} label=${t("agency.clientConfirmed")} onChange=${v=>update(setNeedsDraft,"clientConfirmed",v)}/><span>${t("agency.clientConfirmed")}</span></div>
               <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.saveNeeds")}</button></div>
             </form>
           </section>
@@ -1952,15 +1945,15 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               </div>
             </div>
             ${quoteFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${createQuote}>
-              ${catalogItems.length>0&&html`<label class="agency-field agency-form-wide"><span>${t("agency.prefillFromCatalog")}</span><select class="field" value="" onChange=${e=>{
-                const it=catalogItems.find(x=>x.id===e.currentTarget.value);
+              ${catalogItems.length>0&&html`<div class="agency-field agency-form-wide"><span>${t("agency.prefillFromCatalog")}</span><${Select} label=${t("agency.prefillFromCatalog")} value="" placeholder=${t("agency.chooseCatalogService")} allowSame options=${[["",t("agency.chooseCatalogService")],...catalogItems.map(it=>[it.id,`${it.name} · ${it.priceBase} (${it.estimatedDays}d)`])]} onChange=${v=>{
+                const it=catalogItems.find(x=>x.id===v);
                 if(it){
                   setQuoteDraft(cur=>({...cur,title:it.name}));
                   setQuoteLines([{label:it.name,unitPrice:String(it.priceBase),unitCost:String(it.estimatedCost),estimatedDays:String(it.estimatedDays)}]);
                 }
-              }}><option value="">${t("agency.chooseCatalogService")}</option>${catalogItems.map(it=>html`<option value=${it.id}>${it.name} · ${it.priceBase} (${it.estimatedDays}d)</option>`)}</select></label>`}
+              }}/></div>`}
               <${Field} label=${t("agency.quoteTitle")} value=${quoteDraft.title} required onInput=${v=>update(setQuoteDraft,"title",v)}/>
-              <label class="agency-field"><span>${t("agency.quoteTier")}</span><select class="field" value=${quoteDraft.tier} onChange=${e=>update(setQuoteDraft,"tier",e.currentTarget.value)}><option value="essential">essential</option><option value="standard">standard</option><option value="advanced">advanced</option><option value="custom">custom</option></select></label>
+              <div class="agency-field"><span>${t("agency.quoteTier")}</span><${Select} label=${t("agency.quoteTier")} value=${quoteDraft.tier} options=${["essential","standard","advanced","custom"].map(t0=>[t0,t0])} onChange=${v=>update(setQuoteDraft,"tier",v)}/></div>
               <${Field} label=${t("agency.discountPct")} value=${quoteDraft.discountPct} type="number" onInput=${v=>update(setQuoteDraft,"discountPct",v)}/>
               ${quoteLines.map((ln,idx)=>html`<div class="agency-form-wide agency-commercial-actions">
                 <input class="field" placeholder=${t("agency.lineLabel")} value=${ln.label} required onInput=${e=>{const val=e.currentTarget.value;setQuoteLines(prev=>prev.map((x,i)=>i===idx?{...x,label:val}:x));}}/>
@@ -2046,9 +2039,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       ${tab==="projects"&&html`<div class="agency-ops-stack">
         <div class="agency-project-bar">
           <div class="agency-project-bar-left">
-            ${projects.length>0&&html`<select class="field" aria-label=${t("agency.projectsTitle")} value=${selectedProjectId} onChange=${e=>setSelectedProjectId(e.currentTarget.value)}>
-              ${projects.map(p=>html`<option value=${p.id}>${p.title} (${fmtNum(p.budgetAmount)} ${p.currency})</option>`)}
-            </select>`}
+            ${projects.length>0&&html`<${Select} block=${false} width=${240} label=${t("agency.projectsTitle")} value=${selectedProjectId} options=${projects.map(p=>[p.id,`${p.title} (${fmtNum(p.budgetAmount)} ${p.currency})`])} onChange=${setSelectedProjectId}/>`}
             ${selectedProject&&html`<span class=${"agency-whatsapp-state "+selectedProject.status}>${t(`agency.projectStatus.${selectedProject.status}`)}</span>`}
           </div>
           <div class="agency-commercial-actions">
@@ -2057,21 +2048,15 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             ${selectedProject&&html`
               <button class="btn" type="button" disabled=${!!busy} onClick=${()=>initWorkspace(selectedProject.id)}>${t("agency.initWorkspaceBtn")}</button>
               <button class="btn" type="button" disabled=${!!busy} onClick=${()=>runAutoQa(selectedProject.id)}>${busy==="qa-run"?t("agency.runningAutoQa"):t("agency.runAutoQaBtn")}</button>
-              <label class="agency-stage-select"><span>${t("agency.projectStatusAction")}</span>
-                <select class="field" value=${selectedProject.status} disabled=${busy==="proj-status"||!(PROJECT_NEXT[selectedProject.status]||[]).length} onChange=${e=>updateProjectStatus(selectedProject.id,e.currentTarget.value)}>
-                  <option value=${selectedProject.status}>${t(`agency.projectStatus.${selectedProject.status}`)}</option>
-                  ${(PROJECT_NEXT[selectedProject.status]||[]).map(st=>html`<option value=${st}>${t(`agency.projectStatus.${st}`)}</option>`)}
-                </select>
-              </label>
+              <div class="agency-stage-select"><span>${t("agency.projectStatusAction")}</span>
+                <${Select} block=${false} width=${200} label=${t("agency.projectStatusAction")} value=${selectedProject.status} disabled=${busy==="proj-status"||!(PROJECT_NEXT[selectedProject.status]||[]).length} options=${[selectedProject.status,...(PROJECT_NEXT[selectedProject.status]||[])].map(st=>[st,t(`agency.projectStatus.${st}`)])} onChange=${v=>updateProjectStatus(selectedProject.id,v)}/>
+              </div>
             `}
           </div>
         </div>
         ${projectFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${createProjectHandoff}>
           <div class="agency-form-head"><strong>${t("agency.handoffProjectTitle")}</strong><button type="button" class="text" onClick=${()=>setProjectFormOpen(false)}>${t("agency.cancel")}</button></div>
-          <label class="agency-field"><span>${t("agency.selectContract")}</span><select class="field" value=${projectDraft.contractId} required onChange=${e=>update(setProjectDraft,"contractId",e.currentTarget.value)}>
-            <option value="">${t("agency.chooseOption")}</option>
-            ${contracts.filter(c=>c.status==="signed"&&(c.depositAmount===0||c.depositStatus==="paid")).map(c=>html`<option value=${c.id}>${c.title} (${c.totalAmount} ${c.currency})</option>`)}
-          </select></label>
+          <div class="agency-field"><span>${t("agency.selectContract")}</span><${Select} label=${t("agency.selectContract")} value=${projectDraft.contractId} placeholder=${t("agency.chooseOption")} options=${[["",t("agency.chooseOption")],...contracts.filter(c=>c.status==="signed"&&(c.depositAmount===0||c.depositStatus==="paid")).map(c=>[c.id,`${c.title} (${c.totalAmount} ${c.currency})`])]} onChange=${v=>update(setProjectDraft,"contractId",v)}/></div>
           <${Field} label=${t("agency.workspacePath")} value=${projectDraft.workspacePath} placeholder="workspaces/projects/..." onInput=${v=>update(setProjectDraft,"workspacePath",v)}/>
           <${Field} label=${t("agency.targetStack")} value=${projectDraft.targetStack} onInput=${v=>update(setProjectDraft,"targetStack",v)}/>
           <${Field} label=${t("agency.technicalSpecs")} value=${projectDraft.technicalSpecs} onInput=${v=>update(setProjectDraft,"technicalSpecs",v)}/>
@@ -2100,7 +2085,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               <${Field} label=${t("agency.lotTitle")} value=${lotDraft.title} required onInput=${v=>update(setLotDraft,"title",v)}/>
               <${Field} label=${t("agency.lotDescription")} value=${lotDraft.description} onInput=${v=>update(setLotDraft,"description",v)}/>
               <${Field} label=${t("agency.lotCriteria")} value=${lotDraft.acceptanceCriteria} onInput=${v=>update(setLotDraft,"acceptanceCriteria",v)}/>
-              <label class="agency-field"><span>${t("agency.lotOwnerRole")}</span><select class="field" value=${lotDraft.ownerRole} onChange=${e=>update(setLotDraft,"ownerRole",e.currentTarget.value)}>${AGENT_ROLES.map(r=>html`<option value=${r}>${r}</option>`)}</select></label>
+              <div class="agency-field"><span>${t("agency.lotOwnerRole")}</span><${Select} label=${t("agency.lotOwnerRole")} value=${lotDraft.ownerRole} options=${AGENT_ROLES.map(r=>[r,t(`agency.agentRoleNames.${r}`)||r])} onChange=${v=>update(setLotDraft,"ownerRole",v)}/></div>
               <${Field} label=${t("agency.lotEstimatedHours")} value=${lotDraft.estimatedHours} type="number" onInput=${v=>update(setLotDraft,"estimatedHours",v)}/>
               <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.createLotBtn")}</button></div>
             </form>`}
@@ -2161,8 +2146,8 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               ${!qaGate.readyForDelivery&&qaGate.blockers.length>0&&html`<small>${t("agency.qaBlockers")}: ${qaGate.blockers.join(", ")}</small>`}
             </div>`}
             ${qaFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${recordQaCheck}>
-              <label class="agency-field"><span>${t("agency.qaCategoryLabel")}</span><select class="field" value=${qaDraft.category} onChange=${e=>update(setQaDraft,"category",e.currentTarget.value)}>${QA_CATEGORIES.map(c=>html`<option value=${c}>${t(`agency.qaCategory.${c}`)}</option>`)}</select></label>
-              <label class="agency-field"><span>${t("agency.qaStatusLabel")}</span><select class="field" value=${qaDraft.status} onChange=${e=>update(setQaDraft,"status",e.currentTarget.value)}>${QA_STATUSES.map(s=>html`<option value=${s}>${t(`agency.qaCheckStatus.${s}`)}</option>`)}</select></label>
+              <div class="agency-field"><span>${t("agency.qaCategoryLabel")}</span><${Select} label=${t("agency.qaCategoryLabel")} value=${qaDraft.category} options=${QA_CATEGORIES.map(c=>[c,t(`agency.qaCategory.${c}`)])} onChange=${v=>update(setQaDraft,"category",v)}/></div>
+              <div class="agency-field"><span>${t("agency.qaStatusLabel")}</span><${Select} label=${t("agency.qaStatusLabel")} value=${qaDraft.status} options=${QA_STATUSES.map(s=>[s,t(`agency.qaCheckStatus.${s}`)])} onChange=${v=>update(setQaDraft,"status",v)}/></div>
               <${Field} label=${t("agency.qaCheckTitle")} value=${qaDraft.title} required onInput=${v=>update(setQaDraft,"title",v)}/>
               <${Field} label=${t("agency.qaEvidence")} value=${qaDraft.evidence} onInput=${v=>update(setQaDraft,"evidence",v)}/>
               <${Field} label=${t("agency.qaFindings")} value=${qaDraft.findings} onInput=${v=>update(setQaDraft,"findings",v)}/>
@@ -2214,7 +2199,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                 <button class="btn primary" type="button" onClick=${()=>setFollowUpFormOpen(v=>!v)}><${Icon} name=${followUpFormOpen?"close":"plus"} size="sm"/>${followUpFormOpen?t("agency.cancel"):t("agency.scheduleFollowUpBtn")}</button>
               </div>
               ${followUpFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${scheduleFollowUp}>
-                <label class="agency-field"><span>${t("agency.followUpTypeLabel")}</span><select class="field" value=${followUpDraft.type} onChange=${e=>update(setFollowUpDraft,"type",e.currentTarget.value)}>${FOLLOWUP_TYPES.map(ft=>html`<option value=${ft}>${t(`agency.followUpType.${ft}`)}</option>`)}</select></label>
+                <div class="agency-field"><span>${t("agency.followUpTypeLabel")}</span><${Select} label=${t("agency.followUpTypeLabel")} value=${followUpDraft.type} options=${FOLLOWUP_TYPES.map(ft=>[ft,t(`agency.followUpType.${ft}`)])} onChange=${v=>update(setFollowUpDraft,"type",v)}/></div>
                 <${Field} label=${t("agency.followUpNotes")} value=${followUpDraft.notes} onInput=${v=>update(setFollowUpDraft,"notes",v)}/>
                 <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.scheduleFollowUpBtn")}</button></div>
               </form>`}
@@ -2303,8 +2288,8 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               <button class="btn primary" type="button" onClick=${()=>setMissionFormOpen(v=>!v)}><${Icon} name=${missionFormOpen?"close":"plus"} size="sm"/>${missionFormOpen?t("agency.cancel"):t("agency.createMissionBtn")}</button>
             </div>
             ${missionFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${createMission}>
-              <label class="agency-field"><span>${t("agency.missionProjectLabel")}</span><select class="field" value=${missionDraft.projectId} onChange=${e=>update(setMissionDraft,"projectId",e.currentTarget.value)}><option value="">${t("agency.chooseOption")}</option>${projects.map(p=>html`<option value=${p.id}>${p.title}</option>`)}</select></label>
-              <label class="agency-field"><span>${t("agency.missionRoleLabel")}</span><select class="field" value=${missionDraft.agentRole} onChange=${e=>update(setMissionDraft,"agentRole",e.currentTarget.value)}>${AGENT_ROLES.map(r=>html`<option value=${r}>${r}</option>`)}</select></label>
+              <div class="agency-field"><span>${t("agency.missionProjectLabel")}</span><${Select} label=${t("agency.missionProjectLabel")} value=${missionDraft.projectId} placeholder=${t("agency.chooseOption")} options=${[["",t("agency.chooseOption")],...projects.map(p=>[p.id,p.title])]} onChange=${v=>update(setMissionDraft,"projectId",v)}/></div>
+              <div class="agency-field"><span>${t("agency.missionRoleLabel")}</span><${Select} label=${t("agency.missionRoleLabel")} value=${missionDraft.agentRole} options=${AGENT_ROLES.map(r=>[r,t(`agency.agentRoleNames.${r}`)||r])} onChange=${v=>update(setMissionDraft,"agentRole",v)}/></div>
               <${Field} label=${t("agency.missionTitle")} value=${missionDraft.title} required onInput=${v=>update(setMissionDraft,"title",v)}/>
               <${Field} label=${t("agency.missionObjective")} value=${missionDraft.objective} onInput=${v=>update(setMissionDraft,"objective",v)}/>
               <${Field} label=${t("agency.missionToolLabel")} value=${missionDraft.preferredTool} onInput=${v=>update(setMissionDraft,"preferredTool",v)}/>
@@ -2323,9 +2308,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                 <div class="agency-commercial-actions">
                   <button class="btn" type="button" disabled=${!!busy} onClick=${()=>executeMission(m.id,"brief_export")}>${t("agency.exportBriefBtn")}</button>
                   <button class="btn" type="button" disabled=${!!busy} onClick=${()=>executeMission(m.id,"llm_draft")}>${t("agency.executeLlmBtn")}</button>
-                  <select class="field" aria-label=${t("agency.cliActionLabel")} value=${cliActionByMission[m.id]||"npm_test"} onChange=${e=>setCliActionByMission(p=>({...p,[m.id]:e.currentTarget.value}))}>
-                    ${CLI_ACTIONS.map(([val,label])=>html`<option value=${val}>${label}</option>`)}
-                  </select>
+                  <${Select} block=${false} width=${180} label=${t("agency.cliActionLabel")} value=${cliActionByMission[m.id]||"npm_test"} options=${CLI_ACTIONS} onChange=${v=>setCliActionByMission(p=>({...p,[m.id]:v}))}/>
                   <button class="btn" type="button" disabled=${!!busy} onClick=${()=>executeMission(m.id,"cli_tool",cliActionByMission[m.id]||"npm_test")}>${t("agency.runCliBtn")}</button>
                   ${m.status==="planned"&&html`<button class="btn" type="button" onClick=${()=>updateMission(m.id,"running")}>${t("agency.startMissionBtn")}</button>`}
                   ${(m.status==="planned"||m.status==="running")&&html`<button class="btn primary" type="button" onClick=${()=>updateMission(m.id,"completed")}>${t("agency.completeMissionBtn")}</button>`}

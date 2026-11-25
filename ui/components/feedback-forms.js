@@ -3,7 +3,7 @@
 // - 遇到问题：一段描述 + 折叠的"报错与诊断"（有真实报错时可附带，运行状态和日志勾选才读取）。不支持截图附件。
 // - 企业与合作：顶部商务横条（固定外链，不带任何数据）、可移除的咨询场景、必选的角色、按角色变化的题目、选填的企业背景。
 // 三个分类共用同一个留联组件（ContactBlock），数据仍各归各的草稿。所有颜色复用现有灰色体系。
-import { html, Icon } from "./ui.js";
+import { Checkbox, html, Icon, Radio, Select } from "./ui.js";
 import { ErrorLine } from "./app-dialogs.js";
 import { t } from "../lib/i18n.js";
 import { BUSINESS_CONTACT_URL, PRODUCT_INTERESTS, TEAM_SIZES } from "../lib/feedback-links.js";
@@ -40,16 +40,20 @@ export function ContactBlock({ tab, draft, ui, identity, disabled, onUi, onDraft
     <div class="fb-well" role="group" aria-labelledby=${`${id}-title`}>
       <div class="fb-well-head"><b id=${`${id}-title`}>${t("feedback.contact.title")}</b>
         <button type="button" class="fb-link-btn" disabled=${disabled} onClick=${() => onUi({ contactOpen: false, consent: false, channel: "" })}>${t("feedback.contact.remove")}</button></div>
-      <label class="sheet-check"><input type="checkbox" checked=${ui.consent} disabled=${disabled}
-        onChange=${(e) => (e.target.checked ? onUi({ consent: true }) : onUi({ consent: false, channel: "", contactOpen: false }))} /><span>${t("feedback.contact.consent")}</span></label>
+      <${Checkbox} class="sheet-check" checked=${ui.consent} disabled=${disabled}
+        label=${t("feedback.contact.consent")}
+        onChange=${(checked) => (checked ? onUi({ consent: true }) : onUi({ consent: false, channel: "", contactOpen: false }))} />
       ${ui.consent && html`<div class="fb-radios" role="radiogroup" aria-label=${t("feedback.contact.title")}>
-        <label class=${`fb-radio${emailOk ? "" : " off"}`}><input type="radio" name=${`${id}-ch`} checked=${ui.channel === "account"} disabled=${disabled || !emailOk} onChange=${() => onUi({ channel: "account" })} />
-          <span>${t("feedback.contact.useAccount")}<small class="hint">${emailOk ? identity.email : t("feedback.contact.accountUnavailable")}</small></span></label>
-        <label class="fb-radio"><input type="radio" name=${`${id}-ch`} checked=${ui.channel === "other"} disabled=${disabled} onChange=${() => onUi({ channel: "other" })} />
-          <span>${t("feedback.contact.otherChannel")}</span></label>
+        <${Radio} class=${`fb-radio${emailOk ? "" : " off"}`} name=${`${id}-ch`} value="account" checked=${ui.channel === "account"} disabled=${disabled || !emailOk}
+          label=${t("feedback.contact.useAccount")} sub=${emailOk ? identity.email : t("feedback.contact.accountUnavailable")}
+          onChange=${() => onUi({ channel: "account" })} />
+        <${Radio} class="fb-radio" name=${`${id}-ch`} value="other" checked=${ui.channel === "other"} disabled=${disabled}
+          label=${t("feedback.contact.otherChannel")}
+          onChange=${() => onUi({ channel: "other" })} />
         ${ui.channel === "other" && html`<div class="fb-contact-row">
-          <select class="field fb-contact-kind" aria-label=${t("feedback.contact.kindLabel")} value=${draft.contactKind || "email"} disabled=${disabled} onChange=${(e) => onDraft({ contactKind: e.target.value })}>
-            <option value="email">${t("feedback.contact.kindEmail")}</option><option value="wechat">${t("feedback.contact.kindWechat")}</option></select>
+          <${Select} class="fb-contact-kind" block=${false} width=${150} label=${t("feedback.contact.kindLabel")} value=${draft.contactKind || "email"} disabled=${disabled}
+            options=${[["email", t("feedback.contact.kindEmail")], ["wechat", t("feedback.contact.kindWechat")]]}
+            onChange=${(v) => onDraft({ contactKind: v })} />
           <input class="field" type=${(draft.contactKind || "email") === "email" ? "email" : "text"} autocomplete=${(draft.contactKind || "email") === "email" ? "email" : "off"} spellcheck="false"
             aria-label=${(draft.contactKind || "email") === "email" ? t("feedback.contact.emailPlaceholder") : t("feedback.contact.wechatPlaceholder")}
             placeholder=${(draft.contactKind || "email") === "email" ? t("feedback.contact.emailPlaceholder") : t("feedback.contact.wechatPlaceholder")}
@@ -84,12 +88,10 @@ export function BugForm({ draft, ui, total, max, disabled, errorContext, env, on
       <button type="button" class="fb-diag-head" aria-expanded=${ui.diagOpen} disabled=${disabled} onClick=${() => onUi({ diagOpen: !ui.diagOpen })}>
         <b>${t("feedback.bug.diag")}</b><span class="fb-dot" aria-hidden="true">·</span><span>${ui.diagOpen ? t("feedback.bug.collapse") : t("feedback.bug.expand")}</span></button>
       ${ui.diagOpen && html`<div class="fb-diag-body">
-        ${errorContext && html`<label class="sheet-check"><input type="checkbox" checked=${ui.includeError} disabled=${disabled} onChange=${(e) => onUi({ includeError: e.target.checked })} />
-          <span>${t("feedback.bug.includeError")}<small class="hint">${t("feedback.bug.includeErrorSub")}</small></span></label>
+        ${errorContext && html`<${Checkbox} class="sheet-check" checked=${ui.includeError} disabled=${disabled} label=${t("feedback.bug.includeError")} sub=${t("feedback.bug.includeErrorSub")} onChange=${(checked) => onUi({ includeError: checked })} />
           ${ui.includeError && html`<pre class="fb-pre" tabindex="0" aria-label=${t("feedback.bug.includeError")}>${errorContext.text}</pre>`}
           ${ui.includeError && errorLong && html`<p class="hint">${t("feedback.bug.errorLong", { max: env?.errorMax ?? 1500 })}</p>`}`}
-        <label class="sheet-check"><input type="checkbox" checked=${ui.includeLogs} disabled=${disabled} onChange=${(e) => onUi({ includeLogs: e.target.checked })} />
-          <span>${t("feedback.bug.includeLogs")}<small class="hint">${t("feedback.bug.includeLogsSub")}</small></span></label>
+        <${Checkbox} class="sheet-check" checked=${ui.includeLogs} disabled=${disabled} label=${t("feedback.bug.includeLogs")} sub=${t("feedback.bug.includeLogsSub")} onChange=${(checked) => onUi({ includeLogs: checked })} />
         ${env && html`<p class="hint">${t("feedback.bug.env", { version: env.version, os: t(`feedback.os.${env.os === "other" ? "unknown" : env.os}`), runtime: t(`feedback.bug.runtime_${env.runtime}`) })}</p>`}
       </div>`}
     </div>`;
@@ -123,26 +125,26 @@ export function EnterpriseForm({ draft, ui, total, max, disabled, scenarioName, 
     <div class="fb-two">
       <label class="fb-field"><span>${t("feedback.enterprise.company")}</span>
         <input class="field" autocomplete="organization" value=${b.company_name || ""} placeholder=${t("feedback.enterprise.companyPlaceholder")} disabled=${disabled} onInput=${(e) => setB({ company_name: e.target.value })} /></label>
-      <label class="fb-field"><span>${t("feedback.enterprise.teamSize")}</span>
-        <select class="field" value=${b.team_size || ""} disabled=${disabled} onChange=${(e) => setB({ team_size: e.target.value })}>
-          <option value="">${b.team_size ? t("feedback.enterprise.teamNone") : t("feedback.enterprise.choose")}</option>
-          ${TEAM_SIZES.map((s) => html`<option value=${s}>${t(`feedback.enterprise.team_${s}`)}</option>`)}
-        </select></label>
+      <div class="fb-field"><span>${t("feedback.enterprise.teamSize")}</span>
+        <${Select} label=${t("feedback.enterprise.teamSize")} value=${b.team_size || ""} disabled=${disabled}
+          placeholder=${b.team_size ? t("feedback.enterprise.teamNone") : t("feedback.enterprise.choose")}
+          options=${[["", b.team_size ? t("feedback.enterprise.teamNone") : t("feedback.enterprise.choose")], ...TEAM_SIZES.map((s) => [s, t(`feedback.enterprise.team_${s}`)])]}
+          onChange=${(v) => setB({ team_size: v })} /></div>
     </div>
     <${Fold} open=${ui.backgroundOpen} label=${t("feedback.enterprise.background")} disabled=${disabled} onToggle=${() => onUi({ backgroundOpen: !ui.backgroundOpen })} />
     ${ui.backgroundOpen && html`<div class="fb-fields">
       <p class="hint fb-note">${t("feedback.enterprise.backgroundNote")}</p>
       <div class="fb-two">
         <label class="fb-field"><span>${t("feedback.enterprise.jobRole")}</span><input class="field" autocomplete="organization-title" value=${b.job_role || ""} disabled=${disabled} onInput=${(e) => setB({ job_role: e.target.value })} /></label>
-        <label class="fb-field"><span>${t("feedback.enterprise.product")}</span>
-          <select class="field" value=${b.product_interest || ""} disabled=${disabled} onChange=${(e) => setB({ product_interest: e.target.value })}>
-            <option value="">${t("feedback.enterprise.productNone")}</option>
-            ${PRODUCT_INTERESTS.map((p) => html`<option value=${p}>${t(`feedback.enterprise.product_${p}`)}</option>`)}
-          </select></label>
+        <div class="fb-field"><span>${t("feedback.enterprise.product")}</span>
+          <${Select} label=${t("feedback.enterprise.product")} value=${b.product_interest || ""} disabled=${disabled}
+            placeholder=${t("feedback.enterprise.productNone")}
+            options=${[["", t("feedback.enterprise.productNone")], ...PRODUCT_INTERESTS.map((p) => [p, t(`feedback.enterprise.product_${p}`)])]}
+            onChange=${(v) => setB({ product_interest: v })} /></div>
       </div>
       <label class="fb-field"><span>${t("feedback.enterprise.systems")}</span><input class="field" value=${b.current_systems || ""} disabled=${disabled} onInput=${(e) => setB({ current_systems: e.target.value })} /></label>
       <label class="fb-field"><span>${t("feedback.enterprise.partnership")}</span><textarea class="field" rows="2" value=${b.partnership_context || ""} disabled=${disabled} onInput=${(e) => setB({ partnership_context: e.target.value })}></textarea></label>
-      ${draft.role === "enterprise_use" && html`<label class="sheet-check"><input type="checkbox" checked=${!!b.introduce_to_own_company} disabled=${disabled} onChange=${(e) => setB({ introduce_to_own_company: e.target.checked })} /><span>${t("feedback.enterprise.introduce")}</span></label>`}
+      ${draft.role === "enterprise_use" && html`<${Checkbox} class="sheet-check" checked=${!!b.introduce_to_own_company} disabled=${disabled} label=${t("feedback.enterprise.introduce")} onChange=${(checked) => setB({ introduce_to_own_company: checked })} />`}
     </div>`}`;
 }
 

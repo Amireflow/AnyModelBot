@@ -1,0 +1,64 @@
+/* 自绘复选框 .chk 與单选框 .rad：完全替代系统原生 checkbox / radio，统一跟随主题与焦点环。 */
+.chk, .rad {
+  display: inline-flex; align-items: flex-start; gap: var(--space-2);
+  font-size: var(--fs-sm); line-height: var(--lh-normal); color: var(--fg-2);
+  cursor: pointer; user-select: none; min-width: 0;
+}
+.chk.disabled, .rad.disabled { opacity: var(--o-disabled); cursor: not-allowed; }
+.chk-txt, .rad-txt { display: grid; gap: var(--space-0-5); min-width: 0; }
+.chk-sub, .rad-sub { font-size: var(--fs-xs); color: var(--muted); }
+
+.chk-box {
+  position: relative; flex: none;
+  display: grid; place-items: center;
+  width: var(--ctl-xs); height: var(--ctl-xs);
+  margin-top: 2px;   /* 微调：与第一行文字基线居中 */
+  border-radius: var(--r-mark);
+  background: var(--fill-field);
+  color: transparent;
+  box-shadow: inset 0 0 0 1px var(--line);   /* 描边：复选框未选时的轮廓 */
+  transition: background var(--t-fast), box-shadow var(--t-fast), color var(--t-fast), transform var(--t-fast);
+}
+.chk:hover:not(.disabled) .chk-box { background: var(--fill-field-hover); }
+.chk:active:not(.disabled) .chk-box { transform: scale(.94); }
+.chk.on .chk-box {
+  background: var(--primary); color: var(--on-primary);
+  box-shadow: none;
+}
+.chk.on:hover:not(.disabled) .chk-box { background: var(--primary-hover); }
+.chk:has(> input:focus-visible) .chk-box {
+  box-shadow: 0 0 0 3px var(--fill-field-hover);   /* 描边：键盘聚焦淡光晕 */
+}
+.chk.on:has(> input:focus-visible) .chk-box {
+  box-shadow: 0 0 0 3px var(--fill-field-hover);   /* 描边：键盘聚焦淡光晕 */
+}
+
+.rad-dot {
+  position: relative; flex: none;
+  display: grid; place-items: center;
+  width: var(--ctl-xs); height: var(--ctl-xs);
+  margin-top: 2px;   /* 微调：与第一行文字基线居中 */
+  border-radius: 50%;
+  background: var(--fill-field);
+  box-shadow: inset 0 0 0 1px var(--line);   /* 描边：单选框未选时的轮廓 */
+  transition: background var(--t-fast), box-shadow var(--t-fast), transform var(--t-fast);
+}
+.rad-dot::after {
+  content: "";
+  width: var(--space-2); height: var(--space-2);
+  border-radius: 50%;
+  background: var(--on-primary);
+  transform: scale(0);
+  transition: transform var(--t-fast);
+}
+.rad:hover:not(.disabled) .rad-dot { background: var(--fill-field-hover); }
+.rad.on .rad-dot { background: var(--primary); box-shadow: none; }
+.rad.on .rad-dot::after { transform: scale(1); }
+.rad:has(> input:focus-visible) .rad-dot {
+  box-shadow: 0 0 0 3px var(--fill-field-hover);   /* 描边：键盘聚焦淡光晕 */
+}
+
+/* 行内卡片里的勾选与 Markdown 任务列表项 */
+.agency-skill-check .chk { width: 100%; align-items: flex-start; }
+.draft-fix .chk, .apps-tools .chk { width: 100%; }
+li.task { display: flex; align-items: flex-start; gap: var(--space-2); list-style: none; }

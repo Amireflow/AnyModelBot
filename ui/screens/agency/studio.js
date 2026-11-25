@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { BotAvatar } from "../../components/avatar.js";
 import { Markdown } from "../../components/markdown.js";
-import { CopyButton, html, Icon, Spinner } from "../../components/ui.js";
+import { CopyButton, html, Icon, Select, Spinner } from "../../components/ui.js";
 import { api, sseParser } from "../../lib/api.js";
 import { getLang, t } from "../../lib/i18n.js";
+import { confirmSheet } from "../../lib/store.js";
 import { agentAvatarOf } from "./agent-avatars.js";
 import { readFilePayload } from "./copilot.js";
 
@@ -181,7 +182,7 @@ export function ProjectStudio({
 
   const openFile = async (relPath, pid = project?.id, force = false) => {
     if (!relPath || !pid) return;
-    if (!force && relPath !== selectedPath && isDirty && !window.confirm(t("agency.studioUnsavedSwitchConfirm"))) return;
+    if (!force && relPath !== selectedPath && isDirty && !(await confirmSheet({ title: t("agency.studioUnsavedSwitchConfirm"), danger: true }))) return;
     setSelectedPath(relPath);
     setOpenTabs((prev) => (prev.includes(relPath) ? prev : [...prev.slice(-7), relPath]));
     try {
@@ -194,9 +195,9 @@ export function ProjectStudio({
     }
   };
 
-  const closeTab = (relPath, e) => {
+  const closeTab = async (relPath, e) => {
     e?.stopPropagation();
-    if (selectedPath === relPath && isDirty && !window.confirm(t("agency.studioUnsavedSwitchConfirm"))) return;
+    if (selectedPath === relPath && isDirty && !(await confirmSheet({ title: t("agency.studioUnsavedSwitchConfirm"), danger: true }))) return;
     const nextTabs = openTabs.filter((p) => p !== relPath);
     setOpenTabs(nextTabs);
     if (selectedPath === relPath) {
@@ -368,8 +369,8 @@ export function ProjectStudio({
 
   const startDevServer = async (pid = project?.id, { restart = false, mode = executionMode } = {}) => {
     if (!orgId || !pid || devServerBusy) return null;
-    if (!window.confirm(t("agency.studioPreviewLaunchConfirm"))) return null;
-    if (mode === "host" && !window.confirm(t("agency.studioTrustedHostConfirm"))) return null;
+    if (!(await confirmSheet({ title: t("agency.studioPreviewLaunchConfirm") }))) return null;
+    if (mode === "host" && !(await confirmSheet({ title: t("agency.studioTrustedHostConfirm"), danger: true }))) return null;
     setDevServerBusy(true); setError(""); setNotice("");
     try {
       const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/devserver/start`, {
@@ -634,7 +635,7 @@ export function ProjectStudio({
 
   const clearHistory = async () => {
     if (!orgId || !project?.id || busy) return;
-    if (!window.confirm(t("agency.studioClearConfirm"))) return;
+    if (!(await confirmSheet({ title: t("agency.studioClearConfirm"), danger: true }))) return;
     try {
       await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/history`, { method: "DELETE" });
       setMessages([]);
@@ -840,8 +841,8 @@ export function ProjectStudio({
     </div>`;
   };
 
-  const selectProjectSafely = (nextId) => {
-    if (isDirty && !window.confirm(t("agency.studioUnsavedSwitchConfirm"))) return;
+  const selectProjectSafely = async (nextId) => {
+    if (isDirty && !(await confirmSheet({ title: t("agency.studioUnsavedSwitchConfirm"), danger: true }))) return;
     onSelectProject?.(nextId);
   };
 
@@ -856,30 +857,32 @@ export function ProjectStudio({
     >
       <div class="agency-studio-chat-top">
         <div class="agency-studio-project-pick">
-          <select
-            class="field agency-studio-project-select"
-            aria-label=${t("agency.projectsTitle")}
+          <${Select}
+            class="agency-studio-project-select"
+            label=${t("agency.projectsTitle")}
             value=${selectedProjectId}
-            onChange=${(e) => selectProjectSafely(e.currentTarget.value)}
-          >
-            <option value="__new__">${t("agency.studioNewChatOption")}</option>
-            ${projects.map((p) => html`<option value=${p.id}>${p.title}</option>`)}
-          </select>
+            width=${260}
+            options=${[["__new__", t("agency.studioNewChatOption")], ...projects.map((p) => [p.id, p.title])]}
+            onChange=${(v) => void selectProjectSafely(v)}
+          />
         </div>
         <div class="agency-studio-chat-tools">
-          <select
-            class="field agency-studio-agent-select"
-            aria-label=${t("agency.studioSubagentFilterLabel")}
+          <${Select}
+            class="agency-studio-agent-select"
+            label=${t("agency.studioSubagentFilterLabel")}
             value=${targetSubagent}
-            onChange=${(e) => setTargetSubagent(e.currentTarget.value)}
-          >
-            <option value="">${t("agency.studioSubagentAuto")}</option>
-            <option value="architect">${t("agency.studioSubagentNames.architect")}</option>
-            <option value="ui_ux">${t("agency.studioSubagentNames.ui_ux")}</option>
-            <option value="frontend">${t("agency.studioSubagentNames.frontend")}</option>
-            <option value="backend">${t("agency.studioSubagentNames.backend")}</option>
-            <option value="qa">${t("agency.studioSubagentNames.qa")}</option>
-          </select>
+            width=${220}
+            align="right"
+            options=${[
+              ["", t("agency.studioSubagentAuto")],
+              ["architect", t("agency.studioSubagentNames.architect")],
+              ["ui_ux", t("agency.studioSubagentNames.ui_ux")],
+              ["frontend", t("agency.studioSubagentNames.frontend")],
+              ["backend", t("agency.studioSubagentNames.backend")],
+              ["qa", t("agency.studioSubagentNames.qa")],
+            ]}
+            onChange=${setTargetSubagent}
+          />
           <button
             class="icon-btn sm"
             type="button"
@@ -1133,10 +1136,19 @@ export function ProjectStudio({
         </div>
 
         ${workspaceTab === "preview" && (hasIndex || devServer?.hasDevScript) && html`<div class="agency-studio-preview-bar">
-          ${devServer?.hasDevScript && html`<select class="field agency-studio-execution-mode" aria-label=${t("agency.studioExecutionModeLabel")} value=${executionMode} disabled=${devServerBusy || !!devServer?.running} onChange=${(e) => setExecutionMode(e.currentTarget.value)}>
-            <option value="container">${t("agency.studioExecutionModeContainer")}</option>
-            <option value="host">${t("agency.studioExecutionModeHost")}</option>
-          </select>`}
+          ${devServer?.hasDevScript && html`<${Select}
+            class="agency-studio-execution-mode"
+            label=${t("agency.studioExecutionModeLabel")}
+            value=${executionMode}
+            block=${false}
+            width=${210}
+            disabled=${devServerBusy || !!devServer?.running}
+            options=${[
+              ["container", t("agency.studioExecutionModeContainer")],
+              ["host", t("agency.studioExecutionModeHost")],
+            ]}
+            onChange=${setExecutionMode}
+          />`}
           ${devServer?.hasDevScript && html`<button
             type="button"
             class=${"btn sm" + (devServer.running ? "" : " primary")}

@@ -4,7 +4,7 @@
 // Markdown（3f）。编辑器里有每次、每月的预算（3f，检查才有）；新建的检查还能选执行（默认）或观察。
 // 健康时不多说话：状态是"点 + 文字"（绿 = 执行中、提醒，灰 = 观察中、关了，红 = 暂停了）。
 import { useEffect, useState } from "preact/hooks";
-import { html, Icon, Button, Seg, Sheet, Spinner, Switch } from "./ui.js";
+import { html, Icon, Button, Radio, Seg, Select, Sheet, Spinner, Switch } from "./ui.js";
 import { ActivityLine } from "./activity.js";
 import { api } from "../lib/api.js";
 import { confirmSheet, failed, toast } from "../lib/store.js";
@@ -251,11 +251,11 @@ export function scheduleOf(f, tz) {
 export function DestinationPicker({ destinations, value, onChange }) {
   const section = (d) => d.channel !== "web" ? "channels" : d.kind === "group" ? "groups" : "desktop";
   return html`<div class="rule-destinations" role="radiogroup" aria-label=${t("rules.to")}>
-    ${destinations.map((d, i) => html`${(!i || section(destinations[i - 1]) !== section(d)) && html`<span class="t-label">${t(`scheduled.${section(d)}`)}</span>`}<label class="rule-destination-option" key=${d.id}><input type="radio" name="rule-destination" value=${d.id} checked=${value === d.id} onChange=${() => onChange(d.id)} /><span>${d.title}</span>${d.default && html`<span class="hint">${t("scheduled.default")}</span>`}</label>`)}
+    ${destinations.map((d, i) => html`${(!i || section(destinations[i - 1]) !== section(d)) && html`<span class="t-label">${t(`scheduled.${section(d)}`)}</span>`}<${Radio} key=${d.id} class="rule-destination-option" name="rule-destination" value=${d.id} checked=${value === d.id} label=${html`<span>${d.title}</span>${d.default && html` <span class="hint">${t("scheduled.default")}</span>`}`} onChange=${() => onChange(d.id)} />`)}
   </div><p class="hint rule-destination-hint">${t("scheduled.destinationHint")}</p>`;
 }
 export function GroupPicker({ groups, value, onChange }) {
-  return html`<label>${t("scheduled.groupLabel")}${groups.length ? html`<select class="field" value=${value} onChange=${(e) => onChange(e.target.value)}><option value="">${t("scheduled.groupMissing")}</option>${groups.map((g) => html`<option key=${g.id} value=${g.id}>${g.name}</option>`)}</select>` : html`<span class="hint">${t("scheduled.noGroups")}</span>`}</label>`;
+  return html`<div class="rule-field">${t("scheduled.groupLabel")}${groups.length ? html`<${Select} label=${t("scheduled.groupLabel")} value=${value} placeholder=${t("scheduled.groupMissing")} options=${[["", t("scheduled.groupMissing")], ...groups.map((g) => [g.id, g.name])]} onChange=${onChange} />` : html`<span class="hint">${t("scheduled.noGroups")}</span>`}</div>`;
 }
 
 /** 三个入口共用的开关、补选确认框和预算恢复入口。 */
@@ -315,6 +315,7 @@ const monthName = (m) => new Date(2024, m - 1, 1).toLocaleDateString(locale(), {
  */
 export function ScheduleFields({ f, setF, zone, preview, error, remind, more, setMore, compact = false }) {
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const setVal = (k) => (v) => setF({ ...f, [k]: v });
   const toggleDay = (d) => setF({ ...f, days: f.days.includes(d) ? f.days.filter((x) => x !== d) : [...f.days, d] });
   const full = !compact || more;
   const timed = ["daily", "weekdays", "weekly", "monthly", "yearly"].includes(f.kind);
@@ -323,8 +324,8 @@ export function ScheduleFields({ f, setF, zone, preview, error, remind, more, se
     ${more && html`<${Seg} label=${t("scheduled.more")} options=${MORE_KINDS.map((k) => [k, t(k === "yearly" ? "scheduled.yearly" : `rules.kinds.${k}`)])} value=${f.kind} onChange=${(kind) => setF({ ...f, kind })} />`}
     <div class="rule-when-row">
       ${!full ? html`${timed && html`<input class="field num" type="time" aria-label=${t("rules.when")} value=${f.time} onInput=${set("time")} />`}` : html`
-      ${f.kind === "yearly" && html`<select class="field" aria-label=${t("scheduled.yearly")} value=${f.month} onChange=${set("month")}>${Array.from({ length: 12 }, (_, i) => html`<option value=${i + 1}>${monthName(i + 1)}</option>`)}</select>`}
-      ${(f.kind === "monthly" || f.kind === "yearly") && html`<select class="field" aria-label=${t("scheduled.monthly")} value=${f.day} onChange=${set("day")}>${Array.from({ length: 31 }, (_, i) => html`<option value=${i + 1}>${i + 1}</option>`)}${f.kind === "monthly" && html`<option value="last">${t("scheduled.lastDay")}</option>`}</select>`}
+      ${f.kind === "yearly" && html`<${Select} block=${false} width=${150} label=${t("scheduled.yearly")} value=${String(f.month)} options=${Array.from({ length: 12 }, (_, i) => [String(i + 1), monthName(i + 1)])} onChange=${setVal("month")} />`}
+      ${(f.kind === "monthly" || f.kind === "yearly") && html`<${Select} block=${false} width=${130} label=${t("scheduled.monthly")} value=${String(f.day)} options=${[...Array.from({ length: 31 }, (_, i) => [String(i + 1), String(i + 1)]), ...(f.kind === "monthly" ? [["last", t("scheduled.lastDay")]] : [])]} onChange=${setVal("day")} />`}
       ${["daily", "weekdays", "weekly", "monthly", "yearly"].includes(f.kind) && html`<input class="field num" type="time" aria-label=${t("rules.when")} value=${f.time} onInput=${set("time")} />`}
       ${f.kind === "every" && html`<input class="field num" type="number" min="15" max="10080" step="1" aria-label=${t("rules.minutes")} value=${f.minutes} onInput=${set("minutes")} /><span class="hint">${t("rules.minutes")}</span>`}
       ${f.kind === "once" && html`<input class="field num" type="datetime-local" aria-label=${t("rules.when")} value=${f.at} onInput=${set("at")} />`}
@@ -406,11 +407,12 @@ export function RuleEditor({ botId, rule, onClose, onSaved, advanced = false }) 
       ${!rule && html`<p class="hint rule-library-link"><button type="button" class="text" onClick=${() => leaveForLibrary(!!(title.trim() || words.trim()), onClose)}>${t("routines.notSure")}</button></p>`}
       ${!rule && html`<div class="rule-types" role="radiogroup" aria-label=${t("rules.kind")}>${["remind", "check"].map((value) => html`<label class=${`rule-type${kind === value ? " selected" : ""}`}><input class="sr-only" type="radio" name="rule-kind" value=${value} checked=${kind === value} onChange=${() => setKind(value)} onKeyDown=${(e) => { if (e.key === "Enter") { e.preventDefault(); setKind(value); } }} /><span class="rule-type-icon"><${Icon} name=${value === "remind" ? "chat" : "spark"} size="lg" /></span><span><b>${t(value === "remind" ? "rules.kindRemind" : "rules.kindCheck")}</b><small>${t(`scheduled.kindHint.${value}`)}</small></span></label>`)}</div>`}
       <section class="rule-content-group"><label>${t("rules.name")}<input class="field" data-autofocus value=${title} maxlength="40" onInput=${(e) => setTitle(e.target.value)} /></label>
-      ${!remind && (mineOn.length > 0 || rule?.skill) && html`<label>${t("mySkills.rules.pick")}<select class="field" value=${skill} onChange=${(e) => pickSkill(e.target.value)}>
-        <option value="">${t("mySkills.rules.none")}</option>
-        ${rule?.skill && !mineOn.some((s) => s.name === rule.skill.name) && html`<option value=${rule.skill.name} disabled>${rule.skill.title}</option>`}
-        ${mineOn.map((s) => { const why = unschedulable(s.mine); return html`<option value=${s.name} disabled=${!!why && s.name !== skill}>${why ? `${s.title} — ${why}` : s.title}</option>`; })}
-      </select></label>`}
+      ${!remind && (mineOn.length > 0 || rule?.skill) && html`<div class="rule-field"><span>${t("mySkills.rules.pick")}</span><${Select} label=${t("mySkills.rules.pick")} value=${skill} placeholder=${t("mySkills.rules.none")}
+        options=${[
+          ["", t("mySkills.rules.none")],
+          ...(rule?.skill && !mineOn.some((s) => s.name === rule.skill.name) ? [{ value: rule.skill.name, label: rule.skill.title, disabled: true }] : []),
+          ...mineOn.map((s) => { const why = unschedulable(s.mine); return { value: s.name, label: why ? `${s.title} — ${why}` : s.title, disabled: !!why && s.name !== skill }; }),
+        ]} onChange=${pickSkill} /></div>`}
       <label>${remind ? t("rules.wordsRemind") : t("rules.wordsCheck")}<textarea class="field" rows=${remind ? 2 : 3} maxlength=${remind ? 300 : 2000} value=${words} onInput=${(e) => setWords(e.target.value)}></textarea></label></section>
       ${!event && html`<div class="rule-when"><h3 class="rule-group-title">${t("rules.when")}</h3>
         <${ScheduleFields} f=${f} setF=${setF} zone=${zone} preview=${preview} error=${unchanged ? "" : error} remind=${remind} more=${more} setMore=${setMore} />
