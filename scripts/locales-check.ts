@@ -7,6 +7,7 @@ import { inspectLocale } from "./lib/locale-check.mjs";
 // @ts-expect-error Browser catalogs are plain JS.
 import { loadDicts, TARGET_LANGS } from "./i18n-check.mjs";
 import manifest from "../ui/locales/manifest.json" with { type: "json" };
+import websiteManifest from "../site/src/i18n/manifest.json" with { type: "json" };
 import { catalogs } from "../src/i18n/messages/index.js";
 import { translations, type TranslatedLang } from "../src/i18n/index.js";
 import sourceExceptions from "../site/src/i18n/source-exceptions.json" with { type: "json" };
@@ -23,25 +24,39 @@ const report = [];
 let blocked = false;
 for (const locale of manifest.locales.filter((l) => !["zh-CN", "en"].includes(l.code))) {
   const lang = locale.code as TranslatedLang;
+  const websiteLocale = websiteManifest.locales.find((item) => item.siteCode === locale.siteCode);
+  const websiteDict = websiteLocale
+    ? (RAW_DICTS as Partial<typeof RAW_DICTS>)[locale.siteCode as keyof typeof RAW_DICTS]
+    : undefined;
+  const websiteSurface = websiteDict
+    ? inspectLocale(RAW_DICTS.en, websiteDict, lang, { unchanged: sourceExceptions })
+    : undefined;
   const surfaces = {
     app: inspectLocale(ui.en, ui[lang], lang),
     server: inspectLocale(server, translations[lang], lang),
-    website: inspectLocale(RAW_DICTS.en, RAW_DICTS[lang], lang, { unchanged: sourceExceptions }),
+    ...(websiteSurface ? { website: websiteSurface } : {}),
     channels: inspectLocale(CHANNELS.en, CHANNELS[lang], lang),
     announcements: inspectLocale(ANNOUNCEMENTS.map((a) => a.en), ANNOUNCEMENTS.map((a) => a[lang]), lang),
   };
   const missingDocs = ["README", "CHANGELOG", "CONTRIBUTING", "SECURITY", "THIRD_PARTY_NOTICES", "docs/development", "docs/privacy", "docs/skills"]
     .map((name) => `${name}_${lang}.md`).filter((file) => !fs.existsSync(path.join(root, file)) || !fs.readFileSync(path.join(root, file), "utf8").trim());
-  if (RAW_DICTS[lang].meta?.lang !== LOCALES[locale.siteCode as keyof typeof LOCALES].tag) surfaces.website.errors.push({ key: "meta.lang", reason: "wrong HTML language tag" });
-  const image = RAW_DICTS[lang].meta?.ogImage;
-  if (!image || !fs.existsSync(path.join(root, "site/public", image))) missingDocs.push(`site/public${image || "/og/<missing>"}`);
+  if (websiteDict && websiteLocale && websiteSurface) {
+    if (websiteDict.meta?.lang !== LOCALES[locale.siteCode as keyof typeof LOCALES].tag) {
+      websiteSurface.errors.push({ key: "meta.lang", reason: "wrong HTML language tag" });
+    }
+    const image = websiteDict.meta?.ogImage;
+    if (!image || !fs.existsSync(path.join(root, "site/public", image))) missingDocs.push(`site/public${image || "/og/<missing>"}`);
+  }
   const ready = Object.values(surfaces).every((s) => !s.errors.length) && !missingDocs.length;
   if (!ready) blocked = true;
   report.push({ lang, ready, surfaces, missingDocs });
 }
-if (fs.readFileSync(path.join(root, "ui/locales/manifest.json"), "utf8") !== fs.readFileSync(path.join(root, "site/src/i18n/manifest.json"), "utf8")) {
+const publishedSiteLocales = manifest.locales.filter((item) =>
+  websiteManifest.locales.some((siteLocale) => siteLocale.siteCode === item.siteCode));
+if (manifest.source !== websiteManifest.source || manifest.fallback !== websiteManifest.fallback
+  || JSON.stringify(publishedSiteLocales) !== JSON.stringify(websiteManifest.locales)) {
   blocked = true;
-  console.error("The app and website language manifests differ.");
+  console.error("The website language manifest must be an ordered subset of the app locale manifest.");
 }
 if (process.argv.includes("--json")) console.log(JSON.stringify(report, null, 2));
 else for (const { lang, ready, surfaces, missingDocs } of report) {
