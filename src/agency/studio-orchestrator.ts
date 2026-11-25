@@ -95,6 +95,7 @@ export interface StudioSubagentRunSummary {
   ok: boolean;
   summary: string;
   modifiedFiles: string[];
+  cancelled?: boolean;
 }
 
 export interface StudioChatMessage {
@@ -107,7 +108,9 @@ export interface StudioChatMessage {
   plan?: StudioPlan;
   subagentRuns?: StudioSubagentRunSummary[];
   modifiedFiles?: string[];
+  snapshotBeforeCommit?: string;
   snapshotCommit?: string;
+  cancelled?: boolean;
 }
 
 export interface StudioProjectState {
@@ -221,11 +224,16 @@ function sanitizeMessage(raw: unknown): StudioChatMessage | null {
         modifiedFiles: Array.isArray(r.modifiedFiles)
           ? r.modifiedFiles.map((f) => String(f)).filter(Boolean).slice(0, 40)
           : [],
+        ...(r.cancelled === true ? { cancelled: true } : {}),
       }));
   }
   if (Array.isArray(m.modifiedFiles)) {
     msg.modifiedFiles = m.modifiedFiles.map((f) => String(f)).filter(Boolean).slice(0, 60);
   }
+  if (typeof m.snapshotBeforeCommit === "string" && /^[0-9a-f]{7,40}$/i.test(m.snapshotBeforeCommit)) {
+    msg.snapshotBeforeCommit = m.snapshotBeforeCommit;
+  }
+  if (m.cancelled === true) msg.cancelled = true;
   if (typeof m.snapshotCommit === "string" && /^[0-9a-f]{7,40}$/i.test(m.snapshotCommit)) {
     msg.snapshotCommit = m.snapshotCommit;
   }
@@ -497,6 +505,7 @@ export async function runStudioConversation(input: {
   hasLlmEndpoint?: boolean;
   resolveRuntime: StudioRuntimeResolver;
   onEvent?: (event: string, data: unknown) => void;
+  signal?: AbortSignal;
 }): Promise<{
   message: StudioChatMessage;
   plan: StudioPlan | null;
@@ -532,6 +541,43 @@ export async function runStudioConversation(input: {
   await saveStudioState(input.dataDir, input.project.id, state);
   input.onEvent?.("status", { phase: input.mode, message: userDisplay });
 
+  const persistCancelledTurn = async (
+    text: string,
+    details: {
+      modifiedFiles?: string[];
+      subagentRuns?: StudioSubagentRunSummary[];
+      snapshotBeforeCommit?: string;
+      snapshotCommit?: string;
+    } = {},
+  ) => {
+    const assistantMsg: StudioChatMessage = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      mode: input.mode,
+      text,
+      at: new Date().toISOString(),
+      cancelled: true,
+      ...(details.modifiedFiles?.length ? { modifiedFiles: details.modifiedFiles } : {}),
+      ...(details.subagentRuns?.length ? { subagentRuns: details.subagentRuns } : {}),
+      ...(details.snapshotBeforeCommit ? { snapshotBeforeCommit: details.snapshotBeforeCommit } : {}),
+      ...(details.snapshotCommit ? { snapshotCommit: details.snapshotCommit } : {}),
+      ...(input.mode === "plan" && state.plan ? { plan: state.plan } : {}),
+    };
+    state.messages.push(assistantMsg);
+    const saved = await saveStudioState(input.dataDir, input.project.id, state);
+    if (state.plan) input.onEvent?.("plan", { plan: state.plan });
+    input.onEvent?.("message", { message: assistantMsg });
+    input.onEvent?.("done", {
+      message: assistantMsg,
+      plan: state.plan,
+      modifiedFiles: details.modifiedFiles ?? [],
+      subagentRuns: details.subagentRuns ?? [],
+      cancelled: true,
+      state: saved,
+    });
+    return { message: assistantMsg, plan: state.plan, state: saved };
+  };
+
   const historyLines = state.messages
     .slice(-13, -1)
     .map((m) => `[${m.role === "user" ? "Utilisateur" : "Studio IA"} · ${m.mode}] ${m.text.slice(0, 1200)}`);
@@ -559,16 +605,26 @@ export async function runStudioConversation(input: {
       `DEMANDE UTILISATEUR (Mode Plan / Discussion) :\n${userDisplay}`,
     ].filter(Boolean).join("\n\n");
 
-    const raw = await input.modelClient.streamChat(
-      {
-        model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-      },
-      () => {},
-    );
+    let raw = "";
+    try {
+      raw = await input.modelClient.streamChat(
+        {
+          model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          signal: input.signal,
+        },
+        () => {},
+      );
+    } catch (error) {
+      if (!input.signal?.aborted) throw error;
+      return persistCancelledTurn("Génération du plan interrompue avant la fin de la réponse.");
+    }
+    if (input.signal?.aborted) {
+      return persistCancelledTurn("Génération du plan interrompue avant la fin de la réponse.");
+    }
 
     const parsed = parseJsonObjectFromReply(raw);
     const replyText =
@@ -599,17 +655,21 @@ export async function runStudioConversation(input: {
   }
 
   // MODE BUILD: Snapshot Git puis exécution orchestrée par les sous-agents spécialisés
-  await createStudioSnapshot(input.dataDir, input.project, "avant-studio-build").catch(() => undefined);
+  const beforeBuildSnapshot = await createStudioSnapshot(input.dataDir, input.project, "avant-studio-build").catch(() => undefined);
+  if (input.signal?.aborted) {
+    return persistCancelledTurn("Construction interrompue avant le démarrage des sous-agents.", {
+      snapshotBeforeCommit: beforeBuildSnapshot?.commitHash,
+    });
+  }
 
   let tasksToRun: StudioPlanTask[] = [];
   if (input.executePlan && state.plan?.tasks.length) {
+    if (state.plan.tasks.every((task) => task.status === "done")) {
+      throw new AgencyError("CONFLICT", "Ce plan est déjà terminé. Créez un nouveau plan avant de relancer une construction.");
+    }
     state.plan.status = "running";
     state.plan.updatedAt = new Date().toISOString();
     tasksToRun = state.plan.tasks.filter((t) => t.status !== "done");
-    if (tasksToRun.length === 0) {
-      tasksToRun = state.plan.tasks.map((t) => ({ ...t, status: "pending" as const }));
-      state.plan.tasks = tasksToRun;
-    }
     input.onEvent?.("plan", { plan: state.plan });
   } else if (input.targetSubagent) {
     const spec = SUBAGENT_SPEC_MAP.get(input.targetSubagent) ?? SUBAGENT_SPEC_MAP.get("frontend")!;
@@ -634,27 +694,32 @@ export async function runStudioConversation(input: {
       `Retourne STRICTEMENT un JSON : {"tasks":[{"id":"t1","title":"...","description":"...","subagent":"ui_ux|frontend|backend|architect|qa","targetFiles":["..."]}]}`,
     ].join("\n");
 
-    const routingRaw = await input.modelClient
-      .streamChat(
-        {
-          model: routerModel,
-          messages: [
-            { role: "system", content: routingPrompt },
-            {
-              role: "user",
-              content: [
-                brief.contextText,
-                historyLines.length ? `HISTORIQUE :\n${historyLines.slice(-6).join("\n")}` : "",
-                `INSTRUCTION :\n${userDisplay}`,
-              ]
-                .filter(Boolean)
-                .join("\n\n"),
-            },
-          ],
-        },
-        () => {},
-      )
-      .catch(() => "");
+    const routingRaw = await input.modelClient.streamChat(
+      {
+        model: routerModel,
+        messages: [
+          { role: "system", content: routingPrompt },
+          {
+            role: "user",
+            content: [
+              brief.contextText,
+              historyLines.length ? `HISTORIQUE :\n${historyLines.slice(-6).join("\n")}` : "",
+              `INSTRUCTION :\n${userDisplay}`,
+            ].filter(Boolean).join("\n\n"),
+          },
+        ],
+        signal: input.signal,
+      },
+      () => {},
+    ).catch((error) => {
+      if (input.signal?.aborted) return "";
+      return "";
+    });
+    if (input.signal?.aborted) {
+      return persistCancelledTurn("Construction interrompue pendant la préparation des tâches.", {
+        snapshotBeforeCommit: beforeBuildSnapshot?.commitHash,
+      });
+    }
 
     const parsedRouting = parseJsonObjectFromReply(routingRaw);
     const rawTasks = Array.isArray(parsedRouting?.tasks) ? parsedRouting.tasks : [];
@@ -693,8 +758,10 @@ export async function runStudioConversation(input: {
   const runs: StudioSubagentRunSummary[] = [];
   const allModified = new Set<string>();
   let rollingSummary = "";
+  let cancelled = false;
 
   for (const task of tasksToRun) {
+    if (input.signal?.aborted) { cancelled = true; break; }
     const spec = SUBAGENT_SPEC_MAP.get(task.subagent) ?? SUBAGENT_SPEC_MAP.get("frontend")!;
     const runtime = input.resolveRuntime(spec.agencyRole);
     task.status = "running";
@@ -735,10 +802,37 @@ export async function runStudioConversation(input: {
         hasLlmEndpoint: true,
         agentInstructions: directive,
         agentRules: runtime.agentRules,
+        signal: input.signal,
         onStep: (step: StudioAgentStep) => {
           input.onEvent?.("step", { ...step, taskId: task.id, subagent: spec.id });
         },
       });
+      if (execResult.cancelled) {
+        cancelled = true;
+        task.status = "pending";
+        task.summary = "Interrompu à la demande ; les fichiers déjà modifiés sont conservés.";
+        task.modifiedFiles = execResult.modifiedFiles;
+        for (const file of execResult.modifiedFiles) allModified.add(file);
+        const cancelledRun: StudioSubagentRunSummary = {
+          taskId: task.id,
+          subagent: spec.id,
+          title: task.title,
+          ok: false,
+          cancelled: true,
+          summary: task.summary,
+          modifiedFiles: execResult.modifiedFiles,
+        };
+        runs.push(cancelledRun);
+        input.onEvent?.("subagent_done", cancelledRun);
+        break;
+      }
+      if (!execResult.ok) {
+        const failures = execResult.steps
+          .filter((step) => !step.ok && ["write_file", "patch_file", "delete_file", "add_dependency", "run_check"].includes(step.tool))
+          .map((step) => `${step.tool}${step.target ? ` (${step.target})` : ""}: ${step.summary}`)
+          .join(" ; ");
+        throw new AgencyError("CONFLICT", failures || "Le sous-agent n'a pas confirmé la fin correcte de ses actions.");
+      }
       task.status = "done";
       task.summary = execResult.summary;
       task.modifiedFiles = execResult.modifiedFiles;
@@ -756,15 +850,22 @@ export async function runStudioConversation(input: {
       input.onEvent?.("subagent_done", runSummary);
     } catch (err) {
       const msg = (err as Error).message || "Échec du sous-agent";
-      task.status = "failed";
-      task.summary = msg;
+      if (input.signal?.aborted) {
+        cancelled = true;
+        task.status = "pending";
+        task.summary = "Interrompu à la demande ; le travail déjà enregistré est conservé.";
+      } else {
+        task.status = "failed";
+        task.summary = msg;
+      }
       const runSummary: StudioSubagentRunSummary = {
         taskId: task.id,
         subagent: spec.id,
         title: task.title,
         ok: false,
-        summary: msg,
-        modifiedFiles: [],
+        cancelled: input.signal?.aborted === true,
+        summary: task.summary || msg,
+        modifiedFiles: task.modifiedFiles ?? [],
       };
       runs.push(runSummary);
       input.onEvent?.("subagent_done", runSummary);
@@ -774,23 +875,24 @@ export async function runStudioConversation(input: {
   if (state.plan) {
     const anyFailed = state.plan.tasks.some((t) => t.status === "failed");
     const allDone = state.plan.tasks.every((t) => t.status === "done");
-    state.plan.status = allDone ? "completed" : anyFailed ? "draft" : "approved";
+    state.plan.status = cancelled || anyFailed ? "draft" : allDone ? "completed" : "approved";
     state.plan.updatedAt = new Date().toISOString();
     input.onEvent?.("plan", { plan: state.plan });
   }
 
   // Détection automatique d'erreurs (entrypoint aperçu / typecheck / build) + boucle d'auto-réparation QA
-  if (!input.skipAutoVerify && (allModified.size > 0 || runs.some((r) => r.ok))) {
+  if (!cancelled && !input.signal?.aborted && !input.skipAutoVerify && (allModified.size > 0 || runs.some((r) => r.ok))) {
     const qaRuntime = input.resolveRuntime("qa_technical");
     const MAX_AUTO_FIX_ATTEMPTS = 2;
     let didInstall = false;
     for (let attempt = 1; attempt <= MAX_AUTO_FIX_ATTEMPTS; attempt++) {
+      if (input.signal?.aborted) { cancelled = true; break; }
       const verifyPlan = detectVerificationPlan(input.dataDir, input.project);
       if (verifyPlan.checks.length === 0 && !verifyPlan.missingPreviewReason) break;
 
       if (verifyPlan.needsInstall && !didInstall) {
         didInstall = true;
-        const inst = await runStudioCommand({ dataDir: input.dataDir, project: input.project, action: "npm_install" });
+        const inst = await runStudioCommand({ dataDir: input.dataDir, project: input.project, action: "npm_install", signal: input.signal });
         input.onEvent?.("step", {
           step: attempt,
           tool: "add_dependency",
@@ -814,7 +916,8 @@ export async function runStudioConversation(input: {
         });
       } else {
         for (const check of verifyPlan.checks) {
-          const res = await runStudioCommand({ dataDir: input.dataDir, project: input.project, action: check });
+          const res = await runStudioCommand({ dataDir: input.dataDir, project: input.project, action: check, signal: input.signal });
+          if (input.signal?.aborted) { cancelled = true; break; }
           input.onEvent?.("step", {
             step: attempt,
             tool: "run_check",
@@ -829,6 +932,7 @@ export async function runStudioConversation(input: {
           }
         }
       }
+      if (cancelled || input.signal?.aborted) { cancelled = true; break; }
       if (!failedCheck) break;
 
       const fixTitle = `Correction automatique (${failedCheck.action})`;
@@ -854,10 +958,34 @@ export async function runStudioConversation(input: {
           hasLlmEndpoint: true,
           agentInstructions: qaRuntime.agentInstructions,
           agentRules: qaRuntime.agentRules,
+          signal: input.signal,
           onStep: (step: StudioAgentStep) => {
             input.onEvent?.("step", { ...step, taskId: `auto-fix-${attempt}`, subagent: "qa" });
           },
         });
+        if (fixResult.cancelled) {
+          cancelled = true;
+          for (const file of fixResult.modifiedFiles) allModified.add(file);
+          const cancelledFix: StudioSubagentRunSummary = {
+            taskId: `auto-fix-${attempt}`,
+            subagent: "qa",
+            title: fixTitle,
+            ok: false,
+            cancelled: true,
+            summary: "Correction QA interrompue ; les modifications effectuées sont conservées.",
+            modifiedFiles: fixResult.modifiedFiles,
+          };
+          runs.push(cancelledFix);
+          input.onEvent?.("subagent_done", cancelledFix);
+          break;
+        }
+        if (!fixResult.ok) {
+          const failures = fixResult.steps
+            .filter((step) => !step.ok && ["write_file", "patch_file", "delete_file", "add_dependency", "run_check"].includes(step.tool))
+            .map((step) => `${step.tool}${step.target ? ` (${step.target})` : ""}: ${step.summary}`)
+            .join(" ; ");
+          throw new AgencyError("CONFLICT", failures || "La correction QA n'a pas confirmé la fin correcte de ses actions.");
+        }
         for (const f of fixResult.modifiedFiles) allModified.add(f);
         if (fixResult.modifiedFiles.includes("package.json")) didInstall = false;
         const fixSummary: StudioSubagentRunSummary = {
@@ -882,10 +1010,12 @@ export async function runStudioConversation(input: {
         };
         runs.push(fixSummary);
         input.onEvent?.("subagent_done", fixSummary);
+        if (input.signal?.aborted) cancelled = true;
         break;
       }
     }
   }
+  if (input.signal?.aborted) cancelled = true;
 
   const modifiedList = [...allModified];
   const postSnap =
@@ -902,11 +1032,13 @@ export async function runStudioConversation(input: {
     id: crypto.randomUUID(),
     role: "assistant",
     mode: "build",
-    text: answerLines.join("\n") || "Modifications appliquées.",
+    text: cancelled ? (answerLines.length ? answerLines.join("\n") + "\n\nConstruction interrompue. Les modifications déjà réalisées ont été conservées." : "Construction interrompue. Les modifications déjà réalisées ont été conservées.") : (answerLines.join("\n") || "Modifications appliquées."),
     at: new Date().toISOString(),
     subagentRuns: runs,
     modifiedFiles: modifiedList,
+    ...(beforeBuildSnapshot?.commitHash ? { snapshotBeforeCommit: beforeBuildSnapshot.commitHash } : {}),
     ...(snapshotCommit ? { snapshotCommit } : {}),
+    ...(cancelled ? { cancelled: true } : {}),
   };
   state.messages.push(assistantMsg);
   const saved = await saveStudioState(input.dataDir, input.project.id, state);
@@ -917,6 +1049,7 @@ export async function runStudioConversation(input: {
     modifiedFiles: modifiedList,
     subagentRuns: runs,
     ...(snapshotCommit ? { snapshotCommit } : {}),
+    cancelled,
     state: saved,
   });
   return { message: assistantMsg, plan: state.plan, state: saved };

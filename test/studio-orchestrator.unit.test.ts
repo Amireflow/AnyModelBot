@@ -10,7 +10,7 @@ import {
   saveStudioState,
   type StudioRuntimeProfile,
 } from "../src/agency/studio-orchestrator.js";
-import { readWorkspaceFile, writeWorkspaceFile } from "../src/agency/studio.js";
+import { readWorkspaceFile, runStudioAiAgent, writeWorkspaceFile } from "../src/agency/studio.js";
 import type { Project } from "../src/agency/types.js";
 import type { ModelClient } from "../src/llm/client.js";
 
@@ -171,6 +171,83 @@ describe("Studio conversational multi-subagent orchestrator", () => {
     expect(() => readWorkspaceFile(dir, project, "index.html")).toThrow();
   });
 
+  it("refuses to execute a plan whose tasks are already complete", async () => {
+    const dir = makeTempDir();
+    const project = makeProject();
+    await saveStudioState(dir, project.id, {
+      version: 1,
+      messages: [],
+      plan: {
+        summary: "Plan déjà terminé",
+        architecture: "index.html",
+        designDirection: "Sobre",
+        stack: ["HTML5"],
+        status: "completed",
+        updatedAt: new Date().toISOString(),
+        tasks: [{ id: "done-1", title: "Page d'accueil", description: "Déjà livrée", subagent: "frontend", targetFiles: ["index.html"], status: "done" }],
+      },
+    });
+    let modelCalls = 0;
+    const mockClient: ModelClient = {
+      listModels: async () => ["test-model"],
+      streamChat: async () => { modelCalls += 1; return "<studio-done>Ne doit pas être appelé</studio-done>"; },
+    };
+    await expect(runStudioConversation({
+      dataDir: dir,
+      project,
+      message: "",
+      mode: "build",
+      executePlan: true,
+      modelClient: mockClient,
+      defaultModel: "test-model",
+      hasLlmEndpoint: true,
+      resolveRuntime: makeRuntimeResolver(),
+    })).rejects.toThrow(/déjà terminé/i);
+    expect(modelCalls).toBe(0);
+  });
+
+  it("reports a failed result when a critical file operation fails even if the model emits done", async () => {
+    const dir = makeTempDir();
+    const project = makeProject();
+    const mockClient: ModelClient = {
+      listModels: async () => ["test-model"],
+      streamChat: async () => '<studio-write path="../outside.txt">unsafe</studio-write><studio-done>Terminé</studio-done>',
+    };
+    const result = await runStudioAiAgent({
+      dataDir: dir,
+      project,
+      instruction: "Créer un fichier sans sortir du workspace",
+      modelClient: mockClient,
+      defaultModel: "test-model",
+      hasLlmEndpoint: true,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.steps.some((step) => step.tool === "write_file" && !step.ok)).toBe(true);
+  });
+
+  it("propagates a disabled sub-agent runtime instead of silently using it", async () => {
+    const dir = makeTempDir();
+    const project = makeProject();
+    const mockClient: ModelClient = {
+      listModels: async () => ["test-model"],
+      streamChat: async () => "<studio-done>Ne doit pas être appelé</studio-done>",
+    };
+    await expect(runStudioConversation({
+      dataDir: dir,
+      project,
+      message: "Intervenir côté frontend",
+      mode: "build",
+      targetSubagent: "frontend",
+      modelClient: mockClient,
+      defaultModel: "test-model",
+      hasLlmEndpoint: true,
+      resolveRuntime: (role) => {
+        if (role === "developer") throw new Error("Agent developer is currently disabled");
+        return makeRuntimeResolver()(role);
+      },
+    })).rejects.toThrow(/currently disabled/i);
+  });
+
   it("executes approved plan across specialized subagents and persists modified files", async () => {
     const dir = makeTempDir();
     const project = makeProject();
@@ -238,6 +315,56 @@ describe("Studio conversational multi-subagent orchestrator", () => {
     expect(events).toContain("subagent_start");
     expect(events).toContain("subagent_done");
     expect(readWorkspaceFile(dir, project, "index.html").content).toContain("Klinika Dakar");
+  });
+
+
+  it("cancels an in-flight sub-agent request and persists already-written files", async () => {
+    const dir = makeTempDir();
+    const project = makeProject();
+    const controller = new AbortController();
+    let call = 0;
+    const mockClient: ModelClient = {
+      listModels: async () => ["test-model"],
+      streamChat: async (request) => {
+        expect(request.signal).toBe(controller.signal);
+        call += 1;
+        if (call === 1) {
+          return JSON.stringify({
+            tasks: [{ id: "t-cancel", title: "Créer la page", description: "Créer index.html", subagent: "frontend", targetFiles: ["index.html"] }],
+          });
+        }
+        if (call === 2) {
+          return '<studio-write path="index.html"><h1>État conservé</h1></studio-write>';
+        }
+        controller.abort();
+        throw new Error("The model request was aborted");
+      },
+    };
+
+    const events: string[] = [];
+    const result = await runStudioConversation({
+      dataDir: dir,
+      project,
+      message: "Créer la page d'accueil",
+      mode: "build",
+      modelClient: mockClient,
+      defaultModel: "test-model",
+      hasLlmEndpoint: true,
+      resolveRuntime: makeRuntimeResolver(),
+      signal: controller.signal,
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(call).toBe(3);
+    expect(result.message.cancelled).toBe(true);
+    expect(result.message.modifiedFiles).toContain("index.html");
+    expect(result.message.snapshotBeforeCommit).toMatch(/^[0-9a-f]{40}$/);
+    expect(result.message.snapshotCommit).toMatch(/^[0-9a-f]{40}$/);
+    expect(result.plan?.tasks[0]?.status).toBe("pending");
+    expect(result.plan?.status).toBe("draft");
+    expect(readWorkspaceFile(dir, project, "index.html").content).toContain("État conservé");
+    expect(events).toContain("message");
+    expect(events).toContain("done");
   });
 
   it("auto-detects failing build scripts and triggers self-healing QA fix loop", async () => {

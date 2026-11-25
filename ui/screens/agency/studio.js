@@ -119,6 +119,14 @@ export function ProjectStudio({
   const [newFileOpen, setNewFileOpen] = useState(false);
   const [newFilePath, setNewFilePath] = useState("");
   const [snapshots, setSnapshots] = useState([]);
+  const [changedFiles, setChangedFiles] = useState([]);
+  const [diffFiles, setDiffFiles] = useState([]);
+  const [selectedChangePath, setSelectedChangePath] = useState("");
+  const [selectedChangeDiff, setSelectedChangeDiff] = useState(null);
+  const [changeSnapshot, setChangeSnapshot] = useState(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [diffError, setDiffError] = useState("");
+  const [diffListTruncated, setDiffListTruncated] = useState(false);
 
   // Conversational workbench state
   const [mode, setMode] = useState("build");
@@ -140,8 +148,11 @@ export function ProjectStudio({
   const [previewNonce, setPreviewNonce] = useState(1);
   const [devServer, setDevServer] = useState(null);
   const [devServerBusy, setDevServerBusy] = useState(false);
+  const [executionMode, setExecutionMode] = useState("container");
 
   const [busy, setBusy] = useState("");
+  const [cancelRequested, setCancelRequested] = useState(false);
+  const [canCancel, setCanCancel] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -151,6 +162,7 @@ export function ProjectStudio({
   const chatUploadRef = useRef(null);
   const treeUploadRef = useRef(null);
   const justCreatedIdRef = useRef("");
+  const activeStudioProjectIdRef = useRef("");
 
   const isDirty = !!selectedPath && content !== savedContent;
   const lineCount = useMemo(() => Math.max(1, String(content || "").split("\n").length), [content]);
@@ -167,8 +179,9 @@ export function ProjectStudio({
     resizeComposer();
   }, [input]);
 
-  const openFile = async (relPath, pid = project?.id) => {
+  const openFile = async (relPath, pid = project?.id, force = false) => {
     if (!relPath || !pid) return;
+    if (!force && relPath !== selectedPath && isDirty && !window.confirm(t("agency.studioUnsavedSwitchConfirm"))) return;
     setSelectedPath(relPath);
     setOpenTabs((prev) => (prev.includes(relPath) ? prev : [...prev.slice(-7), relPath]));
     try {
@@ -183,11 +196,12 @@ export function ProjectStudio({
 
   const closeTab = (relPath, e) => {
     e?.stopPropagation();
+    if (selectedPath === relPath && isDirty && !window.confirm(t("agency.studioUnsavedSwitchConfirm"))) return;
     const nextTabs = openTabs.filter((p) => p !== relPath);
     setOpenTabs(nextTabs);
     if (selectedPath === relPath) {
       const fallback = nextTabs[nextTabs.length - 1] || "";
-      if (fallback) void openFile(fallback);
+      if (fallback) void openFile(fallback, project?.id, true);
       else {
         setSelectedPath("");
         setContent("");
@@ -203,6 +217,90 @@ export function ProjectStudio({
       setSnapshots(res.items || []);
     } catch {
       setSnapshots([]);
+    }
+  };
+
+  const createStudioCheckpoint = async (pid, label, details = {}) => {
+    return api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/snapshots`, {
+      method: "POST",
+      body: { label, ...details },
+    });
+  };
+
+  const recordManualStudioChange = async (pid, before, label, filePath) => {
+    const after = await createStudioCheckpoint(pid, label, { baseCommit: before.commitHash, path: filePath });
+    if (after.message) setMessages((prev) => [...prev, after.message]);
+    await loadStudioChanges({
+      snapshotBeforeCommit: before.commitHash,
+      snapshotCommit: after.commitHash,
+      modifiedFiles: [filePath],
+    }, pid);
+    void loadSnapshots(pid);
+    return after;
+  };
+
+  const loadStudioFileDiff = async (filePath, snapshot = changeSnapshot, pid = project?.id, { quiet = false } = {}) => {
+    if (!filePath || !snapshot?.base || !snapshot?.head || !pid || !orgId) {
+      setSelectedChangeDiff(null);
+      return null;
+    }
+    setSelectedChangePath(filePath);
+    if (!quiet) setDiffLoading(true);
+    setDiffError("");
+    try {
+      const query = `base=${enc(snapshot.base)}&head=${enc(snapshot.head)}&path=${enc(filePath)}`;
+      const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/diff?${query}`);
+      setSelectedChangeDiff(res.diff || null);
+      return res.diff || null;
+    } catch (err) {
+      setSelectedChangeDiff(null);
+      setDiffError(err.message || t("agency.studioDiffUnavailable"));
+      return null;
+    } finally {
+      if (!quiet) setDiffLoading(false);
+    }
+  };
+
+  const loadStudioChanges = async (message, pid = project?.id) => {
+    const fallback = Array.isArray(message?.modifiedFiles) ? [...new Set(message.modifiedFiles)] : [];
+    const base = message?.snapshotBeforeCommit || "";
+    const head = message?.snapshotCommit || "";
+    setDiffFiles([]);
+    setDiffListTruncated(false);
+    setSelectedChangeDiff(null);
+    setDiffError("");
+    if (!base || !head || !orgId || !pid) {
+      setChangeSnapshot(null);
+      setChangedFiles(fallback);
+      setSelectedChangePath(fallback[0] || "");
+      if (fallback.length) setDiffError(t("agency.studioDiffUnavailable"));
+      return;
+    }
+
+    const snapshot = { base, head };
+    setChangeSnapshot(snapshot);
+    setDiffLoading(true);
+    try {
+      const query = `base=${enc(base)}&head=${enc(head)}`;
+      const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/diff?${query}`);
+      const entries = Array.isArray(res.files) ? res.files : [];
+      setDiffFiles(entries);
+      setDiffListTruncated(res.truncated === true);
+      const paths = entries.map((entry) => entry.path);
+      setChangedFiles(paths.length ? paths : fallback);
+      const firstPath = paths[0] || fallback[0] || "";
+      setSelectedChangePath(firstPath);
+      if (firstPath && entries.some((entry) => entry.path === firstPath)) {
+        await loadStudioFileDiff(firstPath, snapshot, pid, { quiet: true });
+      } else if (firstPath) {
+        setDiffError(t("agency.studioDiffUnavailable"));
+      }
+    } catch (err) {
+      setDiffError(err.message || t("agency.studioDiffUnavailable"));
+      setChangedFiles(fallback);
+      setSelectedChangePath(fallback[0] || "");
+    } finally {
+      setDiffLoading(false);
     }
   };
 
@@ -222,8 +320,8 @@ export function ProjectStudio({
       setFiles(list);
       const validPaths = new Set(list.map((f) => f.path));
       setOpenTabs((prev) => prev.filter((p) => validPaths.has(p)));
-      const next = preferPath || (validPaths.has(selectedPath) ? selectedPath : (list[0]?.path || ""));
-      if (next) await openFile(next, pid);
+      const next = (preferPath && validPaths.has(preferPath)) ? preferPath : (validPaths.has(selectedPath) ? selectedPath : (list[0]?.path || ""));
+      if (next) await openFile(next, pid, true);
       else { setSelectedPath(""); setContent(""); setSavedContent(""); }
       void loadSnapshots(pid);
     } catch (err) {
@@ -239,8 +337,13 @@ export function ProjectStudio({
     }
     try {
       const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/state`);
-      setMessages(Array.isArray(res.messages) ? res.messages : []);
+      const history = Array.isArray(res.messages) ? res.messages : [];
+      setMessages(history);
       setPlan(res.plan || null);
+      const latestBuild = [...history].reverse().find((message) =>
+        message?.role === "assistant" && message?.mode === "build" && Array.isArray(message.modifiedFiles),
+      );
+      await loadStudioChanges(latestBuild, pid);
     } catch {
       setMessages([]);
       setPlan(null);
@@ -255,6 +358,7 @@ export function ProjectStudio({
     try {
       const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/devserver`);
       setDevServer(res || null);
+      setExecutionMode(res?.executionMode || "container");
       return res || null;
     } catch {
       setDevServer(null);
@@ -262,13 +366,15 @@ export function ProjectStudio({
     }
   };
 
-  const startDevServer = async (pid = project?.id, { restart = false } = {}) => {
+  const startDevServer = async (pid = project?.id, { restart = false, mode = executionMode } = {}) => {
     if (!orgId || !pid || devServerBusy) return null;
+    if (!window.confirm(t("agency.studioPreviewLaunchConfirm"))) return null;
+    if (mode === "host" && !window.confirm(t("agency.studioTrustedHostConfirm"))) return null;
     setDevServerBusy(true); setError(""); setNotice("");
     try {
       const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/devserver/start`, {
         method: "POST",
-        body: restart ? { restart: true } : {},
+        body: { restart, executionMode: mode },
       });
       setDevServer(res || null);
       if (res?.error) setError(res.error);
@@ -309,6 +415,14 @@ export function ProjectStudio({
     setFileQuery("");
     setCollapsedDirs({});
     setOpenTabs([]);
+    setChangedFiles([]);
+    setDiffFiles([]);
+    setSelectedChangePath("");
+    setSelectedChangeDiff(null);
+    setChangeSnapshot(null);
+    setDiffLoading(false);
+    setDiffError("");
+    setDiffListTruncated(false);
     if (!pid) {
       setFiles([]);
       setSelectedPath("");
@@ -317,7 +431,9 @@ export function ProjectStudio({
       setSnapshots([]);
       setMessages([]);
       setPlan(null);
+      setChangedFiles([]);
       setDevServer(null);
+      setExecutionMode("container");
       setWorkspaceTab("preview");
       return;
     }
@@ -353,6 +469,23 @@ export function ProjectStudio({
     }
   };
 
+  const cancelStudioTurn = async () => {
+    const pid = activeStudioProjectIdRef.current || project?.id || "";
+    if (!orgId || !pid || busy !== "chat" || !canCancel || cancelRequested) return;
+    setCancelRequested(true);
+    setError("");
+    try {
+      const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/cancel`, { method: "POST" });
+      if (!res?.cancelled) {
+        setCancelRequested(false);
+        setNotice(t("agency.studioCancelUnavailable"));
+      }
+    } catch (err) {
+      setCancelRequested(false);
+      setError(err.message || t("agency.studioCancelUnavailable"));
+    }
+  };
+
   const sendStudioTurn = async (opts = {}) => {
     if (!orgId || busy) return;
     const text = (opts.message ?? input).trim();
@@ -364,6 +497,9 @@ export function ProjectStudio({
     if (!text && !executePlan && attached.length === 0) return;
 
     setBusy("chat");
+    setCancelRequested(false);
+    setCanCancel(false);
+    activeStudioProjectIdRef.current = project?.id || "";
     setError("");
     setNotice("");
     setLiveSteps([]);
@@ -406,6 +542,7 @@ export function ProjectStudio({
         onProjectCreated?.(created.project);
       }
 
+      activeStudioProjectIdRef.current = activeProjectId;
       const response = await fetch(`/amb/api/agency/${enc(orgId)}/projects/${enc(activeProjectId)}/studio/chat-stream`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-amb-lang": getLang() },
@@ -425,7 +562,9 @@ export function ProjectStudio({
       let finalPayload = null;
       let streamError = "";
       const parser = sseParser((eventName, data) => {
-        if (eventName === "plan" && data?.plan) {
+        if (eventName === "ready") {
+          setCanCancel(true);
+        } else if (eventName === "plan" && data?.plan) {
           setPlan(data.plan);
         } else if (eventName === "subagent_start" && data) {
           setActiveSubagent(data);
@@ -437,6 +576,7 @@ export function ProjectStudio({
           setMessages((prev) => [...prev, data.message]);
         } else if (eventName === "done") {
           finalPayload = data;
+          setCanCancel(false);
         } else if (eventName === "error") {
           streamError = data?.error || "Studio execution failed";
         }
@@ -460,24 +600,34 @@ export function ProjectStudio({
       }
 
       const modified = Array.isArray(finalPayload?.modifiedFiles) ? finalPayload.modifiedFiles : [];
+      if (runMode === "build") {
+        const history = Array.isArray(finalPayload?.state?.messages) ? finalPayload.state.messages : [];
+        const latestBuild = [...history].reverse().find((message) =>
+          message?.role === "assistant" && message?.mode === "build" && Array.isArray(message.modifiedFiles),
+        );
+        await loadStudioChanges(latestBuild, activeProjectId);
+      }
       await loadFiles(modified[0] || "", activeProjectId);
       const ds = await loadDevServer(activeProjectId);
       if (modified.length > 0 || runMode === "build") {
         setWorkspaceTab("preview");
         setPreviewNonce((n) => n + 1);
-        if (ds?.hasDevScript) {
-          if (!ds.running) {
-            await startDevServer(activeProjectId, { restart: false });
-          } else if (modified.includes("package.json")) {
-            await startDevServer(activeProjectId, { restart: true });
-          }
-        }
+      }
+      if (finalPayload?.cancelled) {
+        setNotice(t("agency.studioCancelledStatus"));
+      } else if (modified.includes("package.json") && ds?.running) {
+        setNotice(t("agency.studioPreviewRestartHint"));
+      } else if (ds?.hasDevScript && !ds.running) {
+        setNotice(t("agency.studioPreviewReadyHint"));
       }
       onChanged?.();
     } catch (err) {
       setError(err.message);
     } finally {
       setBusy("");
+      setCancelRequested(false);
+      setCanCancel(false);
+      activeStudioProjectIdRef.current = "";
       setActiveSubagent(null);
     }
   };
@@ -489,6 +639,13 @@ export function ProjectStudio({
       await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/history`, { method: "DELETE" });
       setMessages([]);
       setPlan(null);
+      setChangedFiles([]);
+      setDiffFiles([]);
+      setSelectedChangePath("");
+      setSelectedChangeDiff(null);
+      setChangeSnapshot(null);
+      setDiffError("");
+      setDiffListTruncated(false);
       setLiveSteps([]);
     } catch (err) {
       setError(err.message);
@@ -501,10 +658,12 @@ export function ProjectStudio({
     if (!rel || !project?.id) return;
     setBusy("create"); setError(""); setNotice("");
     try {
+      const before = await createStudioCheckpoint(project.id, `avant création manuelle: ${rel}`);
       await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/file`, {
         method: "PUT",
         body: { path: rel, content: "" },
       });
+      await recordManualStudioChange(project.id, before, `création manuelle: ${rel}`, rel);
       setNewFilePath("");
       setNewFileOpen(false);
       await loadFiles(rel);
@@ -515,10 +674,12 @@ export function ProjectStudio({
     if (!selectedPath || !project?.id) return;
     setBusy("save"); setError(""); setNotice("");
     try {
+      const before = await createStudioCheckpoint(project.id, `avant édition manuelle: ${selectedPath}`);
       await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/file`, {
         method: "PUT",
         body: { path: selectedPath, content },
       });
+      await recordManualStudioChange(project.id, before, `édition manuelle: ${selectedPath}`, selectedPath);
       setSavedContent(content);
       setPreviewNonce((n) => n + 1);
       setNotice(`${selectedPath} ✓`);
@@ -543,7 +704,9 @@ export function ProjectStudio({
     if (!selectedPath || !project?.id) return;
     setBusy("del"); setError("");
     try {
+      const before = await createStudioCheckpoint(project.id, `avant suppression manuelle: ${selectedPath}`);
       await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/file?path=${enc(selectedPath)}`, { method: "DELETE" });
+      await recordManualStudioChange(project.id, before, `suppression manuelle: ${selectedPath}`, selectedPath);
       setPreviewNonce((n) => n + 1);
       await loadFiles();
     } catch (err) { setError(err.message); } finally { setBusy(""); }
@@ -643,7 +806,7 @@ export function ProjectStudio({
 
   const renderPlanCard = (pl, compact = false) => {
     if (!pl) return null;
-    const canApprove = pl.status !== "running" && pl.tasks?.length > 0;
+    const canApprove = pl.status === "draft" && pl.tasks?.length > 0;
     return html`<div class="agency-studio-plan-card">
       <div class="agency-studio-plan-head">
         <div>
@@ -677,6 +840,11 @@ export function ProjectStudio({
     </div>`;
   };
 
+  const selectProjectSafely = (nextId) => {
+    if (isDirty && !window.confirm(t("agency.studioUnsavedSwitchConfirm"))) return;
+    onSelectProject?.(nextId);
+  };
+
   const canSend = !busy && (input.trim().length > 0 || attachments.length > 0);
 
   return html`<section class="agency-studio-workbench">
@@ -692,7 +860,7 @@ export function ProjectStudio({
             class="field agency-studio-project-select"
             aria-label=${t("agency.projectsTitle")}
             value=${selectedProjectId}
-            onChange=${(e) => onSelectProject?.(e.currentTarget.value)}
+            onChange=${(e) => selectProjectSafely(e.currentTarget.value)}
           >
             <option value="__new__">${t("agency.studioNewChatOption")}</option>
             ${projects.map((p) => html`<option value=${p.id}>${p.title}</option>`)}
@@ -717,7 +885,7 @@ export function ProjectStudio({
             type="button"
             title=${t("agency.newStudioProjectBtn")}
             aria-label=${t("agency.newStudioProjectBtn")}
-            onClick=${() => onSelectProject?.("__new__")}
+            onClick=${() => selectProjectSafely("__new__")}
           >
             <${Icon} name="plus" size="sm" />
           </button>
@@ -798,6 +966,9 @@ export function ProjectStudio({
                 <button type="button" class="agency-studio-checkpoint-btn" onClick=${() => openFileInCode(modFiles[0] || "")}>
                   <${Icon} name="code" size="xs" /><span>${t("agency.studioTabCode")}</span>
                 </button>
+                <button type="button" class=${"agency-studio-checkpoint-btn" + (workspaceTab === "changes" ? " active" : "")} onClick=${() => { setWorkspaceTab("changes"); void loadStudioChanges(m); }}>
+                  <${Icon} name="file" size="xs" /><span>${t("agency.studioTabChanges")}</span>
+                </button>
                 <button
                   type="button"
                   class=${"agency-studio-checkpoint-btn" + (workspaceTab === "preview" ? " active" : "")}
@@ -852,14 +1023,19 @@ export function ProjectStudio({
               <div class="agency-studio-live-sub">
                 <span class="agency-studio-live-dot" aria-hidden="true"></span>
                 <strong class="agency-truncate">
-                  ${activeSubagent
-                    ? (activeSubagent.displayName || t(`agency.studioSubagentNames.${activeSubagent.subagent}`))
-                    : (mode === "plan" ? t("agency.studioPlanningStatus") : t("agency.studioBuildingStatus"))}
+                  ${cancelRequested
+                    ? t("agency.studioCancelingStatus")
+                    : activeSubagent
+                      ? (activeSubagent.displayName || t(`agency.studioSubagentNames.${activeSubagent.subagent}`))
+                      : (mode === "plan" ? t("agency.studioPlanningStatus") : t("agency.studioBuildingStatus"))}
                 </strong>
               </div>
               ${activeSubagent?.title && html`<small class="agency-truncate" title=${activeSubagent.title}>${activeSubagent.title}</small>`}
             </div>
             <span class="agency-studio-live-timer mono">${formatElapsed(elapsedSec)}</span>
+            <button type="button" class="btn sm" disabled=${!canCancel || cancelRequested} onClick=${cancelStudioTurn}>
+              <${Icon} name="stop" size="xs" /><span>${cancelRequested ? t("agency.studioCancelingStatus") : t("agency.studioCancelBtn")}</span>
+            </button>
           </div>
           ${liveSteps.length > 0 && html`<div class="agency-studio-live-timeline">
             ${liveSteps.slice(-6).map((st) => {
@@ -950,9 +1126,17 @@ export function ProjectStudio({
           <button type="button" role="tab" aria-selected=${workspaceTab === "code"} class=${workspaceTab === "code" ? "active" : ""} onClick=${() => setWorkspaceTab("code")}>
             <${Icon} name="code" size="sm" /><span>${t("agency.studioTabCode")}</span>
           </button>
+          <button type="button" role="tab" aria-selected=${workspaceTab === "changes"} class=${workspaceTab === "changes" ? "active" : ""} onClick=${() => setWorkspaceTab("changes")}>
+            <${Icon} name="file" size="sm" /><span>${t("agency.studioTabChanges")}</span>
+            ${changedFiles.length > 0 && html`<span class="agency-count-pill">${changedFiles.length}</span>`}
+          </button>
         </div>
 
         ${workspaceTab === "preview" && (hasIndex || devServer?.hasDevScript) && html`<div class="agency-studio-preview-bar">
+          ${devServer?.hasDevScript && html`<select class="field agency-studio-execution-mode" aria-label=${t("agency.studioExecutionModeLabel")} value=${executionMode} disabled=${devServerBusy || !!devServer?.running} onChange=${(e) => setExecutionMode(e.currentTarget.value)}>
+            <option value="container">${t("agency.studioExecutionModeContainer")}</option>
+            <option value="host">${t("agency.studioExecutionModeHost")}</option>
+          </select>`}
           ${devServer?.hasDevScript && html`<button
             type="button"
             class=${"btn sm" + (devServer.running ? "" : " primary")}
@@ -963,6 +1147,9 @@ export function ProjectStudio({
               ? html`<${Spinner} />`
               : html`<${Icon} name=${devServer.running ? "stop" : "spark"} size="xs" />`}
             <span>${devServer.running ? t("common.off") : t("agency.startMissionBtn")}</span>
+          </button>`}
+          ${devServer?.hasDevScript && devServer.running && html`<button type="button" class="icon-btn sm" disabled=${devServerBusy} title=${t("agency.studioPreviewRestartBtn")} aria-label=${t("agency.studioPreviewRestartBtn")} onClick=${() => startDevServer(project?.id, { restart: true })}>
+            <${Icon} name="refresh" size="sm" />
           </button>`}
           ${hasIndex && html`<div class="agency-studio-vp-group">
             <button type="button" class=${viewport === "desktop" ? "active" : ""} title="Desktop" onClick=${() => setViewport("desktop")}>
@@ -1000,7 +1187,7 @@ export function ProjectStudio({
               <p>${t("agency.studioBuildingStatus")}</p>
             </div>`
           : hasIndex
-            ? html`<iframe key=${`${previewUrl}#${previewNonce}`} class=${"agency-studio-frame " + viewport} title=${t("agency.studioPreviewTitle")} src=${previewUrl}></iframe>`
+            ? html`<iframe key=${`${previewUrl}#${previewNonce}`} class=${"agency-studio-frame " + viewport} title=${t("agency.studioPreviewTitle")} src=${previewUrl} sandbox=${devServer?.running ? "allow-scripts allow-same-origin allow-forms allow-modals allow-popups" : "allow-scripts allow-forms allow-modals allow-popups"} referrerpolicy="no-referrer"></iframe>`
             : html`<div class="agency-empty">
                 <${Icon} name="code" size="lg" />
                 <strong>${t("agency.studioNoPreviewTitle")}</strong>
@@ -1045,6 +1232,64 @@ export function ProjectStudio({
           <${Spinner} />
           <span class="agency-truncate">${activeSubagent?.title || t("agency.studioBuildingStatus")}</span>
         </div>`}
+      </div>`}
+
+      ${workspaceTab === "changes" && html`<div class="agency-studio-changes-pane">
+        <div class="agency-studio-changes-head">
+          <div>
+            <strong>${t("agency.studioChangesTitle")}</strong>
+            <p>${changeSnapshot ? t("agency.studioDiffTitle") : (diffError || t("agency.studioNoChanges"))}</p>
+          </div>
+          <span class="agency-count-pill">${changedFiles.length}</span>
+        </div>
+        ${changedFiles.length > 0
+          ? html`<div class="agency-studio-changes-layout">
+              <div class="agency-studio-changes-list" role="list" aria-label=${t("agency.studioChangesTitle")}>
+                ${changedFiles.map((filePath) => {
+                  const metadata = diffFiles.find((entry) => entry.path === filePath);
+                  const exists = files.some((f) => f.path === filePath);
+                  const status = metadata?.status || (exists ? "modified" : "deleted");
+                  const statusKey = status === "added" ? "studioDiffAdded" : status === "deleted" ? "studioDiffDeleted" : "studioDiffModified";
+                  const selected = selectedChangePath === filePath;
+                  return html`<button type="button" class=${"agency-studio-change-row" + (selected ? " active" : "")} aria-pressed=${selected} onClick=${() => void loadStudioFileDiff(filePath)} title=${filePath}>
+                    <${Icon} name=${status === "deleted" ? "trash" : status === "added" ? "plus" : "file"} size="sm" />
+                    <span class="agency-studio-change-main">
+                      <span class="agency-truncate">${filePath}</span>
+                      <small>${t(`agency.${statusKey}`)}</small>
+                    </span>
+                    ${metadata && !metadata.binary && html`<span class="agency-studio-diff-stats"><b>+${metadata.additions}</b><i>−${metadata.deletions}</i></span>`}
+                  </button>`;
+                })}
+                ${diffListTruncated && html`<small class="agency-studio-diff-note">${t("agency.studioDiffListTruncated")}</small>`}
+              </div>
+              <section class="agency-studio-diff-view" aria-live="polite" aria-label=${t("agency.studioDiffTitle")}>
+                ${diffLoading
+                  ? html`<div class="agency-empty"><${Spinner} /><strong>${t("agency.studioDiffLoading")}</strong></div>`
+                  : diffError
+                    ? html`<div class="agency-empty"><${Icon} name="info" size="lg" /><strong>${diffError}</strong></div>`
+                    : selectedChangeDiff
+                      ? html`<div class="agency-studio-diff-content">
+                          <div class="agency-studio-diff-head">
+                            <div>
+                              <strong class="agency-truncate" title=${selectedChangeDiff.path}>${selectedChangeDiff.path}</strong>
+                              <small>${t(`agency.${selectedChangeDiff.status === "added" ? "studioDiffAdded" : selectedChangeDiff.status === "deleted" ? "studioDiffDeleted" : "studioDiffModified"}`)} · <span class="agency-studio-diff-stats"><b>+${selectedChangeDiff.additions}</b><i>−${selectedChangeDiff.deletions}</i></span></small>
+                            </div>
+                            ${files.some((f) => f.path === selectedChangeDiff.path) && html`<button type="button" class="btn sm" onClick=${() => openFileInCode(selectedChangeDiff.path)}><${Icon} name="code" size="xs" /><span>${t("agency.studioTabCode")}</span></button>`}
+                          </div>
+                          ${selectedChangeDiff.binary
+                            ? html`<div class="agency-empty"><${Icon} name="file" size="lg" /><strong>${t("agency.studioDiffBinary")}</strong></div>`
+                            : html`<div class="agency-studio-diff-code">
+                                ${String(selectedChangeDiff.patch || "").split(/\r?\n/).map((line, index) => {
+                                  const kind = line.startsWith("+++") || line.startsWith("---") || line.startsWith("@@") ? "meta" : line.startsWith("+") ? "add" : line.startsWith("-") ? "remove" : "context";
+                                  return html`<div key=${index} class=${"agency-studio-diff-line " + kind}><code>${line || " "}</code></div>`;
+                                })}
+                              </div>`}
+                          ${selectedChangeDiff.patchTruncated && html`<small class="agency-studio-diff-note">${t("agency.studioDiffPatchTruncated")}</small>`}
+                        </div>`
+                      : html`<div class="agency-empty"><${Icon} name="file" size="lg" /><strong>${t("agency.studioNoDiffSelected")}</strong></div>`}
+              </section>
+            </div>`
+          : html`<div class="agency-empty"><${Icon} name="file" size="lg" /><strong>${t("agency.studioNoChanges")}</strong></div>`}
       </div>`}
 
       ${workspaceTab === "code" && html`<div class="agency-studio-code-shell">

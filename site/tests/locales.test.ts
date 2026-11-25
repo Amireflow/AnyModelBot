@@ -14,9 +14,12 @@ describe("locale URLs and presentation", () => {
     expect(headingUnits("AI アシスタント", "ja")).toContain("アシスタント");
     expect(headingUnits("Hello world", "en").join("")).toBe("Hello world");
   });
-  it("keeps the app and standalone site's language manifests in sync", () => {
-    expect(siteManifest).toEqual(appManifest);
-    expect([...LANGS]).toEqual(appManifest.locales.map((l) => l.siteCode));
+  it("keeps published website locales aligned with the app manifest subset", () => {
+    const siteCodes = new Set(siteManifest.locales.map((locale) => locale.siteCode));
+    expect(siteManifest.source).toBe(appManifest.source);
+    expect(siteManifest.fallback).toBe(appManifest.fallback);
+    expect(siteManifest.locales).toEqual(appManifest.locales.filter((locale) => siteCodes.has(locale.siteCode)));
+    expect([...LANGS]).toEqual(siteManifest.locales.filter((locale) => locale.ready).map((locale) => locale.siteCode));
   });
   it.each([["ja-JP", "ja"], ["ko_KR.UTF-8", "ko"], ["ru-RU", "ru"], ["es-419", "es"], ["pt-BR", "pt"], ["pt_PT.UTF-8", "pt"], ["tr-TR", "tr"], ["tr_TR.UTF-8", "tr"], ["zh-Hans", "zh"], ["english", undefined]])("recognizes complete language subtags: %s", (input, expected) => {
     expect(normalizeLang(input!)).toBe(expected);

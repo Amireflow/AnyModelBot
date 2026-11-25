@@ -790,13 +790,14 @@ function execStudioCmd(
   command: string,
   args: string[],
   cwd: string,
+  signal?: AbortSignal,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     try {
       execFile(
         command,
         args,
-        { cwd, timeout: 90_000, maxBuffer: 1_048_576, shell: false, windowsHide: true, encoding: "utf8" },
+        { cwd, timeout: 90_000, maxBuffer: 1_048_576, shell: false, windowsHide: true, encoding: "utf8", ...(signal ? { signal } : {}) },
         (err, stdout, stderr) => {
           if (!err) {
             resolve({ exitCode: 0, stdout: stdout ?? "", stderr: stderr ?? "" });
@@ -816,6 +817,7 @@ export async function runStudioCommand(input: {
   dataDir: string;
   project: Project;
   action: StudioCommandAction;
+  signal?: AbortSignal;
 }): Promise<{ action: StudioCommandAction; exitCode: number; output: string }> {
   const { workspaceDir } = resolveSafeWorkspacePath(input.dataDir, input.project.workspacePath);
   if (!fs.existsSync(workspaceDir)) {
@@ -850,7 +852,7 @@ export async function runStudioCommand(input: {
       throw new AgencyError("VALIDATION_ERROR", `Unsupported studio command: ${String(input.action)}`);
   }
 
-  const res = await execStudioCmd(spec.command, spec.args, workspaceDir);
+  const res = await execStudioCmd(spec.command, spec.args, workspaceDir, input.signal);
   const output = [res.stdout.trim(), res.stderr.trim()].filter(Boolean).join("\n") || `exitCode=${res.exitCode}`;
   return { action: input.action, exitCode: res.exitCode, output: output.slice(0, 8000) };
 }
@@ -920,6 +922,100 @@ export async function listStudioSnapshots(
     .filter((entry) => /^[0-9a-f]{7,40}$/i.test(entry.commitHash));
 }
 
+
+export interface StudioDiffFile {
+  path: string;
+  status: "added" | "modified" | "deleted" | "type-changed";
+  additions: number;
+  deletions: number;
+  binary: boolean;
+}
+
+export interface StudioDiffResult {
+  baseCommit: string;
+  headCommit: string;
+  files: StudioDiffFile[];
+  totalFiles: number;
+  truncated: boolean;
+  diff?: { path: string; status: StudioDiffFile["status"]; additions: number; deletions: number; binary: boolean; patch: string; patchTruncated: boolean };
+}
+
+const MAX_STUDIO_DIFF_FILES = 120;
+const MAX_STUDIO_DIFF_CHARS = 120_000;
+
+/** Compare two verified snapshots and optionally return one bounded, workspace-scoped patch. */
+export async function getStudioDiff(
+  dataDir: string,
+  project: Project,
+  baseCommit: string,
+  headCommit: string,
+  selectedFile?: string,
+): Promise<StudioDiffResult> {
+  const { workspaceDir } = resolveSafeWorkspacePath(dataDir, project.workspacePath);
+  if (!fs.existsSync(path.join(workspaceDir, ".git"))) {
+    throw new AgencyError("CONFLICT", "No studio snapshot history exists yet for this project");
+  }
+  const resolveCommit = async (raw: string): Promise<string> => {
+    const value = String(raw || "").trim().toLowerCase();
+    if (!/^[0-9a-f]{7,40}$/.test(value)) {
+      throw new AgencyError("VALIDATION_ERROR", "Invalid snapshot commit hash");
+    }
+    const result = await execStudioCmd("git", ["rev-parse", "--verify", value + "^{commit}"], workspaceDir);
+    if (result.exitCode !== 0) throw new AgencyError("NOT_FOUND", "Studio snapshot commit not found");
+    return result.stdout.trim();
+  };
+  const [base, head] = await Promise.all([resolveCommit(baseCommit), resolveCommit(headCommit)]);
+  if (base === head) return { baseCommit: base, headCommit: head, files: [], totalFiles: 0, truncated: false };
+  const nameResult = await execStudioCmd(
+    "git", ["diff", "--no-ext-diff", "--no-color", "--no-renames", "--name-status", "-z", base, head, "--"], workspaceDir,
+  );
+  if (nameResult.exitCode !== 0) throw new AgencyError("CONFLICT", "Unable to compare Studio snapshots: " + nameResult.stderr.slice(0, 300));
+  const statusMap = new Map<string, StudioDiffFile["status"]>();
+  const nameTokens = nameResult.stdout.split("\0").filter(Boolean);
+  for (let i = 0; i + 1 < nameTokens.length; i += 2) {
+    const code = nameTokens[i];
+    const relPath = nameTokens[i + 1].replaceAll("\\", "/");
+    if (!relPath || relPath.split("/").some((part) => part === ".git" || part === "..")) continue;
+    const status: StudioDiffFile["status"] = code === "A" ? "added" : code === "D" ? "deleted" : code === "T" ? "type-changed" : "modified";
+    statusMap.set(relPath, status);
+  }
+  const numstatResult = await execStudioCmd(
+    "git", ["diff", "--no-ext-diff", "--no-color", "--no-renames", "--numstat", "-z", base, head, "--"], workspaceDir,
+  );
+  if (numstatResult.exitCode !== 0) throw new AgencyError("CONFLICT", "Unable to read Studio diff statistics");
+  const stats = new Map<string, { additions: number; deletions: number; binary: boolean }>();
+  for (const record of numstatResult.stdout.split("\0").filter(Boolean)) {
+    const first = record.indexOf("\t");
+    const second = record.indexOf("\t", first + 1);
+    if (first < 0 || second < 0) continue;
+    const addText = record.slice(0, first);
+    const deleteText = record.slice(first + 1, second);
+    const relPath = record.slice(second + 1).replaceAll("\\", "/");
+    stats.set(relPath, {
+      additions: /^\d+$/.test(addText) ? Number(addText) : 0,
+      deletions: /^\d+$/.test(deleteText) ? Number(deleteText) : 0,
+      binary: addText === "-" || deleteText === "-",
+    });
+  }
+  const allFiles = [...statusMap.entries()].map(([relPath, status]) => {
+    const stat = stats.get(relPath) || { additions: 0, deletions: 0, binary: false };
+    return { path: relPath, status, ...stat };
+  }).sort((a, b) => a.path.localeCompare(b.path));
+  const files = allFiles.slice(0, MAX_STUDIO_DIFF_FILES);
+  const result: StudioDiffResult = { baseCommit: base, headCommit: head, files, totalFiles: allFiles.length, truncated: allFiles.length > files.length };
+  if (selectedFile !== undefined) {
+    const safePath = resolveWorkspaceFile(dataDir, project.workspacePath, selectedFile).relPath;
+    const metadata = allFiles.find((entry) => entry.path === safePath);
+    if (!metadata) throw new AgencyError("NOT_FOUND", "File is not part of this snapshot diff");
+    const patchResult = await execStudioCmd(
+      "git", ["diff", "--no-ext-diff", "--no-color", "--no-renames", "--unified=4", base, head, "--", safePath], workspaceDir,
+    );
+    if (patchResult.exitCode !== 0) throw new AgencyError("CONFLICT", "Unable to read file diff: " + patchResult.stderr.slice(0, 300));
+    const patch = patchResult.stdout.slice(0, MAX_STUDIO_DIFF_CHARS);
+    result.diff = { ...metadata, patch, patchTruncated: patchResult.stdout.length > patch.length };
+  }
+  return result;
+}
 export async function rollbackStudioSnapshot(
   dataDir: string,
   project: Project,
@@ -1214,6 +1310,7 @@ export async function installStudioDependencies(
   dataDir: string,
   project: Project,
   packages: readonly string[],
+  signal?: AbortSignal,
 ): Promise<{ packages: string[]; exitCode: number; output: string }> {
   const { workspaceDir } = resolveSafeWorkspacePath(dataDir, project.workspacePath);
   if (!fs.existsSync(workspaceDir)) {
@@ -1235,7 +1332,7 @@ export async function installStudioDependencies(
       args = [npmCli, ...args];
     }
   }
-  const res = await execStudioCmd(command, args, workspaceDir);
+  const res = await execStudioCmd(command, args, workspaceDir, signal);
   const output = [res.stdout.trim(), res.stderr.trim()].filter(Boolean).join("\n") || `exitCode=${res.exitCode}`;
   return { packages: clean, exitCode: res.exitCode, output: output.slice(0, 8000) };
 }
@@ -1252,8 +1349,11 @@ export async function runStudioAiAgent(input: {
   agentInstructions?: string;
   agentRules?: readonly string[];
   onStep?: (step: StudioAgentStep) => void;
+  signal?: AbortSignal;
 }): Promise<{
   summary: string;
+  ok: boolean;
+  cancelled?: boolean;
   modifiedFiles: string[];
   steps: StudioAgentStep[];
   model: string;
@@ -1301,8 +1401,26 @@ export async function runStudioAiAgent(input: {
   let finalSummary = "";
   let consecutiveNoAction = 0;
 
+  const cancelledResult = () => ({
+    summary: "Agent interrompu à la demande ; les modifications déjà réalisées sont conservées.",
+    ok: false,
+    cancelled: true,
+    modifiedFiles: [...modified],
+    steps,
+    model,
+    ...(snapshotBefore ? { snapshotBefore } : {}),
+  });
+
   for (let turn = 1; turn <= maxSteps; turn++) {
-    const reply = await input.modelClient.streamChat({ model, messages: history }, () => {});
+    if (input.signal?.aborted) return cancelledResult();
+    let reply: string;
+    try {
+      reply = await input.modelClient.streamChat({ model, messages: history, signal: input.signal }, () => {});
+    } catch (error) {
+      if (!input.signal?.aborted) throw error;
+      return cancelledResult();
+    }
+    if (input.signal?.aborted) return cancelledResult();
     history.push({ role: "assistant", content: reply });
 
     const parsed = parseStudioActions(reply);
@@ -1342,6 +1460,7 @@ export async function runStudioAiAgent(input: {
     let finished = false;
 
     for (const action of parsed.actions) {
+      if (input.signal?.aborted) return cancelledResult();
       const stepNum = steps.length + 1;
       if (action.tool === "finish") {
         finalSummary = action.summary || "Completed workspace updates.";
@@ -1369,6 +1488,7 @@ export async function runStudioAiAgent(input: {
           modified,
           onTarget: (t) => { target = t; },
           onOk: (flag) => { ok = flag; },
+          signal: input.signal,
         });
       } catch (error) {
         ok = false;
@@ -1378,6 +1498,7 @@ export async function runStudioAiAgent(input: {
       const stepEntry: StudioAgentStep = { step: stepNum, tool: action.tool, target, ok, summary: observation.slice(0, 240) };
       steps.push(stepEntry);
       input.onStep?.(stepEntry);
+      if (input.signal?.aborted) return cancelledResult();
       observations.push(`[${action.tool}${target ? ` ${target}` : ""}] ${observation}`);
     }
 
@@ -1391,8 +1512,12 @@ export async function runStudioAiAgent(input: {
   if (!finalSummary) {
     finalSummary = `Agent exécuté (${steps.length} étape(s), ${modified.size} fichier(s) modifié(s)).`;
   }
+  const criticalTools = new Set(["write_file", "patch_file", "delete_file", "add_dependency", "run_check"]);
+  const criticalFailure = steps.some((step) => !step.ok && criticalTools.has(step.tool));
+  const explicitlyFinished = steps.some((step) => step.tool === "finish" && step.ok);
   return {
     summary: finalSummary,
+    ok: explicitlyFinished && !criticalFailure,
     modifiedFiles: [...modified],
     steps,
     model,
@@ -1407,6 +1532,7 @@ async function executeParsedAction(ctx: {
   modified: Set<string>;
   onTarget: (target: string) => void;
   onOk: (ok: boolean) => void;
+  signal?: AbortSignal;
 }): Promise<string> {
   const { action } = ctx;
   switch (action.tool) {
@@ -1444,7 +1570,7 @@ async function executeParsedAction(ctx: {
     }
     case "add_dependency": {
       ctx.onTarget(action.packages.join(", "));
-      const depRes = await installStudioDependencies(ctx.dataDir, ctx.project, action.packages);
+      const depRes = await installStudioDependencies(ctx.dataDir, ctx.project, action.packages, ctx.signal);
       ctx.onOk(depRes.exitCode === 0);
       if (depRes.exitCode === 0) ctx.modified.add("package.json");
       return `npm install (${depRes.packages.join(", ")}) exitCode=${depRes.exitCode}\n${depRes.output.slice(0, 3000)}`;
@@ -1452,7 +1578,7 @@ async function executeParsedAction(ctx: {
     case "run_check": {
       const cmd = (action.action || "npm_test") as StudioCommandAction;
       ctx.onTarget(cmd);
-      const result = await runStudioCommand({ dataDir: ctx.dataDir, project: ctx.project, action: cmd });
+      const result = await runStudioCommand({ dataDir: ctx.dataDir, project: ctx.project, action: cmd, signal: ctx.signal });
       ctx.onOk(result.exitCode === 0);
       return `exitCode=${result.exitCode}\n${result.output.slice(0, 4000)}`;
     }

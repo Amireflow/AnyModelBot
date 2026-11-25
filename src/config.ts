@@ -102,7 +102,7 @@ export function loadConfig(overrides: { dataDir?: string; env?: NodeJS.ProcessEn
       autoDownloadUpdates: file.ui?.autoDownloadUpdates !== false,
       pwshHintDismissed: file.ui?.pwshHintDismissed === true,
       guide: normalizeGuide(file.ui?.guide),
-      lang: file.ui?.lang !== undefined ? normalizeLangPref(file.ui?.lang) : "fr",
+      lang: file.ui?.lang !== undefined ? normalizeLangPref(file.ui?.lang) : "system",
     },
     auth: {
       provider: "supabase",
