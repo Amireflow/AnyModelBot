@@ -448,6 +448,7 @@ export async function runAgencyCopilot(input: {
             `- import_companies: {"companies":[{"name":string,"website"?:string,"industry"?:string,"city"?:string,"countryCode"?:string}]}`,
             `- audit_website: {"companyId"?:string,"url"?:string}`,
             `- create_contact: {"companyId":string,"displayName":string,"role"?:string,"email"?:string,"phone"?:string}`,
+            `- open_whatsapp_desktop: {"contactId"?:string,"phone"?:string,"text":string,"conversationId"?:string,"purpose"?:string}`,
             `- create_lead: {"companyId":string,"contactId"?:string,"source"?:string,"notes"?:string}`,
             `- qualify_needs: {"leadId":string,"problemStatement":string,"solutionType":"vitrine"|"ecommerce"|"web_app"|"mobile_app"|"business_platform"|"internal_tool"|"automation"|"maintenance","mustHaveFeatures"?:string[],"desiredTimeline"?:string,"budgetMin"?:number,"budgetMax"?:number}`,
             `- create_quote_draft: {"leadId":string,"title":string,"tier"?:"essential"|"standard"|"advanced"|"custom","discountPct"?:number,"lines":[{"label":string,"quantity":number,"unitPrice":number,"unitCost":number,"estimatedDays":number}]}`,

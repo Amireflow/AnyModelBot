@@ -69,7 +69,7 @@ export const DEFAULT_AGENT_PRESETS: Record<AgencyAgentRole, AgentRolePreset> = {
       "Toujours orienter l'échange vers une prochaine étape concrète et mesurable.",
     ],
     skills: ["consultative-sales-fr", "sow-contract-guardrails"],
-    allowedTools: ["needs-qualification", "whatsapp-cloud", "email-outbox"],
+    allowedTools: ["needs-qualification", "whatsapp-desktop", "email-outbox"],
   },
   estimator: {
     enabled: true,

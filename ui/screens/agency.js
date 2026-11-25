@@ -87,20 +87,11 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const [selected,setSelected]=useState("");
   const [contacts,setContacts]=useState([]);
   const [whatsappOpen,setWhatsappOpen]=useState(false);
-  const [whatsappConfig,setWhatsappConfig]=useState(null);
-  const [whatsappDraft,setWhatsappDraft]=useState({
-    accessToken:"",phoneNumberId:"",businessAccountId:"",apiVersion:"v27.0",appSecret:"",verifyToken:""
-  });
+  const [whatsappDesktopStatus,setWhatsappDesktopStatus]=useState(null);
   const [whatsappBusy,setWhatsappBusy]=useState("");
   const [whatsappError,setWhatsappError]=useState("");
   const [whatsappNotice,setWhatsappNotice]=useState("");
-  const [whatsappClearConfirm,setWhatsappClearConfirm]=useState(false);
-  const [whatsappWorkflowOpen,setWhatsappWorkflowOpen]=useState(false);
-  const [whatsappApprovals,setWhatsappApprovals]=useState([]);
-  const [whatsappOutbox,setWhatsappOutbox]=useState([]);
-  const [whatsappWorkflowBusy,setWhatsappWorkflowBusy]=useState(false);
-  const [whatsappWorkflowError,setWhatsappWorkflowError]=useState("");
-  const [whatsappSendConfirmId,setWhatsappSendConfirmId]=useState("");
+  const [whatsappCompose,setWhatsappCompose]=useState({contactId:"",phone:"",purpose:"marketing",text:""});
   const [consentContactId,setConsentContactId]=useState("");
   const [whatsappConsents,setWhatsappConsents]=useState([]);
   const [whatsappConsentBusy,setWhatsappConsentBusy]=useState(false);
@@ -108,9 +99,6 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const [whatsappConsentNotice,setWhatsappConsentNotice]=useState("");
   const [whatsappConsentDraft,setWhatsappConsentDraft]=useState({
     purpose:"marketing",status:"granted",source:"manual_confirmation",proof:"",textVersion:"wa-marketing-v1"
-  });
-  const [whatsappTemplateDraft,setWhatsappTemplateDraft]=useState({
-    name:"",language:"fr_FR",components:"[]",reason:""
   });
   const [research,setResearch]=useState({items:[],assessment:null});
   const [qualification,setQualification]=useState(null);
@@ -244,42 +232,13 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   },[lang]);
 
   useEffect(()=>{
-    if(!orgId||!whatsappOpen){setWhatsappConfig(null);return;}
+    if(!orgId){setWhatsappDesktopStatus(null);return;}
     let live=true;
-    setWhatsappBusy("load");setWhatsappError("");setWhatsappNotice("");
-    api("/agency/"+enc(orgId)+"/whatsapp/config")
-      .then(data=>{
-        if(!live)return;
-        setWhatsappConfig(data);
-        setWhatsappDraft({accessToken:"",phoneNumberId:"",businessAccountId:"",apiVersion:"v27.0",appSecret:"",verifyToken:""});
-        setWhatsappClearConfirm(false);
-      })
-      .catch(err=>live&&setWhatsappError(err.message))
-      .finally(()=>live&&setWhatsappBusy(""));
+    api("/agency/"+enc(orgId)+"/whatsapp/desktop/status")
+      .then(data=>{if(live)setWhatsappDesktopStatus(data.status||data||null);})
+      .catch(()=>{});
     return ()=>{live=false;};
-  },[orgId,whatsappOpen,lang]);
-
-  useEffect(()=>{
-    if(!orgId||!whatsappWorkflowOpen){
-      setWhatsappApprovals([]);setWhatsappOutbox([]);setWhatsappWorkflowError("");setWhatsappSendConfirmId("");
-      return;
-    }
-    let live=true;
-    const refresh=()=>{
-      Promise.all([
-        api("/agency/"+enc(orgId)+"/approvals?limit=100"),
-        api("/agency/"+enc(orgId)+"/whatsapp/outbox?limit=100")
-      ]).then(([approvalData,outboxData])=>{
-        if(!live)return;
-        setWhatsappApprovals(approvalData.items||[]);
-        setWhatsappOutbox(outboxData.items||[]);
-        setWhatsappWorkflowError("");
-      }).catch(err=>live&&setWhatsappWorkflowError(err.message));
-    };
-    refresh();
-    const timer=setInterval(refresh,15000);
-    return ()=>{live=false;clearInterval(timer);};
-  },[orgId,whatsappWorkflowOpen,lang]);
+  },[orgId,lang]);
 
   useEffect(()=>{
     if(!orgId||!consentContactId){setWhatsappConsents([]);return;}
@@ -531,7 +490,6 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
     setConsentContactId(current=>current===contactRecord.id&&consentChannel===channel?"":contactRecord.id);
     setWhatsappConsents([]);
     setWhatsappConsentDraft({purpose:"marketing",status:"granted",source:"manual_confirmation",proof:"",textVersion:channel==="email"?"email-marketing-v1":"wa-marketing-v1"});
-    setWhatsappTemplateDraft({name:"",language:"fr_FR",components:"[]",reason:""});
     setWhatsappConsentError("");setWhatsappConsentNotice("");
   };
   const saveWhatsAppConsent=async(e)=>{
@@ -551,108 +509,60 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
     }catch(err){setWhatsappConsentError(err.message);}
     finally{setWhatsappConsentBusy(false);}
   };
-  const refreshWhatsAppWorkflow=async()=>{
-    setWhatsappWorkflowBusy(true);setWhatsappWorkflowError("");
+  const refreshWhatsAppDesktopStatus=async()=>{
+    setWhatsappBusy("status");setWhatsappError("");
     try{
-      const [approvalData,outboxData]=await Promise.all([
-        api("/agency/"+enc(orgId)+"/approvals?limit=100"),
-        api("/agency/"+enc(orgId)+"/whatsapp/outbox?limit=100")
-      ]);
-      setWhatsappApprovals(approvalData.items||[]);
-      setWhatsappOutbox(outboxData.items||[]);
-    }catch(err){setWhatsappWorkflowError(err.message);}
-    finally{setWhatsappWorkflowBusy(false);}
+      const data=await api("/agency/"+enc(orgId)+"/whatsapp/desktop/status?refresh=1");
+      setWhatsappDesktopStatus(data.status||null);
+    }catch(err){setWhatsappError(err.message);}
+    finally{setWhatsappBusy("");}
   };
-  const requestWhatsAppApproval=async(e,contactRecord)=>{
-    e.preventDefault();setWhatsappConsentBusy(true);setWhatsappConsentError("");setWhatsappConsentNotice("");
+  const grantQuickWhatsAppConsent=async(contactRecord)=>{
+    if(!contactRecord?.id)return;
+    setWhatsappBusy("consent");setWhatsappError("");setWhatsappNotice("");
     try{
-      const purpose=whatsappConsentDraft.purpose.trim().toLowerCase();
-      const consentData=await api("/agency/"+enc(orgId)+"/contacts/"+enc(contactRecord.id)+"/consents?channel=whatsapp&purpose="+encodeURIComponent(purpose));
-      const latest=consentData.items?.[0];
-      if(!latest||latest.status!=="granted"||(latest.expiresAt&&latest.expiresAt<=Date.now())||!latest.source||!latest.proof||!latest.textVersion){
-        throw new Error(t("agency.whatsappConsentRequired"));
-      }
-      const recipient=cleanPhone(contactRecord.phone);
-      if(!/^\+[1-9][0-9]{7,14}$/.test(recipient))throw new Error(t("agency.whatsappPhoneInvalid"));
-      const components=JSON.parse(whatsappTemplateDraft.components||"[]");
-      if(!Array.isArray(components)||components.length>10||components.some(item=>!item||typeof item!=="object"||Array.isArray(item))){
-        throw new Error(t("agency.whatsappComponentsInvalid"));
-      }
-      const payload={
-        channel:"whatsapp",purpose,contactId:contactRecord.id,recipient,type:"template",
-        template:{name:whatsappTemplateDraft.name.trim().toLowerCase(),language:whatsappTemplateDraft.language.trim(),components}
-      };
-      await api("/agency/"+enc(orgId)+"/approvals",{method:"POST",body:{
-        action:"send_message",resourceType:"whatsapp_template",resourceId:contactRecord.id,
-        reason:whatsappTemplateDraft.reason,payload
-      }});
-      setWhatsappWorkflowOpen(true);
-      setWhatsappConsentNotice(t("agency.whatsappApprovalRequested"));
-      setWhatsappTemplateDraft(v=>({...v,reason:""}));
-      await refreshWhatsAppWorkflow();
-    }catch(err){setWhatsappConsentError(err.message);}
-    finally{setWhatsappConsentBusy(false);}
-  };
-  const decideWhatsAppApproval=async(approval,decision)=>{
-    setWhatsappWorkflowBusy(true);setWhatsappWorkflowError("");
-    try{
-      await api("/agency/"+enc(orgId)+"/approvals/"+enc(approval.id)+"/decision",{
+      await api("/agency/"+enc(orgId)+"/contacts/"+enc(contactRecord.id)+"/consents",{
         method:"POST",body:{
-          decision,expectedPayloadHash:approval.payloadHash,
-          reason:decision==="approved"?"Reviewed and approved in Agency CRM":"Rejected in Agency CRM"
+          channel:"whatsapp",purpose:whatsappCompose.purpose||"marketing",status:"granted",
+          source:"crm_whatsapp_desktop_panel",proof:"confirmed-by-agency-operator",textVersion:"wa-desktop-v1"
         }
       });
-      await refreshWhatsAppWorkflow();
-    }catch(err){setWhatsappWorkflowError(err.message);setWhatsappWorkflowBusy(false);}
-  };
-  const queueWhatsAppApproval=async(approval)=>{
-    setWhatsappWorkflowBusy(true);setWhatsappWorkflowError("");
-    try{
-      const payload=approvalPayload(approval);
-      if(!payload)throw new Error(t("agency.whatsappApprovalPayloadInvalid"));
-      await api("/agency/"+enc(orgId)+"/whatsapp/outbox",{method:"POST",body:{
-        approvalId:approval.id,
-        idempotencyKey:"wa-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,12),
-        payload
-      }});
-      await refreshWhatsAppWorkflow();
-    }catch(err){setWhatsappWorkflowError(err.message);setWhatsappWorkflowBusy(false);}
-  };
-  const sendWhatsAppOutbox=async(message)=>{
-    setWhatsappWorkflowBusy(true);setWhatsappWorkflowError("");setWhatsappSendConfirmId("");
-    try{
-      await api("/agency/"+enc(orgId)+"/whatsapp/outbox/"+enc(message.id)+"/send",{method:"POST"});
-      await refreshWhatsAppWorkflow();
-    }catch(err){setWhatsappWorkflowError(err.message);setWhatsappWorkflowBusy(false);}
-  };
-  const saveWhatsAppConfig=async(e)=>{
-    e.preventDefault();setWhatsappBusy("save");setWhatsappError("");setWhatsappNotice("");setWhatsappClearConfirm(false);
-    try{
-      const body={
-        accessToken:whatsappDraft.accessToken,
-        phoneNumberId:whatsappDraft.phoneNumberId,
-        businessAccountId:whatsappDraft.businessAccountId,
-        apiVersion:whatsappDraft.apiVersion||"v27.0",
-        appSecret:whatsappDraft.appSecret,
-        verifyToken:whatsappDraft.verifyToken,
-      };
-      const result=await api("/agency/"+enc(orgId)+"/whatsapp/config",{method:"PUT",body});
-      setWhatsappConfig(result.configuration);
-      setWhatsappDraft({accessToken:"",phoneNumberId:"",businessAccountId:"",apiVersion:"v27.0",appSecret:"",verifyToken:""});
-      setWhatsappNotice(t("agency.whatsappSaved"));
+      setWhatsappNotice(t("agency.whatsappConsentSaved"));
     }catch(err){setWhatsappError(err.message);}
     finally{setWhatsappBusy("");}
   };
-  const clearWhatsAppConfig=async()=>{
-    setWhatsappBusy("clear");setWhatsappError("");setWhatsappNotice("");
+  const launchWhatsAppDesktop=async(opts={})=>{
+    setWhatsappBusy("open");setWhatsappError("");setWhatsappNotice("");setError("");
     try{
-      const result=await api("/agency/"+enc(orgId)+"/whatsapp/config",{method:"DELETE"});
-      setWhatsappConfig(result.configuration);
-      setWhatsappDraft({accessToken:"",phoneNumberId:"",businessAccountId:"",apiVersion:"v27.0",appSecret:"",verifyToken:""});
-      setWhatsappClearConfirm(false);
-      setWhatsappNotice(t("agency.whatsappCleared"));
-    }catch(err){setWhatsappError(err.message);}
-    finally{setWhatsappBusy("");}
+      const targetContactId=opts.contactId!==undefined?opts.contactId:whatsappCompose.contactId;
+      const targetPhone=opts.phone!==undefined?opts.phone:whatsappCompose.phone;
+      const targetText=opts.text!==undefined?opts.text:whatsappCompose.text;
+      const targetPurpose=opts.purpose||whatsappCompose.purpose||"marketing";
+      const res=await api("/agency/"+enc(orgId)+"/whatsapp/desktop/open",{
+        method:"POST",
+        body:{
+          contactId:targetContactId||undefined,
+          phone:targetPhone||undefined,
+          purpose:targetPurpose,
+          text:targetText,
+          conversationId:opts.conversationId||undefined,
+          recordMessage:opts.recordMessage!==false
+        }
+      });
+      if(res.status)setWhatsappDesktopStatus(res.status);
+      setWhatsappNotice(t("agency.waDesktopOpenedNotice",{phone:res.e164||targetPhone}));
+      if(opts.clearMsg){setMsgBody("");setRevision(v=>v+1);}
+    }catch(err){
+      setWhatsappError(err.message);
+      setError(err.message);
+    }finally{setWhatsappBusy("");}
+  };
+  const copyWhatsAppMessage=async(text)=>{
+    if(!text)return;
+    try{
+      await navigator.clipboard?.writeText(text);
+      setWhatsappNotice(t("agency.waDesktopCopied"));
+    }catch{/* clipboard optional */}
   };
   const saveQualificationProfile=async(e)=>{
     e.preventDefault();setBusy("qualification-profile");setError("");
@@ -1429,11 +1339,9 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       </div>`}
       ${tab==="commercial"&&html`<div class="agency-channels-bar">
         <div class="agency-whatsapp-status">
-          <span class=${"agency-whatsapp-dot "+(whatsappConfig?.configured?"ready":"")}></span>
-          <strong>${t("agency.whatsappTitle")}</strong>
-          <span>${whatsappConfig?.configured?t("agency.whatsappConnected"):t("agency.whatsappNotConnected")}</span>
-          ${whatsappConfig?.phoneNumberId&&html`<code>${whatsappConfig.phoneNumberId}</code>`}
-          ${whatsappConfig?.webhookConfigured&&html`<span class="agency-whatsapp-webhook-ready">${t("agency.whatsappWebhookReady")}</span>`}
+          <span class=${"agency-whatsapp-dot "+(whatsappDesktopStatus?.available?"ready":"")}></span>
+          <strong>${t("agency.waDesktopTitle")}</strong>
+          <span>${whatsappDesktopStatus?.available?t("agency.waDesktopDetected"):t("agency.waDesktopFallback")}</span>
         </div>
         <div class="agency-whatsapp-status">
           <span class=${"agency-whatsapp-dot "+(emailStatus?.configured?"ready":"")}></span>
@@ -1441,11 +1349,8 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           <span>${emailStatus?.configured?`${t("agency.emailConfigured")} (${emailStatus.provider||"resend"})`:t("agency.emailNotConfigured")}</span>
         </div>
         <div class="agency-channels-actions">
-          <button class="btn" type="button" aria-expanded=${whatsappOpen} onClick=${()=>{setWhatsappOpen(v=>!v);setWhatsappError("");setWhatsappNotice("");}}>
-            ${whatsappOpen?t("agency.cancel"):t("agency.whatsappConfigure")}
-          </button>
-          <button class="btn" type="button" aria-expanded=${whatsappWorkflowOpen} onClick=${()=>setWhatsappWorkflowOpen(v=>!v)}>
-            ${whatsappWorkflowOpen?t("agency.cancel"):t("agency.whatsappWorkflowOpen")}
+          <button class=${"btn"+(whatsappOpen?" primary":"")} type="button" aria-expanded=${whatsappOpen} onClick=${()=>{setWhatsappOpen(v=>!v);setWhatsappError("");setWhatsappNotice("");}}>
+            ${whatsappOpen?t("agency.cancel"):t("agency.waDesktopTitle")}
           </button>
           <button class="btn" type="button" aria-expanded=${emailConfigOpen} onClick=${()=>{setEmailConfigOpen(v=>!v);setEmailError("");setEmailNotice("");}}>
             ${emailConfigOpen?t("agency.cancel"):t("agency.emailConfigureBtn")}
@@ -1520,84 +1425,25 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       </section>`}
       ${(tab==="companies"||tab==="commercial")&&whatsappOpen&&html`<section class="agency-whatsapp-card">
         <div class="agency-whatsapp-heading">
-          <div><span class="agency-eyebrow">${t("agency.whatsappEyebrow")}</span><h2>${t("agency.whatsappTitle")}</h2><p>${t("agency.whatsappDescription")}</p></div>
-        </div>
-        ${whatsappBusy==="load"&&html`<div class="agency-loading"><${Spinner}/>${t("agency.loading")}</div>`}
-        ${whatsappError&&html`<div class="agency-alert" role="alert">${whatsappError}</div>`}
-        ${whatsappNotice&&html`<p class="agency-research-feedback" role="status">${whatsappNotice}</p>`}
-        ${whatsappConfig&&!whatsappConfig.secureStorageAvailable&&html`<div class="agency-whatsapp-note">${t("agency.whatsappSecureStorageUnavailable",{reason:whatsappConfig.secureStorageReason||"unknown"})} ${whatsappConfig.environmentConfigured?t("agency.whatsappEnvironmentActive"):t("agency.whatsappDesktopOnly")}</div>`}
-        ${whatsappConfig?.secureStorageReason&&whatsappConfig.secureStorageAvailable&&html`<div class="agency-whatsapp-note">${t("agency.whatsappSecureStorageUnavailable",{reason:whatsappConfig.secureStorageReason})}</div>`}
-        ${whatsappConfig?.savedInSecureStorage&&!whatsappConfig.organizationMatches&&!whatsappConfig.secureStorageReason&&html`<div class="agency-whatsapp-note">${t("agency.whatsappStoredForOtherOrg")}</div>`}
-        ${whatsappConfig?.secureStorageAvailable&&(!whatsappConfig.savedInSecureStorage||whatsappConfig.organizationMatches)&&html`
-          <form class="agency-form agency-form-grid agency-whatsapp-form" onSubmit=${saveWhatsAppConfig}>
-            <div class="agency-form-head"><div><h3>${whatsappConfig.savedInSecureStorage?t("agency.whatsappReplaceTitle"):t("agency.whatsappCredentialsTitle")}</h3><p>${t("agency.whatsappSecretNote")}</p></div></div>
-            <${Field} label=${t("agency.whatsappAccessToken")} value=${whatsappDraft.accessToken} type="password" required onInput=${v=>update(setWhatsappDraft,"accessToken",v)}/>
-            <${Field} label=${t("agency.whatsappPhoneNumberId")} value=${whatsappDraft.phoneNumberId} required onInput=${v=>update(setWhatsappDraft,"phoneNumberId",v)}/>
-            <${Field} label=${t("agency.whatsappBusinessAccountId")} value=${whatsappDraft.businessAccountId} required onInput=${v=>update(setWhatsappDraft,"businessAccountId",v)}/>
-            <${Field} label=${t("agency.whatsappGraphVersion")} value=${whatsappDraft.apiVersion} required onInput=${v=>update(setWhatsappDraft,"apiVersion",v)}/>
-            <${Field} label=${t("agency.whatsappAppSecret")} value=${whatsappDraft.appSecret} type="password" onInput=${v=>update(setWhatsappDraft,"appSecret",v)}/>
-            <${Field} label=${t("agency.whatsappVerifyToken")} value=${whatsappDraft.verifyToken} type="password" onInput=${v=>update(setWhatsappDraft,"verifyToken",v)}/>
-            <p class="agency-muted agency-form-wide">${t("agency.whatsappOrganizationBinding")}</p>
-            <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${whatsappBusy==="save"||whatsappBusy==="clear"||!whatsappDraft.accessToken.trim()||!whatsappDraft.phoneNumberId.trim()||!whatsappDraft.businessAccountId.trim()}>${whatsappBusy==="save"?t("agency.whatsappSaving"):t("agency.whatsappSave")}</button></div>
-          </form>
-        `}
-        ${whatsappConfig?.savedInSecureStorage&&(whatsappConfig.organizationMatches||!!whatsappConfig.secureStorageReason)&&html`
-          <div class="agency-whatsapp-clear">
-            ${!whatsappClearConfirm
-              ?html`<button class="text" type="button" onClick=${()=>setWhatsappClearConfirm(true)}>${t("agency.whatsappRemove")}</button>`
-              :html`<span>${t("agency.whatsappConfirmRemove")}</span><button class="btn" type="button" disabled=${whatsappBusy==="clear"} onClick=${clearWhatsAppConfig}>${whatsappBusy==="clear"?t("agency.whatsappRemoving"):t("agency.whatsappConfirm")}</button><button class="text" type="button" onClick=${()=>setWhatsappClearConfirm(false)}>${t("agency.cancel")}</button>`}
-          </div>`}
-      </section>`}
-      ${(tab==="companies"||tab==="commercial")&&whatsappWorkflowOpen&&html`<section class="agency-whatsapp-workflow">
-        <div class="agency-whatsapp-heading">
-          <div><span class="agency-eyebrow">${t("agency.whatsappWorkflowEyebrow")}</span><h2>${t("agency.whatsappWorkflowTitle")}</h2><p>${t("agency.whatsappWorkflowHint")}</p></div>
+          <div><span class="agency-eyebrow">${t("agency.waDesktopTitle")}</span><h2>${t("agency.waDesktopTitle")}</h2><p>${t("agency.waDesktopSubtitle")}</p></div>
           <div class="agency-whatsapp-workflow-actions">
-            <button class="btn" type="button" disabled=${whatsappWorkflowBusy} onClick=${refreshWhatsAppWorkflow}>${whatsappWorkflowBusy?t("agency.loading"):t("agency.whatsappRefresh")}</button>
+            <span class="agency-whatsapp-state">${whatsappDesktopStatus?.available?t("agency.waDesktopDetected"):t("agency.waDesktopFallback")}</span>
+            <button class="btn" type="button" disabled=${!!whatsappBusy} onClick=${refreshWhatsAppDesktopStatus}>${t("agency.wsRefreshBtn")}</button>
           </div>
         </div>
-        ${whatsappWorkflowError&&html`<div class="agency-alert" role="alert">${whatsappWorkflowError}</div>`}
-        <div class="agency-whatsapp-workflow-grid">
-          <section class="agency-whatsapp-list">
-            <div class="agency-contact-heading"><h3>${t("agency.whatsappApprovals")}</h3><span class="agency-qualification-status">${whatsappApprovals.filter(a=>a.action==="send_message"&&a.resourceType==="whatsapp_template").length}</span></div>
-            ${whatsappApprovals.filter(a=>a.action==="send_message"&&a.resourceType==="whatsapp_template").map(approval=>{
-              const payload=approvalPayload(approval);
-              const expired=approval.status==="pending"&&approval.expiresAt&&approval.expiresAt<=Date.now();
-              const queued=whatsappOutbox.some(item=>item.approvalId===approval.id);
-              return html`<article class="agency-whatsapp-item">
-                <div class="agency-whatsapp-item-head"><strong>${payload?.template?.name||approval.resourceId}</strong><span class=${"agency-whatsapp-state "+(expired?"expired":approval.status)}>${t(`agency.whatsappApprovalStatus.${expired?"expired":approval.status}`)}</span></div>
-                <p class="agency-truncate" title=${joinMeta(payload?.recipient||approval.resourceId,payload?.purpose,payload?.template?.language)}>${joinMeta(payload?.recipient||approval.resourceId,payload?.purpose,payload?.template?.language)||emptyVal()}</p>
-                <small>${approval.reason}</small>
-                <small>${t("agency.whatsappPayloadHash")} <code>${approval.payloadHash}</code></small>
-                ${payload?.template&&html`<details class="agency-whatsapp-preview"><summary>${t("agency.whatsappExactPayload")}</summary><pre>${JSON.stringify(payload.template.components||[],null,2)}</pre></details>`}
-                ${approval.decisionReason&&html`<small>${t("agency.whatsappDecisionReason")} ${approval.decisionReason}</small>`}
-                <small>${t("agency.whatsappExpires")} ${new Date(approval.expiresAt).toLocaleString()}</small>
-                ${approval.status==="pending"&&!expired&&html`<div class="agency-whatsapp-item-actions">
-                  <button class="btn primary" type="button" disabled=${whatsappWorkflowBusy} onClick=${()=>decideWhatsAppApproval(approval,"approved")}>${t("agency.whatsappApprove")}</button>
-                  <button class="btn" type="button" disabled=${whatsappWorkflowBusy} onClick=${()=>decideWhatsAppApproval(approval,"rejected")}>${t("agency.whatsappReject")}</button>
-                </div>`}
-                ${approval.status==="approved"&&!queued&&html`<button class="btn" type="button" disabled=${whatsappWorkflowBusy||!payload} onClick=${()=>queueWhatsAppApproval(approval)}>${t("agency.whatsappQueue")}</button>`}
-                ${approval.status==="approved"&&queued&&html`<small>${t("agency.whatsappAlreadyQueued")}</small>`}
-              </article>`;
-            })}
-            ${!whatsappApprovals.some(a=>a.action==="send_message"&&a.resourceType==="whatsapp_template")&&html`<p class="agency-muted">${t("agency.whatsappNoApprovals")}</p>`}
-          </section>
-          <section class="agency-whatsapp-list">
-            <div class="agency-contact-heading"><h3>${t("agency.whatsappOutbox")}</h3><span class="agency-qualification-status">${whatsappOutbox.length}</span></div>
-            ${whatsappOutbox.map(message=>html`<article class="agency-whatsapp-item">
-              <div class="agency-whatsapp-item-head"><strong>${message.templateName}</strong><span class=${"agency-whatsapp-state "+message.status}>${t(`agency.whatsappOutboxStatus.${message.status}`)}</span></div>
-              <p>${message.recipient} · ${message.language}</p>
-              <small>${t("agency.whatsappProviderStatus")} ${message.providerStatus?t(`agency.whatsappProviderStatusValues.${message.providerStatus}`):t("agency.whatsappProviderPending")}</small>
-              ${(message.failureCode||message.providerErrorCode)&&html`<small>${t("agency.whatsappFailure")} ${message.failureCode||message.providerErrorCode}</small>`}
-              ${message.status==="queued"&&html`
-                ${whatsappSendConfirmId!==message.id
-                  ?html`<button class="btn" type="button" disabled=${whatsappWorkflowBusy} onClick=${()=>setWhatsappSendConfirmId(message.id)}>${t("agency.whatsappSend")}</button>`
-                  :html`<div class="agency-whatsapp-item-actions"><span>${t("agency.whatsappSendConfirm")}</span><button class="btn primary" type="button" disabled=${whatsappWorkflowBusy} onClick=${()=>sendWhatsAppOutbox(message)}>${t("agency.whatsappConfirmSend")}</button><button class="text" type="button" onClick=${()=>setWhatsappSendConfirmId("")}>${t("agency.cancel")}</button></div>`}
-              `}
-            </article>`)}
-            ${!whatsappOutbox.length&&html`<p class="agency-muted">${t("agency.whatsappNoOutbox")}</p>`}
-          </section>
-        </div>
-        <p class="agency-muted">${t("agency.whatsappAcceptedNote")}</p>
+        ${whatsappError&&html`<div class="agency-alert" role="alert">${whatsappError}</div>`}
+        ${whatsappNotice&&html`<p class="agency-research-feedback" role="status">${whatsappNotice}</p>`}
+        <form class="agency-form agency-form-grid" onSubmit=${e=>{e.preventDefault();launchWhatsAppDesktop();}}>
+          <div class="agency-field"><span>${t("agency.emailRecipientLabel")}</span><${Select} label=${t("agency.emailRecipientLabel")} value=${whatsappCompose.contactId} placeholder=${t("agency.chooseOption")} searchable options=${[["",t("agency.chooseOption")],...commercialContacts.filter(c=>c.phone).map(c=>[c.id,`${c.displayName} (${c.phone})`])]} onChange=${v=>{const chosen=commercialContacts.find(c=>c.id===v);setWhatsappCompose(prev=>({...prev,contactId:v,phone:chosen?.phone||prev.phone}));}}/></div>
+          <${Field} label=${t("agency.waDesktopPhoneLabel")} value=${whatsappCompose.phone} type="tel" placeholder="+221771234567" required onInput=${v=>update(setWhatsappCompose,"phone",v)}/>
+          <${Field} label=${t("agency.waDesktopPurposeLabel")} value=${whatsappCompose.purpose} onInput=${v=>update(setWhatsappCompose,"purpose",v)}/>
+          <label class="agency-field agency-form-wide"><span>${t("agency.waDesktopMessageLabel")}</span><textarea class="field" rows="3" placeholder=${t("agency.waDesktopMessagePlaceholder")} value=${whatsappCompose.text} onInput=${e=>update(setWhatsappCompose,"text",e.currentTarget.value)}></textarea></label>
+          <div class="agency-form-actions">
+            ${whatsappCompose.contactId&&html`<button class="btn" type="button" disabled=${!!whatsappBusy} onClick=${()=>grantQuickWhatsAppConsent(commercialContacts.find(c=>c.id===whatsappCompose.contactId))}>${t("agency.waDesktopGrantConsentBtn")}</button>`}
+            ${whatsappCompose.text.trim()&&html`<button class="btn" type="button" onClick=${()=>copyWhatsAppMessage(whatsappCompose.text)}>${t("agency.waDesktopCopyBtn")}</button>`}
+            <button class="btn primary" type="submit" disabled=${whatsappBusy==="open"||!whatsappCompose.phone.trim()}>${whatsappBusy==="open"?t("agency.loading"):t("agency.waDesktopOpenBtn")}</button>
+          </div>
+        </form>
       </section>`}
       <div class="agency-toolbar">
         <div class="agency-tabs" role="tablist">
@@ -1792,15 +1638,9 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                   <div class="agency-consent-history">
                     ${whatsappConsents.map(item=>html`<div><strong>${t(`agency.whatsappConsentStatus.${item.status}`)} · ${item.purpose}</strong><small>${joinMeta(item.source,item.textVersion,new Date(item.createdAt).toLocaleString())}</small><small>${t("agency.whatsappConsentProof")}: ${item.proof}</small></div>`)}
                   </div>
-                  <div class="agency-contact-heading"><h4>${t("agency.whatsappPrepareTemplate")}</h4><span class="agency-qualification-status">${consentActive?t("agency.whatsappConsentActive"):t("agency.whatsappConsentRequired")}</span></div>
-                  ${!phoneValid&&html`<p class="agency-muted">${t("agency.whatsappPhoneInvalid")}</p>`}
-                  <form class="agency-form agency-consent-form" onSubmit=${e=>requestWhatsAppApproval(e,p)}>
-                    <${Field} label=${t("agency.whatsappTemplateName")} value=${whatsappTemplateDraft.name} required onInput=${v=>update(setWhatsappTemplateDraft,"name",v)}/>
-                    <${Field} label=${t("agency.whatsappTemplateLanguage")} value=${whatsappTemplateDraft.language} required onInput=${v=>update(setWhatsappTemplateDraft,"language",v)}/>
-                    <label class="agency-field"><span>${t("agency.whatsappTemplateComponents")}</span><textarea class="field" rows="3" value=${whatsappTemplateDraft.components} onInput=${e=>update(setWhatsappTemplateDraft,"components",e.currentTarget.value)}></textarea></label>
-                    <${Field} label=${t("agency.whatsappApprovalReason")} value=${whatsappTemplateDraft.reason} required onInput=${v=>update(setWhatsappTemplateDraft,"reason",v)}/>
-                    <button class="btn primary" type="submit" disabled=${whatsappConsentBusy||!consentActive||!phoneValid||!whatsappTemplateDraft.name.trim()||!whatsappTemplateDraft.reason.trim()}>${t("agency.whatsappRequestApproval")}</button>
-                  </form>
+                  ${p.phone&&html`<div class="agency-commercial-actions">
+                    <button class="btn primary" type="button" disabled=${whatsappBusy==="open"||!consentActive} onClick=${()=>launchWhatsAppDesktop({contactId:p.id,phone:p.phone,purpose:whatsappConsentDraft.purpose,text:""})}>${t("agency.waDesktopOpenBtn")}</button>
+                  </div>`}
                 </section>`}
             </div>`;
           })}
@@ -1996,6 +1836,13 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               <div class="agency-commercial-actions">
                 <button class="btn" type="button" disabled=${!!busy} onClick=${suggestReply}>${busy==="suggest"?t("agency.suggestingReply"):t("agency.suggestReplyBtn")}</button>
                 <button class="btn" type="button" disabled=${!!busy} onClick=${extractNeeds}>${t("agency.extractNeedsBtn")}</button>
+                ${(()=>{
+                  const activeConv=conversations.find(c=>c.id===selectedConvId);
+                  const activeLead=leadOptions.find(l=>l.id===selectedLeadId);
+                  const activeContact=commercialContacts.find(c=>c.id===activeLead?.contactId||(c.companyId===activeLead?.companyId&&c.phone));
+                  if(!activeConv||activeConv.channel!=="whatsapp"||!activeContact?.phone)return null;
+                  return html`<button class="btn" type="button" disabled=${whatsappBusy==="open"||!msgBody.trim()} onClick=${()=>launchWhatsAppDesktop({contactId:activeContact.id,phone:activeContact.phone,purpose:"commercial",text:msgBody,conversationId:selectedConvId,recordMessage:true,clearMsg:true})}>${t("agency.waDesktopOpenBtn")}</button>`;
+                })()}
                 <button class="btn primary" type="button" disabled=${!!busy||!msgBody.trim()} onClick=${()=>postConvMessage("outbound")}>${t("agency.sendOutbound")}</button>
                 <button class="btn" type="button" disabled=${!!busy||!msgBody.trim()} onClick=${()=>postConvMessage("inbound")}>${t("agency.recordInbound")}</button>
               </div>

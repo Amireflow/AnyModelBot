@@ -24,7 +24,6 @@ import { MessengerChannel } from "./channels/messenger/channel.js";
 import { MESSENGER_FIELDS, createTransport, telegramOffsetKey } from "./channels/messenger/index.js";
 import { PlatformError, type MessengerTransport } from "./channels/messenger/transport.js";
 import { startWebServer, type WebServer } from "./web/server.js";
-import type { WhatsAppSecretsFile } from "./agency/whatsapp-secrets.js";
 import { initFileLog, logFilePath, logger, mask, registerSecret } from "./log.js";
 import { AgentManager } from "./agent/manager.js";
 import { LocalExecutionNode } from "./execution-node/service.js";
@@ -114,8 +113,6 @@ export interface DesktopHooks {
   openExternal(url: string): void;
   /** 解密 0.1.30 及以前桌面版用系统钥匙串加密的账户文件（Electron safeStorage），只用于一次性迁移 */
   legacySecretBox?: LegacySecretBox;
-  /** WhatsApp Cloud API credentials encrypted by the OS secure storage; CLI/Docker use environment variables. */
-  whatsappSecrets?: WhatsAppSecretsFile;
   /** 走 Chromium 网络栈的 fetch（Electron net.fetch：系统代理、系统证书）；下载内置 PowerShell 用，缺省时用 Node 的 fetch */
   fetch?: typeof fetch;
   /** 系统给这个地址用的代理（Electron resolveProxy：系统设置和 PAC），PAC 写法，如 "PROXY 127.0.0.1:7890" 或 "DIRECT" */

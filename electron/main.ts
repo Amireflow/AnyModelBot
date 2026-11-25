@@ -24,58 +24,8 @@ import { initFileLog, logFilePath, logger, registerSecret, setConsoleLog } from 
 import { normalizeLang, onLangChange, setLangPref, setSystemLang, LANGS, t } from "../src/i18n/index.js";
 import { notificationOf, trayTitle, type AttentionItem } from "../src/tasks/attention.js";
 import { acquireDesktopInstance, StartupLog } from "./startup.js";
-import { WhatsAppSecretsFile, type WhatsAppSecretBox } from "../src/agency/whatsapp-secrets.js";
 
 const log = logger("desktop");
-
-type SafeStorageCompatible = {
-  isAsyncEncryptionAvailable?: () => Promise<boolean>;
-  encryptStringAsync?: (plaintext:string) => Promise<Buffer>;
-  decryptStringAsync?: (ciphertext:Buffer) => Promise<{result:string;shouldReEncrypt:boolean}>;
-  isEncryptionAvailable?: () => boolean;
-  encryptString?: (plaintext:string) => Buffer;
-  decryptString?: (ciphertext:Buffer) => string;
-  getSelectedStorageBackend?: () => string;
-};
-
-const safeStorageApi=safeStorage as unknown as SafeStorageCompatible;
-const whatsappSecretBox:WhatsAppSecretBox={
-  async status(){
-    let backend="OS secure storage";
-    if(process.platform==="darwin")backend="macOS Keychain";
-    else if(process.platform==="win32")backend="Windows DPAPI";
-    else if(process.platform==="linux"){
-      const selected=safeStorageApi.getSelectedStorageBackend?.() ?? "unknown";
-      backend=selected;
-      if(selected==="basic_text" || selected==="unknown") {
-        return {available:false,backend,reason:"Linux Secret Service is unavailable; plaintext fallback is disabled"};
-      }
-    }
-    try {
-      const available=safeStorageApi.isAsyncEncryptionAvailable
-        ? await safeStorageApi.isAsyncEncryptionAvailable()
-        : safeStorageApi.isEncryptionAvailable?.()===true;
-      return available
-        ? {available:true,backend}
-        : {available:false,backend,reason:"OS secure storage is unavailable"};
-    } catch {
-      return {available:false,backend,reason:"OS secure storage could not be opened"};
-    }
-  },
-  async encrypt(plaintext){
-    if(safeStorageApi.encryptStringAsync)return safeStorageApi.encryptStringAsync(plaintext);
-    if(safeStorageApi.encryptString)return safeStorageApi.encryptString(plaintext);
-    throw new Error("This Electron build does not expose a supported safeStorage encryption API");
-  },
-  async decrypt(ciphertext){
-    if(safeStorageApi.decryptStringAsync){
-      const result=await safeStorageApi.decryptStringAsync(ciphertext);
-      return {plaintext:result.result,shouldReEncrypt:result.shouldReEncrypt};
-    }
-    if(safeStorageApi.decryptString)return {plaintext:safeStorageApi.decryptString(ciphertext)};
-    throw new Error("This Electron build does not expose a supported safeStorage decryption API");
-  },
-};
 const SMOKE = process.env.AMB_ELECTRON_SMOKE; // 冒烟测试：截图到该路径后退出
 const startup = new StartupLog(app);
 let windowRequested = false;
@@ -508,7 +458,6 @@ async function boot(): Promise<void> {
     // 0.1.30 及以前用 safeStorage 加密的账户文件，读到时解密一次就改写成明文。启动时不碰钥匙串
     // （macOS 上 isEncryptionAvailable() 本身就要读「<应用名> Safe Storage」，签名对不上就弹窗）
     legacySecretBox: { decrypt: (data) => safeStorage.decryptString(data) },
-    whatsappSecrets: WhatsAppSecretsFile.at(dataDir,whatsappSecretBox),
     // 下载内置 PowerShell 走 Chromium 的网络栈：和浏览器一样用系统代理设置与系统证书
     fetch: ((input: string | URL | Request, init?: RequestInit) => net.fetch(input instanceof URL ? input.href : input, init)) as typeof fetch,
     // 代理执行的命令用的系统代理：Chromium 按系统设置和 PAC 解析（代理进程每次拉起时问）

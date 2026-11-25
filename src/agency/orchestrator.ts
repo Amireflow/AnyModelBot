@@ -36,7 +36,7 @@ export const AGENCY_AGENT_PROFILES: readonly AgentProfile[] = [
     canWriteCode: false,
     canApproveExternal: false,
     independentFromBuild: true,
-    defaultTools: ["whatsapp-cloud", "needs-qualification", "proposal-tiers"],
+    defaultTools: ["whatsapp-desktop", "needs-qualification", "proposal-tiers"],
   },
   {
     role: "estimator",

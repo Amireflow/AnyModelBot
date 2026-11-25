@@ -35,11 +35,9 @@ import type {
   ScheduleFollowUpInput, ScopeChange, ServiceCatalogItem, SolutionType, TieredProposalOption,
   UpdateAgentConfigInput, UpdateCatalogItemInput, UpdateCommercialRulesInput, UpdateCompanyInput, UpdateContactInput,
   UpdateLeadInput, UpdateProjectLotInput, UpdateQualificationProfileInput, UpdateQuoteInput,
-  UpsertNeedsQualificationInput, QueueWhatsAppTemplateInput,
-  WhatsAppOutboxMessage, WhatsAppWebhookProcessResult,
+  UpsertNeedsQualificationInput,
 } from "./types.js";
 import { EmailProviderError, type EmailSender } from "./email-outbox.js";
-import { WhatsAppProviderError, type WhatsAppTemplateSender } from "./whatsapp-cloud.js";
 import {
   confidenceValue, countryCode, currencyCode, emailAddress, normalizedName, optionalText,
   positiveTimestamp, requiredText, websiteUrl,
@@ -48,7 +46,6 @@ import {
 export interface AgencyServiceOptions {
   now?: () => number;
   id?: () => string;
-  whatsapp?: WhatsAppTemplateSender;
   email?: EmailSender;
 }
 
@@ -642,111 +639,6 @@ export class AgencyService {
       requiredText(channel,"channel",40).toLowerCase(),requiredText(purpose,"purpose",80).toLowerCase());
   }
 
-  queueWhatsAppTemplate(organizationId: string, actorId: string, input: QueueWhatsAppTemplateInput): WhatsAppOutboxMessage {
-    this.requireMember(organizationId,actorId);
-    const approvalId=requiredText(input.approvalId,"approvalId",100);
-    const idempotencyKey=requiredText(input.idempotencyKey,"idempotencyKey",120);
-    if (!/^[A-Za-z0-9._:-]{8,120}$/.test(idempotencyKey)) {
-      throw new AgencyError("VALIDATION_ERROR","idempotencyKey must contain 8-120 safe characters");
-    }
-    const payload=input.payload;
-    if (!payload || typeof payload!=="object" || Array.isArray(payload)) throw new AgencyError("VALIDATION_ERROR","WhatsApp payload must be an object");
-    const contactId=requiredText(payload.contactId as string,"payload.contactId",100);
-    const channel=requiredText(payload.channel as string,"payload.channel",40).toLowerCase();
-    const purpose=requiredText(payload.purpose as string,"payload.purpose",80).toLowerCase();
-    const recipient=requiredText(payload.recipient as string,"payload.recipient",32);
-    if (channel!=="whatsapp" || payload.type!=="template") {
-      throw new AgencyError("VALIDATION_ERROR","Only WhatsApp Cloud API template messages are supported");
-    }
-    const phone=recipient;
-    if (!/^\+[1-9][0-9]{7,14}$/.test(phone)) throw new AgencyError("VALIDATION_ERROR","Recipient must be a canonical E.164 phone number");
-    const template=payload.template;
-    if (!template || typeof template!=="object" || Array.isArray(template)) throw new AgencyError("VALIDATION_ERROR","A WhatsApp template is required");
-    const templateRecord=template as Record<string,unknown>;
-    if (Object.keys(payload).sort().join(",")!=="channel,contactId,purpose,recipient,template,type"
-      || Object.keys(templateRecord).sort().join(",")!=="components,language,name") {
-      throw new AgencyError("VALIDATION_ERROR","WhatsApp approval payload contains unsupported fields");
-    }
-    const templateName=requiredText(templateRecord.name as string,"template.name",512).toLowerCase();
-    const language=requiredText(templateRecord.language as string,"template.language",20);
-    if (!/^[a-z0-9_]{1,512}$/.test(templateName) || !/^[a-z]{2,3}_[A-Z]{2}$/.test(language)) {
-      throw new AgencyError("VALIDATION_ERROR","Template name or language is invalid");
-    }
-    if (!Array.isArray(templateRecord.components) || templateRecord.components.length>10
-      || templateRecord.components.some((item) => !item || typeof item!=="object" || Array.isArray(item))) {
-      throw new AgencyError("VALIDATION_ERROR","Template components must be an array of up to 10 objects");
-    }
-    const components=templateRecord.components as Record<string,unknown>[];
-    let payloadHash: ReturnType<typeof stablePayloadHash>;
-    try { payloadHash=stablePayloadHash(payload); }
-    catch { throw new AgencyError("VALIDATION_ERROR","WhatsApp payload must be finite JSON"); }
-    if (payloadHash.json.length>12_000) throw new AgencyError("VALIDATION_ERROR","WhatsApp template parameters are too large");
-
-    const contact=this.store.getContact(organizationId,contactId);
-    if (!contact) throw new AgencyError("NOT_FOUND","Contact not found");
-    const storedPhone=contact.phone.replace(/[\s().-]/g,"");
-    if (!/^\+[1-9][0-9]{7,14}$/.test(storedPhone) || storedPhone!==phone) {
-      throw new AgencyError("VALIDATION_ERROR","The approved recipient must exactly match the contact stored E.164 phone number");
-    }
-    const consent=this.activeConsentRecord(organizationId,contactId,"whatsapp",purpose);
-    if (!consent) throw new AgencyError("CONSENT_REQUIRED","A current, evidenced WhatsApp consent for this exact purpose is required");
-    const approval=this.store.getApproval(organizationId,approvalId);
-    if (!approval || approval.action!=="send_message" || approval.resourceType!=="whatsapp_template"
-      || approval.resourceId!==contactId || approval.status!=="approved"
-      || approval.payloadHash!==payloadHash.hash || (approval.expiresAt && approval.expiresAt<=this.now())) {
-      throw new AgencyError("FORBIDDEN","A current owner approval for this exact WhatsApp template payload is required");
-    }
-    const existing=this.store.findWhatsAppOutboxByIdempotency(organizationId,idempotencyKey);
-    if (existing) {
-      if (existing.approvalPayloadHash!==payloadHash.hash || existing.approvalId!==approvalId
-        || existing.contactId!==contactId || existing.consentId!==consent.id) {
-        throw new AgencyError("CONFLICT","idempotencyKey was already used for a different or superseded authorization");
-      }
-      return existing;
-    }
-    const now=this.now();
-    const message: WhatsAppOutboxMessage={
-      id:this.id(),organizationId,contactId,channel:"whatsapp",purpose,recipient:phone,
-      templateName,language,templateComponents:components,approvalId,approvalPayloadHash:payloadHash.hash,
-      consentId:consent.id,status:"queued",providerMessageId:"",failureCode:"",
-      idempotencyKey,createdAt:now,updatedAt:now,submittedAt:0,
-      providerStatus:"",providerStatusAt:0,providerErrorCode:"",
-    };
-    return this.store.transaction(()=>{
-      // Recheck under BEGIN IMMEDIATE so concurrent retries cannot race the unique key.
-      const lockedExisting=this.store.findWhatsAppOutboxByIdempotency(organizationId,idempotencyKey);
-      if (lockedExisting) {
-        if (lockedExisting.approvalPayloadHash!==payloadHash.hash || lockedExisting.approvalId!==approvalId
-          || lockedExisting.contactId!==contactId || lockedExisting.consentId!==consent.id) {
-          throw new AgencyError("CONFLICT","idempotencyKey was already used for a different or superseded authorization");
-        }
-        return lockedExisting;
-      }
-      const currentConsent=this.activeConsentRecord(organizationId,contactId,"whatsapp",purpose);
-      if (!currentConsent || currentConsent.id!==consent.id) {
-        throw new AgencyError("CONSENT_REQUIRED","Consent changed while the message was being queued");
-      }
-      const currentApproval=this.store.getApproval(organizationId,approvalId);
-      if (!currentApproval || currentApproval.status!=="approved" || currentApproval.action!=="send_message"
-        || currentApproval.resourceType!=="whatsapp_template" || currentApproval.resourceId!==contactId
-        || currentApproval.payloadHash!==payloadHash.hash || (currentApproval.expiresAt && currentApproval.expiresAt<=now)) {
-        throw new AgencyError("FORBIDDEN","Approval changed while the message was being queued");
-      }
-      const saved=this.store.insertWhatsAppOutbox(message);
-      this.audit(organizationId,actorId,"whatsapp.message.queued","whatsapp_message",message.id,{
-        contactId,purpose,templateName,language,approvalId,approvalPayloadHash:payloadHash.hash,consentId:consent.id,
-        idempotencyKey,
-      });
-      return saved;
-    });
-  }
-
-  listWhatsAppOutbox(organizationId: string, actorId: string, limit=100): WhatsAppOutboxMessage[] {
-    this.requireMember(organizationId,actorId,["owner","admin","member","auditor"]);
-    if (!Number.isInteger(limit) || limit<1 || limit>200) throw new AgencyError("VALIDATION_ERROR","limit must be between 1 and 200");
-    return this.store.listWhatsAppOutbox(organizationId,limit);
-  }
-
   private hasOptedOutEmailConversation(organizationId: string, contactId: string): boolean {
     const convs=this.store.listConversations(organizationId,undefined,200);
     return convs.some((c) => c.contactId===contactId && c.channel==="email" && c.status==="opted_out");
@@ -908,252 +800,59 @@ export class AgencyService {
     return this.store.getEmailOutbox(organizationId,message.id)!;
   }
 
-  async dispatchWhatsAppTemplate(organizationId: string, actorId: string, messageId: string): Promise<WhatsAppOutboxMessage> {
-    this.requireMember(organizationId,actorId,["owner"]);
-    const message=this.store.getWhatsAppOutbox(organizationId,requiredText(messageId,"messageId",100));
-    if (!message) throw new AgencyError("NOT_FOUND","WhatsApp outbox message not found");
-    if (message.status==="accepted") return message;
-    if (message.status!=="queued") throw new AgencyError("CONFLICT","Only queued messages can be submitted; ambiguous submissions must be reconciled manually");
-    const sender=this.options.whatsapp;
-    if (!sender || !(await sender.isConfigured(organizationId))) throw new AgencyError("WHATSAPP_NOT_CONFIGURED","WhatsApp Cloud API credentials are not configured for this organization");
-    const approval=this.store.getApproval(organizationId,message.approvalId);
-    if (!approval || approval.status!=="approved" || approval.action!=="send_message"
-      || approval.resourceType!=="whatsapp_template" || approval.resourceId!==message.contactId
-      || approval.payloadHash!==message.approvalPayloadHash || (approval.expiresAt && approval.expiresAt<=this.now())) {
-      throw new AgencyError("FORBIDDEN","The owner approval is missing, expired or no longer matches this message");
-    }
-    const consent=this.activeConsentRecord(organizationId,message.contactId,"whatsapp",message.purpose);
-    if (!consent || consent.id!==message.consentId) {
-      throw new AgencyError("CONSENT_REQUIRED","Consent was withdrawn, expired or replaced after this message was queued");
-    }
-    const contact=this.store.getContact(organizationId,message.contactId);
-    if (!contact || contact.phone.replace(/[\s().-]/g,"")!==message.recipient) {
-      throw new AgencyError("CONSENT_REQUIRED","The contact recipient changed after approval; a new review is required");
-    }
-
-    const startedAt=this.now();
-    this.store.transaction(()=>{
-      if (!this.store.updateWhatsAppOutbox(organizationId,message.id,"queued","sending",startedAt)) {
-        throw new AgencyError("CONFLICT","This WhatsApp message is already being processed");
-      }
-      this.audit(organizationId,actorId,"whatsapp.message.submission_started","whatsapp_message",message.id,{
-        approvalId:message.approvalId,approvalPayloadHash:message.approvalPayloadHash,
-      });
-    });
-
-    try {
-      const result=await sender.sendTemplateMessage({
-        organizationId,recipient:message.recipient,templateName:message.templateName,
-        language:message.language,components:message.templateComponents,
-      });
-      const now=this.now();
-      this.store.transaction(()=>{
-        if (!this.store.updateWhatsAppOutbox(organizationId,message.id,"sending","accepted",now,result.providerMessageId,"",now)) {
-          throw new AgencyError("CONFLICT","WhatsApp message state changed during submission");
-        }
-        this.audit(organizationId,actorId,"whatsapp.message.accepted","whatsapp_message",message.id,{
-          providerMessageId:result.providerMessageId,
-        });
-        // Meta can deliver a status callback before the send HTTP response is committed.
-        // Replay any already-persisted callbacks now that the provider id is known.
-        for (const event of this.store.listWhatsAppWebhookStatusEvents(organizationId,result.providerMessageId)) {
-          const applied=this.store.updateWhatsAppProviderStatus(
-            organizationId,message.id,event.status,event.eventAt,event.errorCode,now,
-          );
-          if (applied) this.audit(organizationId,"system:meta-webhook","whatsapp.message.provider_status",
-            "whatsapp_message",message.id,{providerMessageId:result.providerMessageId,status:event.status,eventAt:event.eventAt});
-        }
-      });
-    } catch (error) {
-      const providerError=error instanceof WhatsAppProviderError ? error : new WhatsAppProviderError("UNEXPECTED_PROVIDER_FAILURE",true);
-      const status=providerError.uncertain ? "submission_unknown" : "failed";
-      const now=this.now();
-      this.store.transaction(()=>{
-        this.store.updateWhatsAppOutbox(organizationId,message.id,"sending",status,now,"",providerError.code,0);
-        this.audit(organizationId,actorId,"whatsapp.message."+status,"whatsapp_message",message.id,{
-          failureCode:providerError.code,
-        });
-      });
-    }
-    return this.store.getWhatsAppOutbox(organizationId,message.id)!;
+  getContact(organizationId: string, actorId: string, contactId: string): Contact {
+    this.requireMember(organizationId, actorId, ["owner", "admin", "member", "auditor"]);
+    const contact = this.store.getContact(organizationId, requiredText(contactId, "contactId", 100));
+    if (!contact) throw new AgencyError("NOT_FOUND", "Contact not found");
+    return contact;
   }
 
-  processWhatsAppWebhook(organizationId: string, expectedPhoneNumberId: string, payload: unknown): WhatsAppWebhookProcessResult {
-    const organization=this.store.getOrganization(organizationId);
-    if (!organization || organization.status!=="active") throw new AgencyError("NOT_FOUND","Webhook organization is unavailable");
-    if (!payload || typeof payload!=="object" || Array.isArray(payload)) throw new AgencyError("VALIDATION_ERROR","Webhook payload must be an object");
-    const root=payload as Record<string,unknown>;
-    if (root.object!=="whatsapp_business_account" || !Array.isArray(root.entry)) {
-      throw new AgencyError("VALIDATION_ERROR","Unsupported Meta webhook object");
-    }
-    const result: WhatsAppWebhookProcessResult={
-      accepted:0,duplicates:0,statusEvents:0,inboundMessages:0,optOuts:0,unmatchedOptOuts:0,
-    };
-    const now=this.now();
-    for (const entryValue of root.entry) {
-      if (!entryValue || typeof entryValue!=="object" || Array.isArray(entryValue)) continue;
-      const entry=entryValue as Record<string,unknown>;
-      if (!Array.isArray(entry.changes)) continue;
-      for (const changeValue of entry.changes) {
-        if (!changeValue || typeof changeValue!=="object" || Array.isArray(changeValue)) continue;
-        const change=changeValue as Record<string,unknown>;
-        if (change.field!=="messages" || !change.value || typeof change.value!=="object" || Array.isArray(change.value)) continue;
-        const value=change.value as Record<string,unknown>;
-        const metadata=value.metadata && typeof value.metadata==="object"
-          ? value.metadata as Record<string,unknown> : {};
-        if (metadata.phone_number_id!==expectedPhoneNumberId) {
-          throw new AgencyError("FORBIDDEN","Webhook phone number does not match the configured Meta number");
-        }
-
-        if (Array.isArray(value.statuses)) for (const statusValue of value.statuses) {
-          if (!statusValue || typeof statusValue!=="object" || Array.isArray(statusValue)) continue;
-          const statusRecord=statusValue as Record<string,unknown>;
-          const providerMessageId=typeof statusRecord.id==="string" ? statusRecord.id : "";
-          const status=typeof statusRecord.status==="string" ? statusRecord.status : "";
-          const recipientId=typeof statusRecord.recipient_id==="string" ? statusRecord.recipient_id : "";
-          const seconds=typeof statusRecord.timestamp==="string" && /^\d{1,12}$/.test(statusRecord.timestamp)
-            ? Number(statusRecord.timestamp) : Number.NaN;
-          const supportedStatus=status==="sent" || status==="delivered" || status==="read" || status==="failed";
-          if (!providerMessageId || !supportedStatus || !Number.isSafeInteger(seconds) || seconds<=0) continue;
-          const eventAt=seconds*1000;
-          if (!Number.isSafeInteger(eventAt)) continue;
-          const eventKey=createHash("sha256")
-            .update(["status",providerMessageId,status,String(eventAt),recipientId].join("|")).digest("hex");
-          const errorValue=Array.isArray(statusRecord.errors) ? statusRecord.errors[0] : undefined;
-          const errorRecord=errorValue && typeof errorValue==="object" && !Array.isArray(errorValue)
-            ? errorValue as Record<string,unknown> : {};
-          const errorCode=typeof errorRecord.code==="number" || typeof errorRecord.code==="string"
-            ? String(errorRecord.code).slice(0,80) : "";
-          this.store.transaction(()=>{
-            const inserted=this.store.insertWhatsAppWebhookEvent({
-              organizationId,eventKey,providerMessageId,eventType:"status",providerStatus:status,errorCode,
-              eventAt,contactId:"",receivedAt:now,
-            });
-            if (!inserted) { result.duplicates++; return; }
-            result.accepted++;
-            result.statusEvents++;
-            const message=this.store.getWhatsAppOutboxByProviderId(organizationId,providerMessageId);
-            if (message) {
-              const updated=this.store.updateWhatsAppProviderStatus(
-                organizationId,message.id,status as "sent"|"delivered"|"read"|"failed",eventAt,errorCode,now,
-              );
-              if (updated) this.audit(organizationId,"system:meta-webhook","whatsapp.message.provider_status",
-                "whatsapp_message",message.id,{providerMessageId,status,eventAt,errorCode});
-            }
-          });
-        }
-
-        if (Array.isArray(value.messages)) for (const messageValue of value.messages) {
-          if (!messageValue || typeof messageValue!=="object" || Array.isArray(messageValue)) continue;
-          const inbound=messageValue as Record<string,unknown>;
-          const providerMessageId=typeof inbound.id==="string" ? inbound.id : "";
-          const sender=typeof inbound.from==="string" ? inbound.from.replace(/\D/g,"") : "";
-          const seconds=typeof inbound.timestamp==="string" && /^\d{1,12}$/.test(inbound.timestamp)
-            ? Number(inbound.timestamp) : Number.NaN;
-          if (!providerMessageId || !/^\d{8,15}$/.test(sender) || !Number.isSafeInteger(seconds) || seconds<=0) continue;
-          const eventAt=seconds*1000;
-          if (!Number.isSafeInteger(eventAt)) continue;
-          const eventKey=createHash("sha256").update(["inbound",providerMessageId].join("|")).digest("hex");
-          const textRecord=inbound.text && typeof inbound.text==="object"
-            ? inbound.text as Record<string,unknown> : {};
-          const textBody=typeof textRecord.body==="string" ? textRecord.body : "";
-          const normalized=textBody.normalize("NFD").replace(/\p{Diacritic}/gu,"")
-            .trim().toUpperCase().replace(/[.!?,;:]+$/g,"");
-          const isOptOut=new Set<string>(["STOP","STOP ALL","UNSUBSCRIBE","CANCEL","END","QUIT","ARRET",
-            "DESINSCRIRE","DESABONNER","NE PLUS ME CONTACTER"]).has(normalized);
-          this.store.transaction(()=>{
-            const candidates=this.store.findContactsByPhone(organizationId,sender);
-            const contact=candidates.length===1 ? candidates[0] : undefined;
-            const inserted=this.store.insertWhatsAppWebhookEvent({
-              organizationId,eventKey,providerMessageId,eventType:"inbound_message",
-              providerStatus:"",errorCode:"",eventAt,contactId:contact?.id ?? "",receivedAt:now,
-            });
-            if (!inserted) { result.duplicates++; return; }
-            result.accepted++;
-            result.inboundMessages++;
-            if (!isOptOut) return;
-            if (!contact) {
-              result.unmatchedOptOuts++;
-              this.audit(organizationId,"system:meta-webhook","whatsapp.opt_out.unmatched",
-                "whatsapp_webhook_event",eventKey,{providerMessageId});
-              return;
-            }
-
-            const history=this.store.listConsents(organizationId,contact.id,"whatsapp");
-            const latestByPurpose=new Map<string, typeof history[number]>();
-            for (const consent of history) if (!latestByPurpose.has(consent.purpose)) latestByPurpose.set(consent.purpose,consent);
-            const activePurposes=[...latestByPurpose.values()].filter(consent=>
-              consent.status==="granted" && (!consent.expiresAt || consent.expiresAt>now)).map(consent=>consent.purpose);
-            if (!activePurposes.includes("marketing") && !latestByPurpose.has("marketing")) activePurposes.push("marketing");
-            let withdrawn=0;
-            for (const purpose of activePurposes) {
-              const record={
-                id:this.id(),organizationId,contactId:contact.id,channel:"whatsapp",purpose,
-                status:"withdrawn" as const,source:"whatsapp_inbound",
-                proof:"meta-wamid:"+providerMessageId,textVersion:"",expiresAt:0,createdAt:now,
-              };
-              this.store.insertConsent(record);
-              this.audit(organizationId,"system:meta-webhook","consent.withdrawn","consent",record.id,{
-                contactId:contact.id,channel:"whatsapp",purpose,source:record.source,providerMessageId,
-              });
-              withdrawn++;
-            }
-            result.optOuts+=withdrawn>0 ? 1 : 0;
-            this.audit(organizationId,"system:meta-webhook","whatsapp.opt_out.received",
-              "contact",contact.id,{providerMessageId,purposesWithdrawn:withdrawn});
-          });
-        }
+  recordWhatsAppDesktopOpen(
+    organizationId: string,
+    actorId: string,
+    input: {
+      contactId?: string;
+      recipientE164: string;
+      purpose?: string;
+      conversationId?: string;
+      messageText?: string;
+      recordMessage?: boolean;
+    },
+  ): { recordedMessage?: ReturnType<AgencyService["addConversationMessage"]>["message"] } {
+    this.requireMember(organizationId, actorId, WRITE_ROLES);
+    const recipient = requiredText(input.recipientE164, "recipientE164", 32);
+    const purpose = optionalText(input.purpose, "purpose", 80).toLowerCase() || "marketing";
+    const contactId = optionalText(input.contactId, "contactId", 100);
+    if (contactId) {
+      const contact = this.store.getContact(organizationId, contactId);
+      if (!contact) throw new AgencyError("NOT_FOUND", "Contact not found");
+      if (!this.activeConsentRecord(organizationId, contactId, "whatsapp", purpose)) {
+        throw new AgencyError("CONSENT_REQUIRED", "A current, evidenced WhatsApp consent for this purpose is required");
       }
     }
-    return result;
+    const cleanText = String(input.messageText ?? "").trim().slice(0, 4_000);
+    this.audit(
+      organizationId,
+      actorId,
+      "whatsapp.desktop_opened",
+      contactId ? "contact" : "organization",
+      contactId || organizationId,
+      { recipient, purpose, length: cleanText.length },
+    );
+    let recordedMessage: ReturnType<AgencyService["addConversationMessage"]>["message"] | undefined;
+    const conversationId = optionalText(input.conversationId, "conversationId", 100);
+    if (conversationId && input.recordMessage !== false && cleanText) {
+      recordedMessage = this.addConversationMessage(organizationId, actorId, conversationId, {
+        direction: "outbound",
+        body: cleanText,
+      }).message;
+    }
+    return recordedMessage ? { recordedMessage } : {};
   }
 
   requestApproval(organizationId: string, actorId: string, input: RequestApprovalInput): Approval {
     this.requireMember(organizationId,actorId);
     if (!CRITICAL_APPROVAL_ACTIONS.includes(input.action)) throw new AgencyError("VALIDATION_ERROR","Unsupported approval action");
-    if (input.action==="send_message" && input.resourceType==="whatsapp_template") {
-      const message=input.payload;
-      if (!message || typeof message!=="object" || Array.isArray(message)
-        || message.channel!=="whatsapp" || message.type!=="template") {
-        throw new AgencyError("VALIDATION_ERROR","WhatsApp approval requires a template-message payload");
-      }
-      const contactId=requiredText(message.contactId as string,"payload.contactId",100);
-      const purpose=requiredText(message.purpose as string,"payload.purpose",80).toLowerCase();
-      const recipient=requiredText(message.recipient as string,"payload.recipient",32);
-      if (input.resourceId!==contactId) throw new AgencyError("VALIDATION_ERROR","WhatsApp approval resource must match its contact");
-      if (Object.keys(message).sort().join(",")!=="channel,contactId,purpose,recipient,template,type") {
-        throw new AgencyError("VALIDATION_ERROR","WhatsApp approval payload contains unsupported fields");
-      }
-      const template=message.template;
-      if (!template || typeof template!=="object" || Array.isArray(template)) {
-        throw new AgencyError("VALIDATION_ERROR","A WhatsApp template is required");
-      }
-      const templateRecord=template as Record<string,unknown>;
-      if (Object.keys(templateRecord).sort().join(",")!=="components,language,name") {
-        throw new AgencyError("VALIDATION_ERROR","WhatsApp template contains unsupported fields");
-      }
-      const templateName=requiredText(templateRecord.name as string,"payload.template.name",512).toLowerCase();
-      const language=requiredText(templateRecord.language as string,"payload.template.language",20);
-      if (!/^[a-z0-9_]{1,512}$/.test(templateName) || !/^[a-z]{2,3}_[A-Z]{2}$/.test(language)) {
-        throw new AgencyError("VALIDATION_ERROR","Template name or language is invalid");
-      }
-      const components=templateRecord.components;
-      if (!Array.isArray(components)||components.length>10
-        || components.some(item=>!item||typeof item!=="object"||Array.isArray(item))) {
-        throw new AgencyError("VALIDATION_ERROR","Template components must be an array of up to 10 objects");
-      }
-      if (!/^\+[1-9][0-9]{7,14}$/.test(recipient)) {
-        throw new AgencyError("VALIDATION_ERROR","Recipient must be a canonical E.164 phone number");
-      }
-      const contact=this.store.getContact(organizationId,contactId);
-      if (!contact) throw new AgencyError("NOT_FOUND","Contact not found");
-      if (contact.phone.replace(/[\s().-]/g,"")!==recipient) {
-        throw new AgencyError("CONSENT_REQUIRED","The WhatsApp recipient must match the contact's current phone number");
-      }
-      if (!this.activeConsentRecord(organizationId,contactId,"whatsapp",purpose)) {
-        throw new AgencyError("CONSENT_REQUIRED","A current WhatsApp consent grant with proof is required before requesting approval");
-      }
-    }
     if (input.action==="send_message" && input.resourceType==="email_message") {
       const message=input.payload;
       if (!message || typeof message!=="object" || Array.isArray(message) || message.channel!=="email") {

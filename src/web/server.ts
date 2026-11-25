@@ -41,17 +41,10 @@ import { FilePreviews } from "./file-previews.js";
 import { AgencyStore } from "../agency/store.js";
 import { AgencyService } from "../agency/service.js";
 import { EmailSecretsFile, EnvEmailSender, normalizeEmailSecretConfig, type EmailSecretConfig } from "../agency/email-outbox.js";
-import { WhatsAppCloudApiClient, type WhatsAppCloudApiConfig } from "../agency/whatsapp-cloud.js";
-import {
-  LocalNodeSecretBox,
-  WhatsAppSecretsFile,
-  normalizeWhatsAppSecretConfig,
-  type WhatsAppSecretConfig,
-} from "../agency/whatsapp-secrets.js";
+import { LocalNodeSecretBox } from "../agency/secret-box.js";
 import { agencyRoutes } from "./routes/agency.js";
 import { SupabaseAuthService } from "../auth/supabase.js";
 import { authRoutes } from "./routes/auth.js";
-import { handleWhatsAppMetaWebhook, WHATSAPP_META_WEBHOOK_PATH } from "./routes/whatsapp-webhook.js";
 
 const log = logger("web");
 const require = createRequire(import.meta.url);
@@ -100,34 +93,12 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
   const cfg = app.config;
   const host = opts.host ?? cfg.ui.host;
   const agencyStore = new AgencyStore(path.join(cfg.dataDir,"agency.db"));
-  const whatsappEnvironmentConfig:WhatsAppCloudApiConfig={
-    organizationId:process.env.AGENCY_WHATSAPP_ORGANIZATION_ID,
-    accessToken:process.env.AGENCY_WHATSAPP_ACCESS_TOKEN,
-    phoneNumberId:process.env.AGENCY_WHATSAPP_PHONE_NUMBER_ID,
-    businessAccountId:process.env.AGENCY_WHATSAPP_BUSINESS_ACCOUNT_ID,
-    apiVersion:process.env.AGENCY_WHATSAPP_GRAPH_VERSION ?? "v27.0",
-  };
-  const whatsappEnvironmentWebhook={
-    organizationId:process.env.AGENCY_WHATSAPP_ORGANIZATION_ID,
-    phoneNumberId:process.env.AGENCY_WHATSAPP_PHONE_NUMBER_ID,
-    appSecret:process.env.AGENCY_WHATSAPP_APP_SECRET,
-    verifyToken:process.env.AGENCY_WHATSAPP_VERIFY_TOKEN,
-  };
-  // Read credentials once, register them for log redaction, then remove secret variables
-  // from the process environment so agents and CLI child processes cannot inherit them.
-  for (const secretName of [
-    "AGENCY_WHATSAPP_ACCESS_TOKEN","AGENCY_WHATSAPP_APP_SECRET","AGENCY_WHATSAPP_VERIFY_TOKEN",
-    "AGENCY_WHATSAPP_PHONE_NUMBER_ID","AGENCY_WHATSAPP_BUSINESS_ACCOUNT_ID","AGENCY_WHATSAPP_ORGANIZATION_ID",
-  ]) {
-    const secret=process.env[secretName];
-    if (secret && ["AGENCY_WHATSAPP_ACCESS_TOKEN","AGENCY_WHATSAPP_APP_SECRET","AGENCY_WHATSAPP_VERIFY_TOKEN"].includes(secretName)) {
-      registerSecret(secret);
-    }
-    delete process.env[secretName];
+  function assertAgencyOwner(organizationId:string):void {
+    const organization=agencyStore.getOrganization(organizationId);
+    if(!organization)throw new Error("Agency organization not found");
+    const membership=agencyStore.getMembership(organizationId,"local-owner");
+    if(!membership || membership.role!=="owner")throw new Error("Credentials require organization owner access");
   }
-  const whatsappCloud = new WhatsAppCloudApiClient(whatsappEnvironmentConfig);
-  const whatsappEnvironmentConfigured=whatsappCloud.isConfigured(whatsappEnvironmentConfig.organizationId);
-  const whatsappVault=app.desktop?.whatsappSecrets ?? WhatsAppSecretsFile.at(cfg.dataDir, new LocalNodeSecretBox(cfg.dataDir));
 
   // Read email credentials once, register secrets for log redaction, then strip from process.env.
   const emailEnv = {
@@ -191,7 +162,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
 
   const emailConfigController = {
     async status(organizationId?: string): Promise<Record<string, unknown>> {
-      if (organizationId) assertWhatsAppOrganization(organizationId);
+      if (organizationId) assertAgencyOwner(organizationId);
       let vaultLoadError = "";
       try { await ensureEmailVaultLoaded(); }
       catch (error) { vaultLoadError = (error as Error).message || "Saved email credentials could not be unlocked"; }
@@ -212,7 +183,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
       };
     },
     async save(organizationId: string, input: unknown): Promise<void> {
-      assertWhatsAppOrganization(organizationId);
+      assertAgencyOwner(organizationId);
       const rawObj = input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {};
       const normalized = normalizeEmailSecretConfig({ ...rawObj, organizationId }, organizationId);
       await emailVault.set(normalized, organizationId);
@@ -222,7 +193,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
       emailConfigSource = "secure_storage";
     },
     async clear(organizationId: string): Promise<void> {
-      assertWhatsAppOrganization(organizationId);
+      assertAgencyOwner(organizationId);
       if (emailConfigSource === "secure_storage" && emailVaultConfig?.organizationId !== organizationId) {
         throw new Error("Saved email credentials belong to another organization");
       }
@@ -233,132 +204,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
       emailConfigSource = "none";
     },
   };
-  let whatsappVaultConfig:WhatsAppSecretConfig|undefined;
-  let whatsappVaultLoaded=false;
-  let whatsappVaultLoading:Promise<void>|undefined;
-  let whatsappConfigSource:"environment"|"secure_storage"|"secure_storage_unavailable"|"none"=whatsappEnvironmentConfigured?"environment":"none";
-
-  async function ensureWhatsAppVaultLoaded():Promise<void>{
-    if(whatsappVaultLoaded)return;
-    if(whatsappVaultLoading)return whatsappVaultLoading;
-    whatsappVaultLoading=(async()=>{
-      whatsappVaultLoaded=true;
-      if(!whatsappVault?.status().hasStoredSecret)return;
-      try {
-        const saved=await whatsappVault.get();
-        if(!saved)return;
-        whatsappVaultConfig=saved;
-        whatsappCloud.setCredentials(saved);
-        whatsappConfigSource="secure_storage";
-      } catch(error) {
-        whatsappVaultLoaded=false;
-        // A saved but locked/corrupt vault takes precedence over environment credentials.
-        // Fail closed so a stale environment token cannot silently reactivate another account.
-        whatsappCloud.setCredentials({});
-        whatsappConfigSource="secure_storage_unavailable";
-        throw error;
-      }
-    })();
-    try{await whatsappVaultLoading;}
-    finally{whatsappVaultLoading=undefined;}
-  }
-
-  function currentWhatsAppWebhookConfig(){
-    if(whatsappConfigSource==="secure_storage_unavailable") {
-      return {organizationId:undefined,phoneNumberId:undefined,appSecret:undefined,verifyToken:undefined};
-    }
-    const active=whatsappConfigSource==="secure_storage"?whatsappVaultConfig:undefined;
-    return {
-      organizationId:active?.organizationId??whatsappEnvironmentWebhook.organizationId,
-      phoneNumberId:active?.phoneNumberId??whatsappEnvironmentWebhook.phoneNumberId,
-      appSecret:active?.appSecret??whatsappEnvironmentWebhook.appSecret,
-      verifyToken:active?.verifyToken??whatsappEnvironmentWebhook.verifyToken,
-    };
-  }
-
-  const whatsappSender={
-    async isConfigured(organizationId?:string):Promise<boolean>{
-      await ensureWhatsAppVaultLoaded();
-      return whatsappCloud.isConfigured(organizationId);
-    },
-    async sendTemplateMessage(input:Parameters<WhatsAppCloudApiClient["sendTemplateMessage"]>[0]){
-      await ensureWhatsAppVaultLoaded();
-      return whatsappCloud.sendTemplateMessage(input);
-    },
-  };
-
-  function assertWhatsAppOrganization(organizationId:string):void {
-    const organization=agencyStore.getOrganization(organizationId);
-    if(!organization)throw new Error("Agency organization not found");
-    const membership=agencyStore.getMembership(organizationId,"local-owner");
-    if(!membership || membership.role!=="owner")throw new Error("WhatsApp credentials require organization owner access");
-  }
-
-  const whatsappConfigController={
-    async status(organizationId:string):Promise<Record<string,unknown>>{
-      assertWhatsAppOrganization(organizationId);
-      let vaultLoadError="";
-      try { await ensureWhatsAppVaultLoaded(); }
-      catch(error) { vaultLoadError=(error as Error).message || "Saved secure credentials could not be unlocked"; }
-      const vaultStatus=whatsappVault?.status();
-      const secureStorage=whatsappVault
-        ? await whatsappVault.availability()
-        : {available:false,backend:"unavailable",reason:"Secure storage is available only in the Electron desktop runtime"};
-      const configured=whatsappCloud.isConfigured(organizationId);
-      const active=currentWhatsAppWebhookConfig();
-      return {
-        configured,
-        source:configured?whatsappConfigSource:"none",
-        organizationMatches:active.organizationId===organizationId,
-        phoneNumberId:configured?(whatsappVaultConfig?.phoneNumberId??whatsappEnvironmentConfig.phoneNumberId):undefined,
-        webhookConfigured:active.organizationId===organizationId && !!active.phoneNumberId && !!active.appSecret && !!active.verifyToken,
-        secureStorageAvailable:secureStorage.available,
-        secureStorageBackend:secureStorage.backend,
-        secureStorageReason:vaultLoadError || secureStorage.reason,
-        savedInSecureStorage:!!vaultStatus?.hasStoredSecret,
-        environmentConfigured:whatsappConfigSource==="environment" && whatsappEnvironmentConfigured && whatsappCloud.isConfigured(organizationId),
-      };
-    },
-    async save(organizationId:string,input:unknown):Promise<void>{
-      assertWhatsAppOrganization(organizationId);
-      if(!whatsappVault)throw new Error("Secure credential storage is available only in the desktop application; use environment variables in CLI or Docker");
-      const normalized=normalizeWhatsAppSecretConfig({...((input&&typeof input==="object"&&!Array.isArray(input))?input as Record<string,unknown>:{}),organizationId},organizationId);
-      if(whatsappVault.status().hasStoredSecret){
-        const existing=await whatsappVault.get();
-        if(existing && existing.organizationId!==organizationId) {
-          throw new Error("This local desktop node already has WhatsApp credentials for another organization; clear them before reconfiguring it");
-        }
-      }
-      await whatsappVault.set(normalized,organizationId);
-      whatsappVaultConfig=normalized;
-      whatsappVaultLoaded=true;
-      whatsappCloud.setCredentials(normalized);
-      whatsappConfigSource="secure_storage";
-    },
-    async clear(organizationId:string):Promise<void>{
-      assertWhatsAppOrganization(organizationId);
-      if(!whatsappVault)throw new Error("Secure credential storage is not available in this runtime");
-      const hasStoredSecret=whatsappVault.status().hasStoredSecret;
-      if(!hasStoredSecret && whatsappConfigSource==="environment") {
-        throw new Error("WhatsApp credentials are managed by environment variables in this runtime; remove those variables and restart the application");
-      }
-      if(hasStoredSecret&&!whatsappVaultLoaded) {
-        try { await ensureWhatsAppVaultLoaded(); }
-        catch { /* explicit local recovery is allowed when the OS cannot unlock the ciphertext */ }
-      }
-      if(whatsappConfigSource==="secure_storage" && whatsappVaultConfig?.organizationId!==organizationId) {
-        throw new Error("The saved WhatsApp credentials belong to another organization; switch to that organization before removing them");
-      }
-      // A deliberate removal leaves this process unconfigured. Do not silently reactivate
-      // stale environment credentials; a restart is required to select environment mode again.
-      whatsappVault.clear();
-      whatsappVaultConfig=undefined;
-      whatsappVaultLoaded=true;
-      whatsappCloud.setCredentials({});
-      whatsappConfigSource="none";
-    },
-  };
-  const agency = new AgencyService(agencyStore,{whatsapp:whatsappSender,email:emailSenderProxy});
+  const agency = new AgencyService(agencyStore, { email: emailSenderProxy });
   const auth = new SupabaseAuthService({ dataDir: cfg.dataDir, config: cfg });
   const uiDir = path.join(findAppRoot(), "ui");
   const vendor = vendorFiles();
@@ -533,7 +379,6 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
     app,
     agency,
     auth,
-    whatsappConfig:whatsappConfigController,
     emailConfig:emailConfigController,
     host,
     token,
@@ -629,16 +474,6 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
     }
     if (url.pathname === APPS_CALLBACK && req.method === "GET") {
       void appsCallback(res, url);
-      return;
-    }
-    if (url.pathname===WHATSAPP_META_WEBHOOK_PATH) {
-      if (!authorized(req,url,res,true)) return;
-      void ensureWhatsAppVaultLoaded()
-        .then(()=>handleWhatsAppMetaWebhook(req,res,url,currentWhatsAppWebhookConfig(),agency))
-        .catch(error=>{
-        log.warn("WhatsApp Meta webhook handler failed",{message:(error as Error).message});
-        if (!res.headersSent) res.writeHead(500,{"content-type":"text/plain; charset=utf-8"}).end("Webhook processing failed");
-      });
       return;
     }
     if (!authorized(req, url, res)) return;

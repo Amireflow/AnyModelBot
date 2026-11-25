@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { registerSecret } from "../log.js";
 import { AgencyError } from "./errors.js";
-import type { WhatsAppSecretBox } from "./whatsapp-secrets.js";
+import type { SecretBox } from "./secret-box.js";
 
 export interface SendEmailInput {
   organizationId: string;
@@ -112,9 +112,9 @@ export function normalizeEmailSecretConfig(value: unknown, expectedOrganizationI
 }
 
 export class EmailSecretsFile {
-  constructor(readonly file: string, private readonly box: WhatsAppSecretBox) {}
+  constructor(readonly file: string, private readonly box: SecretBox) {}
 
-  static at(dataDir: string, box: WhatsAppSecretBox): EmailSecretsFile {
+  static at(dataDir: string, box: SecretBox): EmailSecretsFile {
     return new EmailSecretsFile(path.join(dataDir, "email-secrets.json"), box);
   }
 

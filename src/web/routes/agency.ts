@@ -59,6 +59,11 @@ import {
   type AgencyCliAction,
   type AgencyMissionExecutionMode,
 } from "../../agency/workspace-runner.js";
+import {
+  detectLocalWhatsAppDesktop,
+  normalizeWhatsAppPhone,
+  openWhatsAppDesktop,
+} from "../../agency/whatsapp-desktop.js";
 
 export const LOCAL_AGENCY_ACTOR = "local-owner";
 const ERROR_STATUS: Record<string, number> = {
@@ -167,20 +172,6 @@ function queryInteger(url: URL,name: string,fallback: number): number {
   if (value===null) return fallback;
   return /^(0|[1-9][0-9]*)$/.test(value) ? Number(value) : Number.NaN;
 }
-async function whatsappConfigStatus(
-  controller: NonNullable<WebContext["whatsappConfig"]>, organizationId: string,
-): Promise<Record<string,unknown>> {
-  try { return await controller.status(organizationId); }
-  catch (error) {
-    const message=(error as Error).message || "";
-    if (/Agency organization not found/i.test(message)) throw new HttpError(404,"Organization not found");
-    if (/requires organization owner access/i.test(message)) throw new HttpError(403,"Organization owner access is required");
-    if (/secure storage|safeStorage|keychain|DPAPI|secret service|decrypt|temporarily unavailable/i.test(message)) {
-      throw new HttpError(503,"The operating-system secure storage is locked or unavailable. Unlock it and retry.");
-    }
-    throw error;
-  }
-}
 
 export function agencyRoutes(ctx: WebContext): Route {
   const service: AgencyService=ctx.agency;
@@ -275,57 +266,42 @@ export function agencyRoutes(ctx: WebContext): Route {
         return send(res,200,{approval});
       }
 
-      if (seg[2]==="whatsapp" && seg.length===4 && seg[3]==="config") {
-        const controller=ctx.whatsappConfig;
-        if (!controller) throw new HttpError(409,"WhatsApp credential management is unavailable in this runtime");
-        if (method==="GET") return send(res,200,await whatsappConfigStatus(controller,organizationId));
-        if (method==="PUT") {
-          const body=await readObject(req);
-          try {
-            await controller.save(organizationId,body);
-          } catch (error) {
-            const message=(error as Error).message || "WhatsApp credentials could not be saved";
-            if (error instanceof TypeError) throw new HttpError(400,message);
-            if (/Agency organization not found/i.test(message)) throw new HttpError(404,"Organization not found");
-            if (/requires organization owner access/i.test(message)) throw new HttpError(403,"Organization owner access is required");
-            if (/secure storage|safeStorage|keychain|DPAPI|Secret Service|decrypt|temporarily unavailable/i.test(message)) throw new HttpError(503,"The operating-system secure storage is locked or unavailable. Unlock it and retry.");
-            throw new HttpError(409,message);
-          }
-          return send(res,200,{saved:true,secretReturned:false,configuration:await whatsappConfigStatus(controller,organizationId)});
+      if (seg[2]==="whatsapp" && seg[3]==="desktop") {
+        if (seg.length===5 && seg[4]==="status" && method==="GET") {
+          service.getOrganization(organizationId,actor);
+          const refresh=url.searchParams.get("refresh")==="1";
+          return send(res,200,{status:detectLocalWhatsAppDesktop(refresh)});
         }
-        if (method==="DELETE") {
-          try { await controller.clear(organizationId); }
-          catch (error) {
-            const message=(error as Error).message || "WhatsApp credentials could not be cleared";
-            if (/Agency organization not found/i.test(message)) throw new HttpError(404,"Organization not found");
-            if (/requires organization owner access/i.test(message)) throw new HttpError(403,"Organization owner access is required");
-            if (/secure storage|safeStorage|keychain|DPAPI|secret service|decrypt|temporarily unavailable/i.test(message)) {
-              throw new HttpError(503,"The operating-system secure storage is locked or unavailable. Unlock it and retry.");
-            }
-            throw new HttpError(409,message);
-          }
-          return send(res,200,{cleared:true,configuration:await whatsappConfigStatus(controller,organizationId)});
-        }
-        throw new HttpError(405,"Method not allowed");
-      }
-
-      if (seg[2]==="whatsapp" && seg.length===4 && seg[3]==="outbox") {
-        if (method==="GET") return send(res,200,{items:service.listWhatsAppOutbox(organizationId,actor,queryInteger(url,"limit",100))});
-        if (method==="POST") {
+        if (seg.length===5 && seg[4]==="open" && method==="POST") {
+          const org=service.getOrganization(organizationId,actor);
           const body=await readObject(req);
-          if (!body.payload || typeof body.payload!=="object" || Array.isArray(body.payload)) throw new HttpError(400,"payload must be an object");
-          const message=service.queueWhatsAppTemplate(organizationId,actor,{
-            approvalId:body.approvalId as string,idempotencyKey:body.idempotencyKey as string,
-            payload:body.payload as Record<string,unknown>,
+          const contactId=typeof body.contactId==="string" ? body.contactId.trim() : "";
+          const contact=contactId ? service.getContact(organizationId,actor,contactId) : undefined;
+          const rawPhone=(typeof body.phone==="string" && body.phone.trim()) ? body.phone.trim() : (contact?.phone || "");
+          if (!rawPhone) throw new HttpError(400,"A valid phone number or contact with a phone number is required");
+          const normalized=normalizeWhatsAppPhone(rawPhone,org.countryCode);
+          const messageText=typeof body.text==="string" ? body.text : "";
+          const purpose=typeof body.purpose==="string" ? body.purpose : "marketing";
+          const conversationId=typeof body.conversationId==="string" ? body.conversationId.trim() : "";
+          const recorded=service.recordWhatsAppDesktopOpen(organizationId,actor,{
+            contactId:contact?.id,
+            recipientE164:normalized.e164,
+            purpose,
+            conversationId:conversationId || undefined,
+            messageText,
+            recordMessage:body.recordMessage !== false,
           });
-          return send(res,201,{message});
+          const launched=openWhatsAppDesktop({
+            phone:normalized.e164,
+            text:messageText,
+            defaultCountryCode:org.countryCode,
+            dryRun:body.dryRun===true,
+          });
+          return send(res,200,{
+            ...launched,
+            ...(recorded.recordedMessage ? { message:recorded.recordedMessage } : {}),
+          });
         }
-        throw new HttpError(405,"Method not allowed");
-      }
-      if (seg[2]==="whatsapp" && seg.length===6 && seg[3]==="outbox" && seg[5]==="send" && method==="POST") {
-        const messageId=decodeSegment(seg[4],"message id");
-        const message=await service.dispatchWhatsAppTemplate(organizationId,actor,messageId);
-        return send(res,200,{message});
       }
 
       if (seg[2]==="email" && seg.length===4 && seg[3]==="status" && method==="GET") {
@@ -1825,6 +1801,29 @@ export function agencyRoutes(ctx: WebContext): Route {
                 phone:typeof args.phone==="string" ? args.phone : undefined,
               });
               return { ok:true, summary:`Contact "${created.displayName}" créé (${created.id})`, data:created };
+            }
+            if (tool==="open_whatsapp_desktop") {
+              const cid=typeof args.contactId==="string" ? args.contactId.trim() : "";
+              const contact=cid ? service.getContact(organizationId,actor,cid) : undefined;
+              const rawPhone=typeof args.phone==="string" && args.phone.trim() ? args.phone.trim() : (contact?.phone || "");
+              if (!rawPhone) return { ok:false, summary:"Numéro de téléphone ou contact avec numéro requis" };
+              const normalized=normalizeWhatsAppPhone(rawPhone,org.countryCode);
+              const text=typeof args.text==="string" ? args.text : "";
+              const purpose=typeof args.purpose==="string" ? args.purpose : "marketing";
+              const conversationId=typeof args.conversationId==="string" ? args.conversationId.trim() : "";
+              service.recordWhatsAppDesktopOpen(organizationId,actor,{
+                contactId:contact?.id,
+                recipientE164:normalized.e164,
+                purpose,
+                conversationId:conversationId || undefined,
+                messageText:text,
+              });
+              const opened=openWhatsAppDesktop({
+                phone:normalized.e164,
+                text,
+                defaultCountryCode:org.countryCode,
+              });
+              return { ok:true, summary:`WhatsApp Desktop ouvert sur ${opened.e164} (${opened.status.appName})`, data:opened };
             }
             if (tool==="create_lead") {
               const created=service.createLead(organizationId,actor,{
