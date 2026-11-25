@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ModelClient } from "../llm/client.js";
 import { AgencyError } from "./errors.js";
-import type { AgencyAgentRole, Contract, CreateProjectLotInput, Project, ProjectLot } from "./types.js";
+import type { AgencyAgentRole, Contract, CreateProjectLotInput, Project, ProjectLot, StudioSnapshotEntry } from "./types.js";
 import { initProjectWorkspace, resolveSafeWorkspacePath } from "./workspace-runner.js";
 
 export type StudioTemplateId =
@@ -779,6 +779,114 @@ export async function runStudioCommand(input: {
   return { action: input.action, exitCode: res.exitCode, output: output.slice(0, 8000) };
 }
 
+async function ensureStudioGitRepo(workspaceDir: string): Promise<void> {
+  if (!fs.existsSync(path.join(workspaceDir, ".git"))) {
+    const init = await execStudioCmd("git", ["init"], workspaceDir);
+    if (init.exitCode !== 0) {
+      throw new AgencyError("CONFLICT", `git init failed: ${init.stderr}`);
+    }
+  }
+  await execStudioCmd("git", ["config", "user.email", "studio@anymodelbot.local"], workspaceDir);
+  await execStudioCmd("git", ["config", "user.name", "AnyModelBot Studio"], workspaceDir);
+}
+
+export async function createStudioSnapshot(
+  dataDir: string,
+  project: Project,
+  label = "checkpoint",
+): Promise<{ commitHash: string; created: boolean; message: string }> {
+  const { workspaceDir } = resolveSafeWorkspacePath(dataDir, project.workspacePath);
+  fs.mkdirSync(workspaceDir, { recursive: true });
+  await ensureStudioGitRepo(workspaceDir);
+  await execStudioCmd("git", ["add", "-A"], workspaceDir);
+  const statusRes = await execStudioCmd("git", ["status", "--porcelain"], workspaceDir);
+  const headRes = await execStudioCmd("git", ["rev-parse", "--verify", "HEAD"], workspaceDir);
+  const hasHead = headRes.exitCode === 0;
+  const cleanLabel = label.replace(/[\r\n]+/g, " ").trim().slice(0, 120) || "checkpoint";
+  const commitMessage = `studio: ${cleanLabel}`;
+
+  if (!statusRes.stdout.trim() && hasHead) {
+    return { commitHash: headRes.stdout.trim(), created: false, message: commitMessage };
+  }
+  const commitArgs = statusRes.stdout.trim()
+    ? ["commit", "-m", commitMessage]
+    : ["commit", "--allow-empty", "-m", commitMessage];
+  const commitRes = await execStudioCmd("git", commitArgs, workspaceDir);
+  if (commitRes.exitCode !== 0) {
+    throw new AgencyError("CONFLICT", `Snapshot commit failed: ${commitRes.stderr || commitRes.stdout}`);
+  }
+  const newHead = await execStudioCmd("git", ["rev-parse", "--verify", "HEAD"], workspaceDir);
+  return { commitHash: newHead.stdout.trim(), created: true, message: commitMessage };
+}
+
+export async function listStudioSnapshots(
+  dataDir: string,
+  project: Project,
+  limit = 15,
+): Promise<StudioSnapshotEntry[]> {
+  const { workspaceDir } = resolveSafeWorkspacePath(dataDir, project.workspacePath);
+  if (!fs.existsSync(path.join(workspaceDir, ".git"))) return [];
+  const safeLimit = Math.max(1, Math.min(50, Math.round(limit)));
+  const res = await execStudioCmd("git", ["log", "-n", String(safeLimit), "--pretty=format:%H|%ct|%s"], workspaceDir);
+  if (res.exitCode !== 0 || !res.stdout.trim()) return [];
+  return res.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [commitHash = "", sec = "0", ...rest] = line.split("|");
+      return {
+        commitHash,
+        timestamp: (Number(sec) || 0) * 1000,
+        message: rest.join("|") || "studio snapshot",
+      };
+    })
+    .filter((entry) => /^[0-9a-f]{7,40}$/i.test(entry.commitHash));
+}
+
+export async function rollbackStudioSnapshot(
+  dataDir: string,
+  project: Project,
+  commitHash?: string,
+): Promise<{ restoredCommit: string; files: StudioFileEntry[] }> {
+  const { workspaceDir } = resolveSafeWorkspacePath(dataDir, project.workspacePath);
+  if (!fs.existsSync(path.join(workspaceDir, ".git"))) {
+    throw new AgencyError("CONFLICT", "No studio snapshot history exists yet for this project");
+  }
+  let targetRef = (commitHash ?? "").trim();
+  if (targetRef) {
+    if (!/^[0-9a-f]{7,40}$/i.test(targetRef)) {
+      throw new AgencyError("VALIDATION_ERROR", "Invalid commit hash format");
+    }
+  } else {
+    const statusRes = await execStudioCmd("git", ["status", "--porcelain"], workspaceDir);
+    if (statusRes.stdout.trim()) {
+      targetRef = "HEAD";
+    } else {
+      const parentRes = await execStudioCmd("git", ["rev-parse", "--verify", "HEAD~1"], workspaceDir);
+      if (parentRes.exitCode === 0 && parentRes.stdout.trim()) {
+        targetRef = parentRes.stdout.trim();
+      } else {
+        targetRef = "HEAD";
+      }
+    }
+  }
+  const verify = await execStudioCmd("git", ["rev-parse", "--verify", targetRef], workspaceDir);
+  if (verify.exitCode !== 0) {
+    throw new AgencyError("NOT_FOUND", `Snapshot commit not found: ${targetRef}`);
+  }
+  const resolved = verify.stdout.trim();
+  const reset = await execStudioCmd("git", ["reset", "--hard", resolved], workspaceDir);
+  if (reset.exitCode !== 0) {
+    throw new AgencyError("CONFLICT", `Rollback failed: ${reset.stderr || reset.stdout}`);
+  }
+  await execStudioCmd("git", ["clean", "-fd"], workspaceDir);
+  return {
+    restoredCommit: resolved,
+    files: listWorkspaceFiles(dataDir, project),
+  };
+}
+
 export function resolveStudioPreviewAsset(
   dataDir: string,
   project: Project,
@@ -918,11 +1026,13 @@ export async function runStudioAiAgent(input: {
   hasLlmEndpoint?: boolean;
   agentInstructions?: string;
   agentRules?: readonly string[];
+  onStep?: (step: StudioAgentStep) => void;
 }): Promise<{
   summary: string;
   modifiedFiles: string[];
   steps: StudioAgentStep[];
   model: string;
+  snapshotBefore?: string;
 }> {
   if (!input.hasLlmEndpoint || !input.modelClient) {
     throw new AgencyError("VALIDATION_ERROR", "No AI model endpoint is configured in Settings");
@@ -938,6 +1048,9 @@ export async function runStudioAiAgent(input: {
   }
 
   initProjectWorkspace({ dataDir: input.dataDir, project: input.project, lots: input.lot ? [input.lot] : [] });
+  const snapshotBefore = await createStudioSnapshot(input.dataDir, input.project, "avant-agent-ia")
+    .then((s) => s.commitHash)
+    .catch(() => undefined);
   const maxSteps = Math.max(1, Math.min(20, Math.round(input.maxSteps ?? 8)));
   const steps: StudioAgentStep[] = [];
   const modified = new Set<string>();
@@ -979,7 +1092,9 @@ export async function runStudioAiAgent(input: {
       const jsonMatch = reply.match(/\{[\s\S]*\}/);
       action = JSON.parse(jsonMatch ? jsonMatch[0] : reply) as Record<string, unknown>;
     } catch {
-      steps.push({ step, tool: "parse_error", target: "", ok: false, summary: "Invalid JSON tool response" });
+      const parseErrStep: StudioAgentStep = { step, tool: "parse_error", target: "", ok: false, summary: "Invalid JSON tool response" };
+      steps.push(parseErrStep);
+      input.onStep?.(parseErrStep);
       history.push({ role: "user", content: "Error: reply must be a single valid JSON object with a 'tool' field." });
       continue;
     }
@@ -987,7 +1102,9 @@ export async function runStudioAiAgent(input: {
     const tool = String(action.tool || "");
     if (tool === "finish") {
       finalSummary = String(action.summary || "Completed workspace updates.").trim();
-      steps.push({ step, tool, target: "", ok: true, summary: finalSummary });
+      const finishStep: StudioAgentStep = { step, tool, target: "", ok: true, summary: finalSummary };
+      steps.push(finishStep);
+      input.onStep?.(finishStep);
       break;
     }
 
@@ -1045,7 +1162,9 @@ export async function runStudioAiAgent(input: {
       observation = (error as Error).message || "Tool execution failed";
     }
 
-    steps.push({ step, tool, target, ok, summary: observation.slice(0, 240) });
+    const stepEntry: StudioAgentStep = { step, tool, target, ok, summary: observation.slice(0, 240) };
+    steps.push(stepEntry);
+    input.onStep?.(stepEntry);
     history.push({ role: "user", content: `Tool result (${tool}):\n${observation}` });
   }
 
@@ -1057,5 +1176,6 @@ export async function runStudioAiAgent(input: {
     modifiedFiles: [...modified],
     steps,
     model,
+    ...(snapshotBefore ? { snapshotBefore } : {}),
   };
 }

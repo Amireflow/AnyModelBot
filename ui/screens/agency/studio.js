@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { html, Icon, Spinner } from "../../components/ui.js";
-import { api } from "../../lib/api.js";
-import { t } from "../../lib/i18n.js";
+import { api, sseParser } from "../../lib/api.js";
+import { getLang, t } from "../../lib/i18n.js";
 
 const enc = encodeURIComponent;
 const TEMPLATES = [
@@ -30,6 +30,8 @@ export function ProjectStudio({ orgId, project, onChanged }) {
   const [agentRole, setAgentRole] = useState("developer");
   const [instruction, setInstruction] = useState("");
   const [lastSteps, setLastSteps] = useState([]);
+  const [snapshots, setSnapshots] = useState([]);
+  const [selectedSnapshot, setSelectedSnapshot] = useState("");
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -47,6 +49,20 @@ export function ProjectStudio({ orgId, project, onChanged }) {
     }
   };
 
+  const loadSnapshots = async () => {
+    if (!orgId || !project?.id) return;
+    try {
+      const res = await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/snapshots`);
+      const items = res.items || [];
+      setSnapshots(items);
+      if (items.length && !items.some((s) => s.commitHash === selectedSnapshot)) {
+        setSelectedSnapshot(items[0].commitHash);
+      }
+    } catch {
+      setSnapshots([]);
+    }
+  };
+
   const loadFiles = async (preferPath = "") => {
     if (!orgId || !project?.id) return;
     try {
@@ -56,6 +72,7 @@ export function ProjectStudio({ orgId, project, onChanged }) {
       const next = preferPath || (list.some((f) => f.path === selectedPath) ? selectedPath : (list[0]?.path || ""));
       if (next) await openFile(next);
       else { setSelectedPath(""); setContent(""); }
+      void loadSnapshots();
     } catch (err) {
       setError(err.message);
     }
@@ -134,16 +151,56 @@ export function ProjectStudio({ orgId, project, onChanged }) {
   const runAiBuilder = async (e) => {
     e.preventDefault();
     if (!instruction.trim()) return;
-    setBusy("ai"); setError(""); setNotice("");
+    setBusy("ai"); setError(""); setNotice(""); setLastSteps([]);
     try {
-      const res = await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/ai-agent`, {
+      const response = await fetch(`/amb/api/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/ai-agent-stream`, {
         method: "POST",
-        body: { instruction, agentRole },
+        headers: { "content-type": "application/json", "x-amb-lang": getLang() },
+        body: JSON.stringify({ instruction, agentRole }),
       });
+      if (!response.ok || !response.body) {
+        const errPayload = await response.json().catch(() => ({}));
+        throw new Error(errPayload.error || `HTTP ${response.status}`);
+      }
+      let finalPayload = null;
+      let streamError = "";
+      const parser = sseParser((eventName, data) => {
+        if (eventName === "step" && data) {
+          setLastSteps((prev) => [...prev, data]);
+        } else if (eventName === "done") {
+          finalPayload = data;
+        } else if (eventName === "error") {
+          streamError = data?.error || "Agent studio failed";
+        }
+      });
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        parser.push(decoder.decode(value, { stream: true }));
+      }
+      parser.push("\n\n");
+      if (streamError) throw new Error(streamError);
+      const res = finalPayload || {};
       setNotice(res.summary || "");
-      setLastSteps(Array.isArray(res.steps) ? res.steps : []);
+      if (Array.isArray(res.steps) && res.steps.length) setLastSteps(res.steps);
       setInstruction("");
       await loadFiles(res.modifiedFiles?.[0] || "");
+      setPreviewNonce((n) => n + 1);
+      onChanged?.();
+    } catch (err) { setError(err.message); } finally { setBusy(""); }
+  };
+
+  const rollbackSnapshot = async (commitHash) => {
+    setBusy("rollback"); setError(""); setNotice("");
+    try {
+      const res = await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/rollback`, {
+        method: "POST",
+        body: commitHash ? { commitHash } : {},
+      });
+      setNotice(t("agency.studioRollbackDone", { commit: (res.restoredCommit || "").slice(0, 7) }));
+      await loadFiles();
       setPreviewNonce((n) => n + 1);
       onChanged?.();
     } catch (err) { setError(err.message); } finally { setBusy(""); }
@@ -168,6 +225,12 @@ export function ProjectStudio({ orgId, project, onChanged }) {
           ${COMMANDS.map(([id, label]) => html`<option value=${id}>${label}</option>`)}
         </select>
         <button class="btn" type="button" disabled=${!!busy} onClick=${runCheck}>${t("agency.studioRunCheckBtn")}</button>
+        ${snapshots.length > 0 && html`
+          <select class="field" aria-label=${t("agency.studioSnapshotLabel")} value=${selectedSnapshot} onChange=${(e) => setSelectedSnapshot(e.currentTarget.value)}>
+            ${snapshots.map((s) => html`<option value=${s.commitHash}>${s.commitHash.slice(0, 7)} · ${s.message.replace(/^studio:\s*/i, "").slice(0, 28)}</option>`)}
+          </select>
+          <button class="btn" type="button" disabled=${!!busy} onClick=${() => rollbackSnapshot(selectedSnapshot)}>${t("agency.studioRollbackBtn")}</button>
+        `}
       </div>
     </div>
     <form class="agency-copilot-form" onSubmit=${runAiBuilder}>

@@ -40,8 +40,8 @@ export class LocalNodeSecretBox implements WhatsAppSecretBox {
   readonly algorithm = "local-aes-256-gcm" as const;
   private readonly keyFile: string;
 
-  constructor(dataDir: string) {
-    this.keyFile = path.join(dataDir, ".whatsapp-vault.key");
+  constructor(dataDir: string, keyFileName = ".whatsapp-vault.key") {
+    this.keyFile = path.join(dataDir, keyFileName);
   }
 
   async status(): Promise<{ available: boolean; backend: string; reason?: string }> {

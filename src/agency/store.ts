@@ -9,7 +9,7 @@ import type {
   CommercialChannel, CommercialConversation, CommercialRules, CommercialSignal,
   Company, ConsentRecord, Contact, Contract, ContractStatus, ConversationMessage,
   ConversationStatus, DeliveryStatus, DepositStatus, EmailOutboxMessage, EmailOutboxStatus,
-  Evidence, FollowUpStatus, FollowUpType, Lead, LeadStage, Membership, MessageDirection,
+  Evidence, FollowUpStatus, FollowUpType, Invoice, InvoiceStatus, Lead, LeadStage, Membership, MessageDirection,
   NeedsQualification, Organization, OrganizationStatus, Project, ProjectDelivery, ProjectLot,
   ProjectLotStatus, ProjectStatus, QaCategory, QaCheck, QaCheckStatus,
   QualificationProfile, Quote, QuoteLineItem, QuoteStatus, QuoteTier,
@@ -711,6 +711,31 @@ CREATE TABLE IF NOT EXISTS agency_agent_configs (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY(organization_id, role)
 );
+
+CREATE TABLE IF NOT EXISTS agency_invoices (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES agency_organizations(id),
+  contract_id TEXT NOT NULL REFERENCES agency_contracts(id),
+  invoice_number TEXT NOT NULL,
+  milestone_label TEXT NOT NULL,
+  percentage REAL NOT NULL,
+  amount REAL NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'XOF',
+  status TEXT NOT NULL CHECK(status IN ('draft','issued','paid','cancelled')),
+  due_date INTEGER NOT NULL,
+  paid_at INTEGER NOT NULL DEFAULT 0,
+  payment_reference TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(organization_id, invoice_number)
+);
+CREATE INDEX IF NOT EXISTS agency_invoices_org_contract ON agency_invoices(organization_id, contract_id, created_at);
+CREATE TRIGGER IF NOT EXISTS agency_invoices_tenant_guard
+BEFORE INSERT ON agency_invoices
+WHEN NOT EXISTS (
+  SELECT 1 FROM agency_contracts WHERE id=NEW.contract_id AND organization_id=NEW.organization_id
+)
+BEGIN SELECT RAISE(ABORT, 'agency invoice contract mismatch'); END;
 `;
 
 function text(row: Row, key: string): string { return String(row[key] ?? ""); }
@@ -1084,6 +1109,25 @@ function agentConfigOf(r: Row): AgentConfig {
   };
 }
 
+function invoiceOf(r: Row): Invoice {
+  return {
+    id: text(r, "id"),
+    organizationId: text(r, "organization_id"),
+    contractId: text(r, "contract_id"),
+    invoiceNumber: text(r, "invoice_number"),
+    milestoneLabel: text(r, "milestone_label"),
+    percentage: number(r, "percentage"),
+    amount: number(r, "amount"),
+    currency: text(r, "currency"),
+    status: text(r, "status") as InvoiceStatus,
+    dueDate: number(r, "due_date"),
+    paidAt: number(r, "paid_at"),
+    paymentReference: text(r, "payment_reference"),
+    createdAt: number(r, "created_at"),
+    updatedAt: number(r, "updated_at"),
+  };
+}
+
 export class AgencyStore {
   readonly db: DatabaseSync;
 
@@ -1124,6 +1168,8 @@ export class AgencyStore {
       this.db.exec("ALTER TABLE agency_agent_configs ADD COLUMN skills_json TEXT NOT NULL DEFAULT '[]'");
     }
     this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(9, ?)").run(Date.now());
+    // v10 adds multi-milestone invoices tied to contracts.
+    this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(10, ?)").run(Date.now());
   }
 
   close(): void { this.db.close(); }
@@ -2083,6 +2129,56 @@ export class AgencyStore {
   deleteAgentConfig(orgId: string, role: AgencyAgentRole): boolean {
     const result = this.db.prepare("DELETE FROM agency_agent_configs WHERE organization_id=? AND role=?").run(orgId, role);
     return Number(result.changes) > 0;
+  }
+
+  insertInvoice(inv: Invoice): Invoice {
+    this.db.prepare(`
+      INSERT INTO agency_invoices(
+        id,organization_id,contract_id,invoice_number,milestone_label,percentage,amount,currency,
+        status,due_date,paid_at,payment_reference,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      inv.id, inv.organizationId, inv.contractId, inv.invoiceNumber, inv.milestoneLabel,
+      inv.percentage, inv.amount, inv.currency, inv.status, inv.dueDate, inv.paidAt,
+      inv.paymentReference, inv.createdAt, inv.updatedAt,
+    );
+    return inv;
+  }
+
+  getInvoice(orgId: string, id: string): Invoice | undefined {
+    const row = this.db.prepare("SELECT * FROM agency_invoices WHERE organization_id=? AND id=?").get(orgId, id) as Row | undefined;
+    return row ? invoiceOf(row) : undefined;
+  }
+
+  listInvoices(orgId: string, contractId?: string): Invoice[] {
+    if (contractId) {
+      return (this.db.prepare(
+        "SELECT * FROM agency_invoices WHERE organization_id=? AND contract_id=? ORDER BY due_date ASC, created_at ASC, rowid ASC",
+      ).all(orgId, contractId) as Row[]).map(invoiceOf);
+    }
+    return (this.db.prepare(
+      "SELECT * FROM agency_invoices WHERE organization_id=? ORDER BY created_at DESC, rowid DESC LIMIT 300",
+    ).all(orgId) as Row[]).map(invoiceOf);
+  }
+
+  nextInvoiceSequence(orgId: string, year: number): number {
+    const prefix = `FAC-${year}-%`;
+    const row = this.db.prepare(
+      "SELECT COUNT(*) AS cnt FROM agency_invoices WHERE organization_id=? AND invoice_number LIKE ?",
+    ).get(orgId, prefix) as { cnt?: number } | undefined;
+    return Number(row?.cnt ?? 0) + 1;
+  }
+
+  updateInvoice(orgId: string, id: string, patch: {
+    status: InvoiceStatus;
+    paidAt: number;
+    paymentReference: string;
+    updatedAt: number;
+  }): Invoice | undefined {
+    this.db.prepare(
+      "UPDATE agency_invoices SET status=?,paid_at=?,payment_reference=?,updated_at=? WHERE organization_id=? AND id=?",
+    ).run(patch.status, patch.paidAt, patch.paymentReference, patch.updatedAt, orgId, id);
+    return this.getInvoice(orgId, id);
   }
 }
 

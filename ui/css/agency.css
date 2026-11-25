@@ -313,6 +313,10 @@
 .agency-consent-history small{font-size:var(--fs-xs);color:var(--muted);overflow-wrap:anywhere}
 .agency-channels-bar{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap;padding:var(--space-2-5) var(--card-pad);border-radius:var(--r-card);background:var(--well)}
 .agency-channels-actions{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
+.agency-milestones{display:grid;gap:var(--space-2);padding:var(--space-3);border-radius:var(--r-item);background:var(--well)}
+.agency-milestone-row{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);flex-wrap:wrap;padding:var(--space-2) 0;border-top:1px solid var(--line-2)}
+.agency-milestone-row:first-of-type{border-top:0;padding-top:0}
+.agency-inline-edit{display:grid;gap:var(--space-2-5);padding:var(--space-3);border-radius:var(--r-item);background:var(--well)}
 
 @media(min-width:761px){.agency-tabs{display:none}}
 @media(max-width:1080px){.agency-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.agency-quick-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}

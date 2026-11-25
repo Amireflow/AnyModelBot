@@ -1039,6 +1039,37 @@ export interface UpdateAgentConfigInput {
   maxSteps?: number;
 }
 
+export type InvoiceStatus = "draft" | "issued" | "paid" | "cancelled";
+
+export interface Invoice {
+  id: string;
+  organizationId: string;
+  contractId: string;
+  invoiceNumber: string;
+  milestoneLabel: string;
+  percentage: number;
+  amount: number;
+  currency: string;
+  status: InvoiceStatus;
+  dueDate: number;
+  paidAt: number;
+  paymentReference: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface InvoiceMilestoneInput {
+  label: string;
+  percentage: number;
+  dueInDays?: number;
+}
+
+export interface StudioSnapshotEntry {
+  commitHash: string;
+  timestamp: number;
+  message: string;
+}
+
 export interface ConfiguredAgentProfile extends AgentProfile {
   config: AgentConfig;
   customized: boolean;

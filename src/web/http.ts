@@ -169,7 +169,9 @@ export interface WhatsAppConfigController {
 }
 
 export interface EmailConfigController {
-  status(): Record<string, unknown>;
+  status(organizationId?: string): Promise<Record<string, unknown>> | Record<string, unknown>;
+  save?(organizationId: string, config: unknown): Promise<void>;
+  clear?(organizationId: string): Promise<void>;
 }
 
 export interface WebContext {

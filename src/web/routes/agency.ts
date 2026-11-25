@@ -7,13 +7,13 @@ import type { AgencyService } from "../../agency/service.js";
 import type {
   AddEvidenceInput, AgencyAgentRole, AgencyMissionStatus, AgentAutonomyMode, CommercialChannel,
   CompanySearchFilters, ContactSearchFilters, ContractStatus, DepositStatus, FollowUpStatus,
-  FollowUpType, LeadSearchFilters, LeadStage, MessageDirection, ProjectLotStatus, ProjectStatus,
+  FollowUpType, InvoiceMilestoneInput, InvoiceStatus, LeadSearchFilters, LeadStage, MessageDirection, ProjectLotStatus, ProjectStatus,
   QaCategory, QaCheckStatus, QuoteLineItem, QuoteTier, ServiceCatalogItem, SolutionType,
   UpdateQualificationProfileInput, UpsertNeedsQualificationInput,
 } from "../../agency/types.js";
 import { HttpError, readJson, send, webEvent, type Route, type WebContext } from "../http.js";
 import { CompanyResearchImportError, findActiveCompanyResearchJob, listCompanyResearchJobs, loadCompanyResearchSources } from "../../agency/company-research-import.js";
-import { renderContractDocumentHtml, renderDeliveryReportHtml, renderQuoteDocumentHtml } from "../../agency/documents.js";
+import { renderContractDocumentHtml, renderDeliveryReportHtml, renderInvoiceDocumentHtml, renderQuoteDocumentHtml } from "../../agency/documents.js";
 import {
   estimateQuoteFromNeeds,
   extractNeedsFromConversation,
@@ -26,11 +26,14 @@ import { auditWebsiteSafely, prospectWebCompanies } from "../../agency/prospecti
 import { runFourAxisQaAudit } from "../../agency/qa-auditor.js";
 import { listAgencySkills, resolveSkillsPromptBlock } from "../../agency/skills.js";
 import {
+  createStudioSnapshot,
   deleteWorkspaceFile,
+  listStudioSnapshots,
   listWorkspaceFiles,
   planProjectLotsWithAi,
   readWorkspaceFile,
   resolveStudioPreviewAsset,
+  rollbackStudioSnapshot,
   runStudioAiAgent,
   runStudioCommand,
   scaffoldProjectTemplate,
@@ -38,6 +41,7 @@ import {
   type StudioCommandAction,
   type StudioTemplateId,
 } from "../../agency/studio.js";
+import { buildProjectExecutionBrief, detectLocalDevTools } from "../../agency/orchestrator.js";
 import {
   executeAgencyMission,
   initProjectWorkspace,
@@ -279,7 +283,33 @@ export function agencyRoutes(ctx: WebContext): Route {
 
       if (seg[2]==="email" && seg.length===4 && seg[3]==="status" && method==="GET") {
         service.getOrganization(organizationId,actor);
-        return send(res,200,ctx.emailConfig?.status() ?? { configured:false, provider:"none", from:"", replyTo:"" });
+        const st=ctx.emailConfig ? await ctx.emailConfig.status(organizationId) : { configured:false, provider:"none", from:"", replyTo:"" };
+        return send(res,200,st);
+      }
+      if (seg[2]==="email" && seg.length===4 && seg[3]==="config") {
+        const controller=ctx.emailConfig;
+        if (!controller) throw new HttpError(409,"Email configuration management is unavailable in this runtime");
+        service.getOrganization(organizationId,actor);
+        if (method==="GET") return send(res,200,await controller.status(organizationId));
+        if (method==="PUT") {
+          if (!controller.save) throw new HttpError(409,"Email vault saving is unavailable in this runtime");
+          const body=await readObject(req);
+          try {
+            await controller.save(organizationId,body);
+          } catch (error) {
+            const message=(error as Error).message || "Email credentials could not be saved";
+            if (error instanceof TypeError) throw new HttpError(400,message);
+            if (/owner access/i.test(message)) throw new HttpError(403,message);
+            throw new HttpError(409,message);
+          }
+          return send(res,200,{saved:true,secretReturned:false,configuration:await controller.status(organizationId)});
+        }
+        if (method==="DELETE") {
+          if (!controller.clear) throw new HttpError(409,"Email vault clearing is unavailable in this runtime");
+          await controller.clear(organizationId);
+          return send(res,200,{cleared:true,configuration:await controller.status(organizationId)});
+        }
+        throw new HttpError(405,"Method not allowed");
       }
       if (seg[2]==="email" && seg.length===4 && seg[3]==="outbox") {
         if (method==="GET") return send(res,200,{items:service.listEmailOutbox(organizationId,actor,queryInteger(url,"limit",100))});
@@ -319,7 +349,7 @@ export function agencyRoutes(ctx: WebContext): Route {
         const body=await readObject(req);
         const query=typeof body.query==="string" ? body.query.trim() : "";
         if (!query) throw new HttpError(400,"Prospecting search query is required");
-        const items=await prospectWebCompanies({
+        const result=await prospectWebCompanies({
           search:ctx.app?.search,
           query,
           industry:typeof body.industry==="string" ? body.industry : undefined,
@@ -328,7 +358,7 @@ export function agencyRoutes(ctx: WebContext): Route {
           maxResults:body.maxResults==null ? undefined : Number(body.maxResults),
           findDuplicate:(name,website) => service.findDuplicateCompanies(organizationId,actor,name,website)[0]?.id,
         });
-        return send(res,200,{items,query});
+        return send(res,200,{items:result.candidates,query:result.query,backend:result.backend});
       }
 
       if (seg[2]==="companies") {
@@ -858,6 +888,37 @@ export function agencyRoutes(ctx: WebContext): Route {
           if (seg[4]==="deposit" && method==="POST") {
             return send(res,200,{contract:service.recordContractDeposit(organizationId,actor,contractId,body.status as DepositStatus,body.reference as string ?? "")});
           }
+          if (seg[4]==="milestones" && method==="POST") {
+            const schedule=Array.isArray(body.schedule) ? (body.schedule as InvoiceMilestoneInput[]) : undefined;
+            return send(res,201,{items:service.generateContractMilestones(organizationId,actor,contractId,schedule)});
+          }
+        }
+      }
+
+      if (seg[2]==="invoices") {
+        if (seg.length===3 && method==="GET") {
+          return send(res,200,{items:service.listInvoices(organizationId,actor,url.searchParams.get("contractId") ?? undefined)});
+        }
+        if (seg.length===4 && method==="PATCH") {
+          const invoiceId=decodeSegment(seg[3],"invoice id");
+          const body=await readObject(req);
+          return send(res,200,{invoice:service.updateInvoiceStatus(organizationId,actor,invoiceId,body.status as InvoiceStatus,body.paymentReference as string ?? "")});
+        }
+        if (seg.length===5 && seg[4]==="document" && method==="GET") {
+          const invoiceId=decodeSegment(seg[3],"invoice id");
+          const org=service.getOrganization(organizationId,actor);
+          const invoice=service.getInvoice(organizationId,actor,invoiceId);
+          const contract=service.getContract(organizationId,actor,invoice.contractId);
+          const lead=service.getLead(organizationId,actor,contract.leadId);
+          const company=service.getCompany(organizationId,actor,lead.companyId);
+          const html=renderInvoiceDocumentHtml({
+            organization:org,
+            company,
+            contract,
+            invoice,
+            lang:ctx.app?.config?.ui?.lang || "fr",
+          });
+          return sendHtmlDocument(res,`${invoice.invoiceNumber}.html`,html,url.searchParams.get("download")==="1");
         }
       }
 
@@ -1005,6 +1066,48 @@ export function agencyRoutes(ctx: WebContext): Route {
             }));
             return send(res,201,{checks,reportPath:audit.reportPath,summary:audit.summary});
           }
+          if (seg.length===5 && seg[4]==="qa-autofix" && method==="POST") {
+            const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
+            const project=service.getProject(organizationId,actor,projectId);
+            const contract=service.getContract(organizationId,actor,project.contractId);
+            const lots=service.listProjectLots(organizationId,actor,projectId);
+            const body=await readObject(req);
+            const customFindings=Array.isArray(body.findings) ? body.findings.map(String).filter(Boolean) : [];
+            const currentChecks=service.listQaChecks(organizationId,actor,projectId);
+            const failedChecks=currentChecks.filter((c) => c.status==="failed" || c.status==="blocked" || (c.findings && c.findings.trim()));
+            const findingLines=customFindings.length
+              ? customFindings
+              : failedChecks.slice(0,8).map((c) => `[${c.category}] ${c.title}: ${c.findings || c.evidence}`);
+            if (!findingLines.length) {
+              return send(res,200,{alreadyPassing:true,fixResult:null,qaResult:{checks:currentChecks,summary:"Aucun constat QA bloquant détecté."}});
+            }
+            const runtime=resolveAgentRuntime(service,organizationId,actor,"developer",ctx.app?.config?.llm?.defaultModel);
+            const instruction=[
+              "Corrige les anomalies remontées lors de l'audit QA 4 axes dans ce workspace :",
+              ...findingLines.map((line) => `- ${line}`),
+              "Inspecte les fichiers concernés, corrige les erreurs, vérifie avec run_check (npm_test/npm_typecheck) si package.json existe, puis résume factuellement les corrections.",
+            ].join("\n");
+            const fixResult=await runStudioAiAgent({
+              dataDir,
+              project,
+              instruction,
+              maxSteps:body.maxSteps==null ? Math.max(8,runtime.maxSteps) : Number(body.maxSteps),
+              modelClient:ctx.app?.models,
+              defaultModel:runtime.model,
+              hasLlmEndpoint:isLlmConfigured(ctx),
+              agentInstructions:runtime.agentInstructions,
+              agentRules:runtime.agentRules,
+            });
+            const audit=await runFourAxisQaAudit({ dataDir, project, contract, lots });
+            const checks=audit.items.map((item) => service.recordQaCheck(organizationId,actor,projectId,{
+              category:item.category,
+              title:item.title,
+              status:item.status,
+              evidence:item.evidence,
+              findings:item.findings,
+            }));
+            return send(res,200,{fixResult,qaResult:{checks,reportPath:audit.reportPath,summary:audit.summary}});
+          }
           if (seg.length===5 && seg[4]==="delivery-report" && method==="GET") {
             const org=service.getOrganization(organizationId,actor);
             const project=service.getProject(organizationId,actor,projectId);
@@ -1097,6 +1200,63 @@ export function agencyRoutes(ctx: WebContext): Route {
               });
               return send(res,200,resRun);
             }
+            if (seg.length===6 && seg[5]==="snapshots" && method==="GET") {
+              return send(res,200,{items:await listStudioSnapshots(dataDir,project,queryInteger(url,"limit",15))});
+            }
+            if (seg.length===6 && seg[5]==="rollback" && method==="POST") {
+              const body=await readObject(req);
+              const restored=await rollbackStudioSnapshot(
+                dataDir,
+                project,
+                typeof body.commitHash==="string" ? body.commitHash : undefined,
+              );
+              return send(res,200,restored);
+            }
+            if (seg.length===6 && seg[5]==="ai-agent-stream" && method==="POST") {
+              const body=await readObject(req);
+              const requestedRole=typeof body.agentRole==="string" && ["developer","ui_ux","architect"].includes(body.agentRole)
+                ? (body.agentRole as AgencyAgentRole)
+                : "developer";
+              const instruction=String(body.instruction ?? "").trim();
+              if (!instruction) throw new HttpError(400,"Agent instruction is required");
+              if (!isLlmConfigured(ctx) || !ctx.app?.models) {
+                throw new HttpError(400,"No AI model endpoint is configured in Settings");
+              }
+              const runtime=resolveAgentRuntime(service,organizationId,actor,requestedRole,ctx.app?.config?.llm?.defaultModel);
+              const lot=typeof body.lotId==="string" && body.lotId.trim()
+                ? service.listProjectLots(organizationId,actor,projectId).find((l) => l.id===body.lotId)
+                : undefined;
+              res.writeHead(200,{
+                "content-type":"text/event-stream; charset=utf-8",
+                "cache-control":"no-cache",
+                connection:"keep-alive",
+                "x-content-type-options":"nosniff",
+              });
+              const emit=(event: string, data: unknown) => {
+                if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+              };
+              try {
+                const agentRes=await runStudioAiAgent({
+                  dataDir,
+                  project,
+                  instruction,
+                  lot,
+                  maxSteps:body.maxSteps==null ? runtime.maxSteps : Number(body.maxSteps),
+                  modelClient:ctx.app?.models,
+                  defaultModel:runtime.model,
+                  hasLlmEndpoint:true,
+                  agentInstructions:runtime.agentInstructions,
+                  agentRules:runtime.agentRules,
+                  onStep:(step) => emit("step",step),
+                });
+                emit("done",agentRes);
+              } catch (err) {
+                emit("error",{error:(err as Error).message || "Agent studio failed"});
+              } finally {
+                if (!res.writableEnded) res.end();
+              }
+              return;
+            }
             if (seg.length===6 && seg[5]==="ai-agent" && method==="POST") {
               const body=await readObject(req);
               const requestedRole=typeof body.agentRole==="string" && ["developer","ui_ux","architect"].includes(body.agentRole)
@@ -1163,6 +1323,86 @@ export function agencyRoutes(ctx: WebContext): Route {
               const lotId=decodeSegment(seg[5],"lot id");
               const body=await readObject(req);
               return send(res,200,service.generateLotExecutionBrief(organizationId,actor,projectId,lotId,body.preferredTool as string|undefined));
+            }
+            if (seg.length===7 && seg[6]==="run-pipeline" && method==="POST") {
+              const lotId=decodeSegment(seg[5],"lot id");
+              const body=await readObject(req);
+              const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
+              const project=service.getProject(organizationId,actor,projectId);
+              const contract=service.getContract(organizationId,actor,project.contractId);
+              const lots=service.listProjectLots(organizationId,actor,projectId);
+              const lot=lots.find((l) => l.id===lotId);
+              if (!lot) throw new HttpError(404,"Project lot not found");
+              if (!isLlmConfigured(ctx) || !ctx.app?.models) {
+                throw new HttpError(400,"No AI model endpoint is configured in Settings");
+              }
+
+              // 1. Architect brief (deterministic scaffold + optional LLM architecture plan)
+              const archRuntime=resolveAgentRuntime(service,organizationId,actor,"architect",ctx.app?.config?.llm?.defaultModel);
+              let architectBrief=buildProjectExecutionBrief({
+                project,
+                lot,
+                agentRole:"architect",
+                availableTools:detectLocalDevTools(),
+              });
+              if (archRuntime.model) {
+                try {
+                  const archPrompt=`Projet: ${project.title}\nStack: ${project.targetStack.join(", ")}\nLot #${lot.lotOrder}: ${lot.title}\nDescription: ${lot.description}\nCritères: ${lot.acceptanceCriteria.join("; ")}\nRédige un plan technique concis (5-8 puces max) des fichiers et tests à produire dans le workspace.`;
+                  const llmPlan=await ctx.app.models.streamChat({
+                    model:archRuntime.model,
+                    messages:[
+                      { role:"system", content:archRuntime.agentInstructions || "You are an agency Software Architect. Be concise and concrete." },
+                      { role:"user", content:archPrompt },
+                    ],
+                  },() => {});
+                  if (llmPlan.trim()) architectBrief=llmPlan.trim();
+                } catch { /* fallback to deterministic execution brief */ }
+              }
+
+              // 2. Developer Studio AI implementation
+              const devRole=lot.ownerRole==="ui_ux" ? "ui_ux" : "developer";
+              const devRuntime=resolveAgentRuntime(service,organizationId,actor,devRole,ctx.app?.config?.llm?.defaultModel);
+              const devInstruction=[
+                `Implémente le lot #${lot.lotOrder} : ${lot.title}`,
+                lot.description ? `Description : ${lot.description}` : "",
+                lot.acceptanceCriteria.length ? `Critères d'acceptation : ${lot.acceptanceCriteria.join(" | ")}` : "",
+                `Plan architecte :\n${architectBrief}`,
+                "Écris ou mets à jour les fichiers dans le workspace puis exécute les vérifications avant finish.",
+              ].filter(Boolean).join("\n\n");
+              const devResult=await runStudioAiAgent({
+                dataDir,
+                project,
+                lot,
+                instruction:devInstruction,
+                maxSteps:body.maxSteps==null ? Math.max(8,devRuntime.maxSteps) : Number(body.maxSteps),
+                modelClient:ctx.app.models,
+                defaultModel:devRuntime.model,
+                hasLlmEndpoint:true,
+                agentInstructions:devRuntime.agentInstructions,
+                agentRules:devRuntime.agentRules,
+              });
+
+              // 3. Independent 4-Axis QA Audit
+              const audit=await runFourAxisQaAudit({ dataDir, project, contract, lots });
+              const checks=audit.items.map((item) => service.recordQaCheck(organizationId,actor,projectId,{
+                lotId:lot.id,
+                category:item.category,
+                title:item.title,
+                status:item.status,
+                evidence:item.evidence,
+                findings:item.findings,
+              }));
+              const allPassed=checks.every((c) => c.status==="passed");
+              const updatedLot=service.updateProjectLot(organizationId,actor,projectId,lot.id,{
+                status:allPassed ? "in_qa" : "in_progress",
+                evidenceSummary:`Pipeline IA (${devResult.modifiedFiles.length} fichier(s)): ${devResult.summary} | QA: ${audit.summary}`.slice(0,3900),
+              });
+              return send(res,200,{
+                architectBrief,
+                devResult,
+                qaResult:{checks,reportPath:audit.reportPath,summary:audit.summary,passed:allPassed},
+                lot:updatedLot,
+              });
             }
           }
           if (seg.length>=5 && seg[4]==="scope-changes") {

@@ -40,7 +40,7 @@ import { mySkillsRoutes } from "./routes/my-skills.js";
 import { FilePreviews } from "./file-previews.js";
 import { AgencyStore } from "../agency/store.js";
 import { AgencyService } from "../agency/service.js";
-import { EnvEmailSender } from "../agency/email-outbox.js";
+import { EmailSecretsFile, EnvEmailSender, normalizeEmailSecretConfig, type EmailSecretConfig } from "../agency/email-outbox.js";
 import { WhatsAppCloudApiClient, type WhatsAppCloudApiConfig } from "../agency/whatsapp-cloud.js";
 import {
   LocalNodeSecretBox,
@@ -146,7 +146,93 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
     }
     delete process.env[secretName];
   }
+  const emailEnvironmentConfigured = Boolean(emailEnv.webhookUrl || (emailEnv.resendApiKey && emailEnv.fromAddress));
   const emailSender = new EnvEmailSender(emailEnv);
+  const emailVault = EmailSecretsFile.at(cfg.dataDir, new LocalNodeSecretBox(cfg.dataDir, ".email-vault.key"));
+  let emailVaultConfig: EmailSecretConfig | undefined;
+  let emailVaultLoaded = false;
+  let emailConfigSource: "environment" | "secure_storage" | "secure_storage_unavailable" | "none" =
+    emailEnvironmentConfigured ? "environment" : "none";
+
+  async function ensureEmailVaultLoaded(): Promise<void> {
+    if (emailVaultLoaded) return;
+    emailVaultLoaded = true;
+    if (!emailVault.status().hasStoredSecret) return;
+    try {
+      const saved = await emailVault.get();
+      if (!saved) return;
+      emailVaultConfig = saved;
+      emailSender.setConfig(saved);
+      emailConfigSource = "secure_storage";
+    } catch (error) {
+      emailVaultLoaded = false;
+      emailSender.setConfig({});
+      emailConfigSource = "secure_storage_unavailable";
+      throw error;
+    }
+  }
+
+  const emailSenderProxy = {
+    async isConfigured(organizationId?: string): Promise<boolean> {
+      try { await ensureEmailVaultLoaded(); } catch { /* handled fail-closed */ }
+      if (emailConfigSource === "secure_storage" && organizationId && emailVaultConfig?.organizationId !== organizationId) {
+        return false;
+      }
+      return emailSender.isConfigured();
+    },
+    async sendEmail(input: Parameters<EnvEmailSender["sendEmail"]>[0]) {
+      await ensureEmailVaultLoaded();
+      if (emailConfigSource === "secure_storage" && emailVaultConfig?.organizationId !== input.organizationId) {
+        throw new Error("Email credentials belong to another organization");
+      }
+      return emailSender.sendEmail(input);
+    },
+  };
+
+  const emailConfigController = {
+    async status(organizationId?: string): Promise<Record<string, unknown>> {
+      if (organizationId) assertWhatsAppOrganization(organizationId);
+      let vaultLoadError = "";
+      try { await ensureEmailVaultLoaded(); }
+      catch (error) { vaultLoadError = (error as Error).message || "Saved email credentials could not be unlocked"; }
+      const vaultStatus = emailVault.status();
+      const secureStorage = await emailVault.availability();
+      const base = emailSender.status();
+      const orgMatches = !organizationId || emailConfigSource !== "secure_storage" || emailVaultConfig?.organizationId === organizationId;
+      return {
+        ...base,
+        configured: base.configured && orgMatches,
+        source: base.configured ? emailConfigSource : "none",
+        organizationMatches: orgMatches,
+        secureStorageAvailable: secureStorage.available,
+        secureStorageBackend: secureStorage.backend,
+        secureStorageReason: vaultLoadError || secureStorage.reason,
+        savedInSecureStorage: vaultStatus.hasStoredSecret,
+        environmentConfigured: emailConfigSource === "environment" && emailEnvironmentConfigured,
+      };
+    },
+    async save(organizationId: string, input: unknown): Promise<void> {
+      assertWhatsAppOrganization(organizationId);
+      const rawObj = input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {};
+      const normalized = normalizeEmailSecretConfig({ ...rawObj, organizationId }, organizationId);
+      await emailVault.set(normalized, organizationId);
+      emailVaultConfig = normalized;
+      emailVaultLoaded = true;
+      emailSender.setConfig(normalized);
+      emailConfigSource = "secure_storage";
+    },
+    async clear(organizationId: string): Promise<void> {
+      assertWhatsAppOrganization(organizationId);
+      if (emailConfigSource === "secure_storage" && emailVaultConfig?.organizationId !== organizationId) {
+        throw new Error("Saved email credentials belong to another organization");
+      }
+      emailVault.clear();
+      emailVaultConfig = undefined;
+      emailVaultLoaded = true;
+      emailSender.setConfig({});
+      emailConfigSource = "none";
+    },
+  };
   let whatsappVaultConfig:WhatsAppSecretConfig|undefined;
   let whatsappVaultLoaded=false;
   let whatsappVaultLoading:Promise<void>|undefined;
@@ -272,7 +358,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
       whatsappConfigSource="none";
     },
   };
-  const agency = new AgencyService(agencyStore,{whatsapp:whatsappSender,email:emailSender});
+  const agency = new AgencyService(agencyStore,{whatsapp:whatsappSender,email:emailSenderProxy});
   const auth = new SupabaseAuthService({ dataDir: cfg.dataDir, config: cfg });
   const uiDir = path.join(findAppRoot(), "ui");
   const vendor = vendorFiles();
@@ -448,7 +534,7 @@ export async function startWebServer(app: App, opts: { port?: number; host?: str
     agency,
     auth,
     whatsappConfig:whatsappConfigController,
-    emailConfig:{ status: () => emailSender.status() },
+    emailConfig:emailConfigController,
     host,
     token,
     usesCatalog,

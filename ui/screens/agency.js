@@ -178,12 +178,35 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const [prospectIndustry,setProspectIndustry]=useState("");
   const [prospectCity,setProspectCity]=useState("");
   const [prospectResults,setProspectResults]=useState([]);
+  const [prospectMeta,setProspectMeta]=useState(null);
   const [auditResultByCompany,setAuditResultByCompany]=useState({});
   const [leadViewMode,setLeadViewMode]=useState("list");
   const [auditEvents,setAuditEvents]=useState([]);
   const [auditVerify,setAuditVerify]=useState(null);
   const [execNodeStatus,setExecNodeStatus]=useState(null);
   const [emailStatus,setEmailStatus]=useState(null);
+  const [emailConfigOpen,setEmailConfigOpen]=useState(false);
+  const [emailConfigDraft,setEmailConfigDraft]=useState({provider:"resend",resendApiKey:"",fromAddress:"",replyTo:"",webhookUrl:"",webhookSecret:""});
+  const [emailBusy,setEmailBusy]=useState("");
+  const [emailNotice,setEmailNotice]=useState("");
+  const [emailError,setEmailError]=useState("");
+  const [emailWorkflowOpen,setEmailWorkflowOpen]=useState(false);
+  const [emailOutbox,setEmailOutbox]=useState([]);
+  const [emailCompose,setEmailCompose]=useState({contactId:"",purpose:"marketing",subject:"",bodyText:"",reason:""});
+  const [commercialContacts,setCommercialContacts]=useState([]);
+  const [consentChannel,setConsentChannel]=useState("whatsapp");
+  const [invoices,setInvoices]=useState([]);
+  const [invoiceRefById,setInvoiceRefById]=useState({});
+  const [bootstrapNotice,setBootstrapNotice]=useState("");
+  const [editingCompany,setEditingCompany]=useState(false);
+  const [editCompanyDraft,setEditCompanyDraft]=useState(blankCompany);
+  const [editingContactId,setEditingContactId]=useState("");
+  const [editContactDraft,setEditContactDraft]=useState(blankContact);
+  const [editingLeadId,setEditingLeadId]=useState("");
+  const [editLeadDraft,setEditLeadDraft]=useState({source:"",notes:""});
+  const [editingCatalogId,setEditingCatalogId]=useState("");
+  const [editCatalogDraft,setEditCatalogDraft]=useState(blankCatalogDraft);
+  const [editingQuoteId,setEditingQuoteId]=useState("");
   const [prospectOpen,setProspectOpen]=useState(false);
   const [missionFormOpen,setMissionFormOpen]=useState(false);
   const [catalogFormOpen,setCatalogFormOpen]=useState(false);
@@ -252,12 +275,12 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
     if(!orgId||!consentContactId){setWhatsappConsents([]);return;}
     let live=true;
     setWhatsappConsentBusy(true);setWhatsappConsentError("");setWhatsappConsentNotice("");
-    api("/agency/"+enc(orgId)+"/contacts/"+enc(consentContactId)+"/consents?channel=whatsapp")
+    api("/agency/"+enc(orgId)+"/contacts/"+enc(consentContactId)+"/consents?channel="+enc(consentChannel))
       .then(data=>live&&setWhatsappConsents(data.items||[]))
       .catch(err=>live&&setWhatsappConsentError(err.message))
       .finally(()=>live&&setWhatsappConsentBusy(false));
     return ()=>{live=false;};
-  },[orgId,consentContactId,revision,lang]);
+  },[orgId,consentContactId,consentChannel,revision,lang]);
 
   useEffect(()=>{
     if(!orgId){setQualificationDraft(blankQualificationDraft);return;}
@@ -342,8 +365,10 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       api(`/agency/${enc(orgId)}/contracts`),
       api(`/agency/${enc(orgId)}/conversations`),
       api(`/agency/${enc(orgId)}/approvals?limit=100`),
-      api(`/agency/${enc(orgId)}/email/status`)
-    ]).then(([stats,catData,ruleData,leadData,quoteData,contractData,convData,appData,emailData])=>{
+      api(`/agency/${enc(orgId)}/email/status`),
+      api(`/agency/${enc(orgId)}/email/outbox?limit=100`),
+      api(`/agency/${enc(orgId)}/invoices`)
+    ]).then(([stats,catData,ruleData,leadData,quoteData,contractData,convData,appData,emailData,emailOutboxData,invData])=>{
       if(!live)return;
       setDashboard(stats);
       setCatalogItems(catData.items||[]);
@@ -364,13 +389,28 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       setConversations(convData.items||[]);
       setApprovals(appData.items||[]);
       setEmailStatus(emailData||null);
+      if(emailData){
+        setEmailConfigDraft(cur=>({...cur,provider:emailData.provider==="webhook"?"webhook":"resend",fromAddress:emailData.from||cur.fromAddress,replyTo:emailData.replyTo||cur.replyTo,webhookUrl:emailData.webhookUrl||cur.webhookUrl}));
+      }
+      setEmailOutbox(emailOutboxData.items||[]);
+      setInvoices(invData.items||[]);
     }).catch(e=>live&&setError(e.message)).finally(()=>live&&setBusy(""));
     return ()=>{live=false;};
   },[orgId,tab,query,page,revision,lang]);
 
   useEffect(()=>{
-    if(!orgId||tab!=="commercial"||!selectedLeadId){setNeedsDraft(blankNeedsDraft);return;}
+    if(!orgId||tab!=="commercial"||!selectedLeadId){setNeedsDraft(blankNeedsDraft);setCommercialContacts([]);return;}
     let live=true;
+    const leadRec=leadOptions.find(l=>l.id===selectedLeadId);
+    if(leadRec?.companyId){
+      api(`/agency/${enc(orgId)}/companies/${enc(leadRec.companyId)}/contacts?limit=100`)
+        .then(d=>{
+          if(!live)return;
+          const list=d.items||[];
+          setCommercialContacts(list);
+          setEmailCompose(cur=>cur.contactId&&list.some(c=>c.id===cur.contactId)?cur:({...cur,contactId:list[0]?.id||""}));
+        }).catch(()=>live&&setCommercialContacts([]));
+    }
     api(`/agency/${enc(orgId)}/leads/${enc(selectedLeadId)}/needs`).then(d=>{
       if(!live)return;
       const n=d.needs;
@@ -476,10 +516,11 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       setEvidenceDraft(blankEvidence);setEvidenceForm(false);setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
-  const openWhatsAppConsent=async(contactRecord)=>{
-    setConsentContactId(current=>current===contactRecord.id?"":contactRecord.id);
+  const openWhatsAppConsent=async(contactRecord,channel="whatsapp")=>{
+    setConsentChannel(channel);
+    setConsentContactId(current=>current===contactRecord.id&&consentChannel===channel?"":contactRecord.id);
     setWhatsappConsents([]);
-    setWhatsappConsentDraft({purpose:"marketing",status:"granted",source:"manual_confirmation",proof:"",textVersion:"wa-marketing-v1"});
+    setWhatsappConsentDraft({purpose:"marketing",status:"granted",source:"manual_confirmation",proof:"",textVersion:channel==="email"?"email-marketing-v1":"wa-marketing-v1"});
     setWhatsappTemplateDraft({name:"",language:"fr_FR",components:"[]",reason:""});
     setWhatsappConsentError("");setWhatsappConsentNotice("");
   };
@@ -488,12 +529,12 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
     try{
       await api("/agency/"+enc(orgId)+"/contacts/"+enc(consentContactId)+"/consents",{
         method:"POST",body:{
-          channel:"whatsapp",purpose:whatsappConsentDraft.purpose,status:whatsappConsentDraft.status,
+          channel:consentChannel,purpose:whatsappConsentDraft.purpose,status:whatsappConsentDraft.status,
           source:whatsappConsentDraft.source,proof:whatsappConsentDraft.proof,
           textVersion:whatsappConsentDraft.status==="granted"?whatsappConsentDraft.textVersion:undefined
         }
       });
-      const data=await api("/agency/"+enc(orgId)+"/contacts/"+enc(consentContactId)+"/consents?channel=whatsapp");
+      const data=await api("/agency/"+enc(orgId)+"/contacts/"+enc(consentContactId)+"/consents?channel="+enc(consentChannel));
       setWhatsappConsents(data.items||[]);
       setWhatsappConsentDraft(v=>({...v,proof:""}));
       setWhatsappConsentNotice(t("agency.whatsappConsentSaved"));
@@ -734,7 +775,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
     setBusy("quote");setError("");
     try{
       const lines=normalizedQuoteLines();
-      await api(`/agency/${enc(orgId)}/quotes`,{method:"POST",body:{
+      const body={
         leadId:selectedLeadId,title:quoteDraft.title,tier:quoteDraft.tier,
         discountPct:Number(quoteDraft.discountPct||0),
         lines:lines.length?lines:[{
@@ -742,7 +783,13 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           unitPrice:Number(quoteDraft.linePrice),unitCost:Number(quoteDraft.lineCost),
           estimatedDays:Number(quoteDraft.lineDays)
         }]
-      }});
+      };
+      if(editingQuoteId){
+        await api(`/agency/${enc(orgId)}/quotes/${enc(editingQuoteId)}`,{method:"PATCH",body});
+        setEditingQuoteId("");
+      }else{
+        await api(`/agency/${enc(orgId)}/quotes`,{method:"POST",body});
+      }
       setQuoteDraft(blankQuoteDraft);
       setQuoteLines([{label:"",unitPrice:"2500",unitCost:"1200",estimatedDays:"10"}]);
       setQuoteFormOpen(false);
@@ -791,12 +838,169 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const approveRecord=(approvalId)=>decideApproval(approvalId,"approved");
   const searchProspects=async(e)=>{
     e.preventDefault();if(!prospectQuery.trim())return;
-    setBusy("prospect-search");setError("");
+    setBusy("prospect-search");setError("");setProspectMeta(null);
     try{
       const data=await api(`/agency/${enc(orgId)}/prospecting/search`,{
         method:"POST",body:{query:prospectQuery,industry:prospectIndustry,city:prospectCity,maxResults:8}
       });
-      setProspectResults(data.items||[]);
+      const list=Array.isArray(data.items)?data.items:(Array.isArray(data.items?.candidates)?data.items.candidates:[]);
+      setProspectResults(list);
+      setProspectMeta({count:list.length,backend:data.backend||data.items?.backend||"web",query:data.query||prospectQuery});
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const bootstrapDefaults=async()=>{
+    if(!orgId)return;
+    setBusy("bootstrap");setError("");setBootstrapNotice("");
+    try{
+      const d=await api(`/agency/${enc(orgId)}/bootstrap-defaults`,{method:"POST",body:{overwriteAgents:false}});
+      const b=d.bootstrapped||{};
+      setBootstrapNotice(t("agency.bootstrapDone",{agents:b.agentsConfigured||0,catalog:b.catalogCreated||0}));
+      setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const saveCompanyEdit=async(e,companyId)=>{
+    e.preventDefault();setBusy("edit-co");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/companies/${enc(companyId)}`,{method:"PATCH",body:editCompanyDraft});
+      setEditingCompany(false);setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const saveContactEdit=async(e,contactId)=>{
+    e.preventDefault();setBusy("edit-ct");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/contacts/${enc(contactId)}`,{method:"PATCH",body:editContactDraft});
+      setEditingContactId("");setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const saveLeadEdit=async(e,leadId)=>{
+    e.preventDefault();setBusy("edit-lead");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/leads/${enc(leadId)}`,{method:"PATCH",body:editLeadDraft});
+      setEditingLeadId("");setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const saveCatalogEdit=async(e,itemId)=>{
+    e.preventDefault();setBusy("edit-cat");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/catalog/${enc(itemId)}`,{method:"PATCH",body:{
+        name:editCatalogDraft.name,category:editCatalogDraft.category,description:editCatalogDraft.description,
+        estimatedDays:Number(editCatalogDraft.estimatedDays),priceMin:Number(editCatalogDraft.priceMin),
+        priceBase:Number(editCatalogDraft.priceBase),priceMax:Number(editCatalogDraft.priceMax),
+        estimatedCost:Number(editCatalogDraft.estimatedCost)
+      }});
+      setEditingCatalogId("");setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const toggleCatalogActive=async(item)=>{
+    setBusy("edit-cat");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/catalog/${enc(item.id)}`,{method:"PATCH",body:{active:!item.active}});
+      setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const saveEmailConfig=async(e)=>{
+    e.preventDefault();setEmailBusy("save");setEmailError("");setEmailNotice("");
+    try{
+      const payload=emailConfigDraft.provider==="webhook"
+        ?{provider:"webhook",webhookUrl:emailConfigDraft.webhookUrl,webhookSecret:emailConfigDraft.webhookSecret||undefined,fromAddress:emailConfigDraft.fromAddress||undefined,replyTo:emailConfigDraft.replyTo||undefined}
+        :{provider:"resend",resendApiKey:emailConfigDraft.resendApiKey,fromAddress:emailConfigDraft.fromAddress,replyTo:emailConfigDraft.replyTo||undefined};
+      const res=await api(`/agency/${enc(orgId)}/email/config`,{method:"PUT",body:payload});
+      setEmailStatus(res.configuration||null);
+      setEmailConfigDraft(v=>({...v,resendApiKey:"",webhookSecret:""}));
+      setEmailNotice(t("agency.emailConfigSaved"));
+    }catch(err){setEmailError(err.message);}finally{setEmailBusy("");}
+  };
+  const clearEmailConfig=async()=>{
+    setEmailBusy("clear");setEmailError("");setEmailNotice("");
+    try{
+      const res=await api(`/agency/${enc(orgId)}/email/config`,{method:"DELETE"});
+      setEmailStatus(res.configuration||null);
+      setEmailNotice(t("agency.emailConfigCleared"));
+    }catch(err){setEmailError(err.message);}finally{setEmailBusy("");}
+  };
+  const grantQuickEmailConsent=async(contactRecord)=>{
+    if(!contactRecord?.id)return;
+    setEmailBusy("consent");setEmailError("");setEmailNotice("");
+    try{
+      await api(`/agency/${enc(orgId)}/contacts/${enc(contactRecord.id)}/consents`,{
+        method:"POST",body:{
+          channel:"email",purpose:emailCompose.purpose||"marketing",status:"granted",
+          source:"crm_email_panel",proof:"confirmed-by-agency-operator",textVersion:"email-marketing-v1"
+        }
+      });
+      setEmailNotice(t("agency.whatsappConsentSaved"));
+    }catch(err){setEmailError(err.message);}finally{setEmailBusy("");}
+  };
+  const requestEmailApproval=async(e)=>{
+    e.preventDefault();setEmailBusy("approve-req");setEmailError("");setEmailNotice("");
+    try{
+      const target=commercialContacts.find(c=>c.id===emailCompose.contactId);
+      if(!target||!target.email)throw new Error(t("agency.emailRecipientRequired"));
+      const purpose=(emailCompose.purpose||"marketing").trim().toLowerCase();
+      const payload={
+        channel:"email",purpose,contactId:target.id,recipient:target.email.toLowerCase(),
+        subject:emailCompose.subject.trim(),bodyText:emailCompose.bodyText.trim()
+      };
+      await api(`/agency/${enc(orgId)}/approvals`,{method:"POST",body:{
+        action:"send_message",resourceType:"email_message",resourceId:target.id,
+        reason:emailCompose.reason.trim()||`Email commercial: ${emailCompose.subject.trim()}`,payload
+      }});
+      setEmailCompose(v=>({...v,subject:"",bodyText:"",reason:""}));
+      setEmailNotice(t("agency.whatsappApprovalRequested"));
+      setRevision(v=>v+1);
+    }catch(err){setEmailError(err.message);}finally{setEmailBusy("");}
+  };
+  const queueEmailApproval=async(approval)=>{
+    setEmailBusy("queue");setEmailError("");
+    try{
+      const payload=approvalPayload(approval);
+      if(!payload)throw new Error("Payload invalide");
+      await api(`/agency/${enc(orgId)}/email/outbox`,{method:"POST",body:{
+        approvalId:approval.id,
+        idempotencyKey:"em-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,10),
+        payload
+      }});
+      setRevision(v=>v+1);
+    }catch(err){setEmailError(err.message);}finally{setEmailBusy("");}
+  };
+  const dispatchEmailOutbox=async(messageId)=>{
+    setEmailBusy("send");setEmailError("");
+    try{
+      await api(`/agency/${enc(orgId)}/email/outbox/${enc(messageId)}/send`,{method:"POST"});
+      setRevision(v=>v+1);
+    }catch(err){setEmailError(err.message);}finally{setEmailBusy("");}
+  };
+  const generateContractMilestones=async(contractId)=>{
+    setBusy("milestones");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/contracts/${enc(contractId)}/milestones`,{method:"POST",body:{}});
+      setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const updateInvoiceStatus=async(invoiceId,status,paymentReference="")=>{
+    setBusy("inv-upd");setError("");
+    try{
+      await api(`/agency/${enc(orgId)}/invoices/${enc(invoiceId)}`,{method:"PATCH",body:{status,paymentReference}});
+      setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const qaAutofixProject=async(projectId)=>{
+    setBusy("qa-autofix");setError("");setWorkspaceNotice("");
+    try{
+      const data=await api(`/agency/${enc(orgId)}/projects/${enc(projectId)}/qa-autofix`,{method:"POST",body:{}});
+      const summary=data.qaResult?.summary||data.fixResult?.summary||t("agency.qaAutofixDone");
+      setWorkspaceNotice(summary);
+      setRevision(v=>v+1);
+    }catch(err){setError(err.message);}finally{setBusy("");}
+  };
+  const runLotPipeline=async(lotId)=>{
+    if(!selectedProjectId)return;
+    setBusy("lot-pipeline");setError("");setWorkspaceNotice("");
+    try{
+      const data=await api(`/agency/${enc(orgId)}/projects/${enc(selectedProjectId)}/lots/${enc(lotId)}/run-pipeline`,{method:"POST",body:{}});
+      setWorkspaceNotice(`${data.devResult?.summary||"Pipeline ✓"} · ${data.qaResult?.summary||""}`);
+      if(data.architectBrief)setBriefModal(data.architectBrief);
+      setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const importProspect=async(item)=>{
@@ -1152,6 +1356,11 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           ${whatsappConfig?.phoneNumberId&&html`<code>${whatsappConfig.phoneNumberId}</code>`}
           ${whatsappConfig?.webhookConfigured&&html`<span class="agency-whatsapp-webhook-ready">${t("agency.whatsappWebhookReady")}</span>`}
         </div>
+        <div class="agency-whatsapp-status">
+          <span class=${"agency-whatsapp-dot "+(emailStatus?.configured?"ready":"")}></span>
+          <strong>${t("agency.emailOutboxTitle")}</strong>
+          <span>${emailStatus?.configured?`${t("agency.emailConfigured")} (${emailStatus.provider||"resend"})`:t("agency.emailNotConfigured")}</span>
+        </div>
         <div class="agency-channels-actions">
           <button class="btn" type="button" aria-expanded=${whatsappOpen} onClick=${()=>{setWhatsappOpen(v=>!v);setWhatsappError("");setWhatsappNotice("");}}>
             ${whatsappOpen?t("agency.cancel"):t("agency.whatsappConfigure")}
@@ -1159,8 +1368,80 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           <button class="btn" type="button" aria-expanded=${whatsappWorkflowOpen} onClick=${()=>setWhatsappWorkflowOpen(v=>!v)}>
             ${whatsappWorkflowOpen?t("agency.cancel"):t("agency.whatsappWorkflowOpen")}
           </button>
+          <button class="btn" type="button" aria-expanded=${emailConfigOpen} onClick=${()=>{setEmailConfigOpen(v=>!v);setEmailError("");setEmailNotice("");}}>
+            ${emailConfigOpen?t("agency.cancel"):t("agency.emailConfigureBtn")}
+          </button>
+          <button class="btn" type="button" aria-expanded=${emailWorkflowOpen} onClick=${()=>setEmailWorkflowOpen(v=>!v)}>
+            ${emailWorkflowOpen?t("agency.cancel"):t("agency.emailWorkflowBtn")}
+          </button>
         </div>
       </div>`}
+      ${tab==="commercial"&&emailConfigOpen&&html`<section class="agency-whatsapp-card">
+        <div class="agency-whatsapp-heading">
+          <div><span class="agency-eyebrow">${t("agency.emailOutboxTitle")}</span><h2>${t("agency.emailConfigTitle")}</h2><p>${t("agency.emailConfigHint")}</p></div>
+        </div>
+        ${emailError&&html`<div class="agency-alert" role="alert">${emailError}</div>`}
+        ${emailNotice&&html`<p class="agency-research-feedback" role="status">${emailNotice}</p>`}
+        <form class="agency-form agency-form-grid" onSubmit=${saveEmailConfig}>
+          <label class="agency-field"><span>${t("agency.emailProviderLabel")}</span><select class="field" value=${emailConfigDraft.provider} onChange=${e=>update(setEmailConfigDraft,"provider",e.currentTarget.value)}><option value="resend">Resend API</option><option value="webhook">Webhook SMTP / Relay</option></select></label>
+          <${Field} label=${t("agency.emailFromLabel")} value=${emailConfigDraft.fromAddress} type="email" required=${emailConfigDraft.provider==="resend"} placeholder="contact@agence.com" onInput=${v=>update(setEmailConfigDraft,"fromAddress",v)}/>
+          <${Field} label=${t("agency.emailReplyToLabel")} value=${emailConfigDraft.replyTo} type="email" placeholder="equipe@agence.com" onInput=${v=>update(setEmailConfigDraft,"replyTo",v)}/>
+          ${emailConfigDraft.provider==="resend"
+            ?html`<${Field} label=${t("agency.emailResendKeyLabel")} value=${emailConfigDraft.resendApiKey} type="password" required placeholder="re_..." onInput=${v=>update(setEmailConfigDraft,"resendApiKey",v)}/>`
+            :html`<${Field} label=${t("agency.emailWebhookUrlLabel")} value=${emailConfigDraft.webhookUrl} type="url" required placeholder="https://..." onInput=${v=>update(setEmailConfigDraft,"webhookUrl",v)}/><${Field} label=${t("agency.emailWebhookSecretLabel")} value=${emailConfigDraft.webhookSecret} type="password" onInput=${v=>update(setEmailConfigDraft,"webhookSecret",v)}/>`}
+          <div class="agency-form-actions">
+            <button class="btn primary" type="submit" disabled=${emailBusy==="save"}>${emailBusy==="save"?t("agency.loading"):t("agency.emailSaveConfigBtn")}</button>
+            ${emailStatus?.savedInSecureStorage&&html`<button class="text" type="button" disabled=${emailBusy==="clear"} onClick=${clearEmailConfig}>${t("agency.whatsappRemove")}</button>`}
+          </div>
+        </form>
+      </section>`}
+      ${tab==="commercial"&&emailWorkflowOpen&&html`<section class="agency-whatsapp-workflow">
+        <div class="agency-whatsapp-heading">
+          <div><span class="agency-eyebrow">${t("agency.emailOutboxTitle")}</span><h2>${t("agency.emailWorkflowTitle")}</h2><p>${t("agency.emailWorkflowHint")}</p></div>
+        </div>
+        ${emailError&&html`<div class="agency-alert" role="alert">${emailError}</div>`}
+        ${emailNotice&&html`<p class="agency-research-feedback" role="status">${emailNotice}</p>`}
+        <form class="agency-form agency-form-grid" onSubmit=${requestEmailApproval}>
+          <label class="agency-field"><span>${t("agency.emailRecipientLabel")}</span><select class="field" value=${emailCompose.contactId} required onChange=${e=>update(setEmailCompose,"contactId",e.currentTarget.value)}>
+            <option value="">—</option>
+            ${commercialContacts.filter(c=>c.email).map(c=>html`<option value=${c.id}>${c.displayName} (${c.email})</option>`)}
+          </select></label>
+          <${Field} label=${t("agency.whatsappPurpose")} value=${emailCompose.purpose} required onInput=${v=>update(setEmailCompose,"purpose",v)}/>
+          <${Field} label=${t("agency.subject")} value=${emailCompose.subject} required onInput=${v=>update(setEmailCompose,"subject",v)}/>
+          <${Field} label=${t("agency.whatsappApprovalReason")} value=${emailCompose.reason} onInput=${v=>update(setEmailCompose,"reason",v)}/>
+          <label class="agency-field agency-form-wide"><span>${t("agency.emailBodyLabel")}</span><textarea class="field" rows="3" required value=${emailCompose.bodyText} onInput=${e=>update(setEmailCompose,"bodyText",e.currentTarget.value)}></textarea></label>
+          <div class="agency-form-actions">
+            ${emailCompose.contactId&&html`<button class="btn" type="button" disabled=${!!emailBusy} onClick=${()=>grantQuickEmailConsent(commercialContacts.find(c=>c.id===emailCompose.contactId))}>${t("agency.emailQuickConsentBtn")}</button>`}
+            <button class="btn primary" type="submit" disabled=${!!emailBusy||!emailCompose.contactId||!emailCompose.subject.trim()||!emailCompose.bodyText.trim()}>${t("agency.whatsappRequestApproval")}</button>
+          </div>
+        </form>
+        <div class="agency-whatsapp-workflow-grid">
+          <section class="agency-whatsapp-list">
+            <div class="agency-contact-heading"><h3>${t("agency.whatsappApprovals")}</h3><span class="agency-qualification-status">${approvals.filter(a=>a.action==="send_message"&&a.resourceType==="email_message").length}</span></div>
+            ${approvals.filter(a=>a.action==="send_message"&&a.resourceType==="email_message").map(ap=>{
+              const pl=approvalPayload(ap);
+              const queued=emailOutbox.some(m=>m.approvalId===ap.id);
+              return html`<article class="agency-whatsapp-item">
+                <div class="agency-whatsapp-item-head"><strong>${pl?.subject||ap.resourceId}</strong><span class=${"agency-whatsapp-state "+ap.status}>${t(`agency.whatsappApprovalStatus.${ap.status}`)}</span></div>
+                <p>${pl?.recipient||"—"} · ${pl?.purpose||"—"}</p>
+                ${ap.status==="pending"&&html`<div class="agency-whatsapp-item-actions"><button class="btn primary" type="button" disabled=${!!busy} onClick=${()=>decideApproval(ap.id,"approved")}>${t("agency.whatsappApprove")}</button><button class="btn" type="button" disabled=${!!busy} onClick=${()=>decideApproval(ap.id,"rejected")}>${t("agency.whatsappReject")}</button></div>`}
+                ${ap.status==="approved"&&!queued&&html`<button class="btn" type="button" disabled=${!!emailBusy} onClick=${()=>queueEmailApproval(ap)}>${t("agency.emailQueueBtn")}</button>`}
+                ${ap.status==="approved"&&queued&&html`<small>${t("agency.whatsappAlreadyQueued")}</small>`}
+              </article>`;
+            })}
+          </section>
+          <section class="agency-whatsapp-list">
+            <div class="agency-contact-heading"><h3>${t("agency.emailOutboxListTitle")}</h3><span class="agency-qualification-status">${emailOutbox.length}</span></div>
+            ${emailOutbox.map(msg=>html`<article class="agency-whatsapp-item">
+              <div class="agency-whatsapp-item-head"><strong>${msg.subject}</strong><span class=${"agency-whatsapp-state "+msg.status}>${msg.status}</span></div>
+              <p>${msg.recipient} · ${msg.purpose}</p>
+              ${msg.failureCode&&html`<small>${t("agency.whatsappFailure")} ${msg.failureCode}</small>`}
+              ${msg.status==="queued"&&html`<button class="btn primary" type="button" disabled=${!!emailBusy} onClick=${()=>dispatchEmailOutbox(msg.id)}>${t("agency.emailSendNowBtn")}</button>`}
+            </article>`)}
+            ${!emailOutbox.length&&html`<p class="agency-muted">${t("agency.emailNoOutbox")}</p>`}
+          </section>
+        </div>
+      </section>`}
       ${(tab==="companies"||tab==="commercial")&&whatsappOpen&&html`<section class="agency-whatsapp-card">
         <div class="agency-whatsapp-heading">
           <div><span class="agency-eyebrow">${t("agency.whatsappEyebrow")}</span><h2>${t("agency.whatsappTitle")}</h2><p>${t("agency.whatsappDescription")}</p></div>
@@ -1300,6 +1581,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           <${Field} label=${t("agency.prospectCity")} value=${prospectCity} onInput=${setProspectCity}/>
           <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!prospectQuery.trim()}>${t("agency.prospectSearchBtn")}</button></div>
         </form>
+        ${prospectMeta&&html`<p class="agency-research-feedback" role="status">${t("agency.prospectMetaLabel",{count:prospectMeta.count,backend:prospectMeta.backend})}</p>`}
         ${prospectResults.length>0&&html`<div class="agency-commercial-list">
           ${prospectResults.map(item=>html`<article class="agency-commercial-card">
             <div class="agency-commercial-head"><strong>${item.name}</strong><small>${item.domain}</small></div>
@@ -1325,9 +1607,17 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           <dl class="agency-facts-grid"><div><dt>${t("agency.website")}</dt><dd>${selectedCompany.website||"—"}</dd></div><div><dt>${t("agency.industry")}</dt><dd>${selectedCompany.industry||"—"}</dd></div><div><dt>${t("agency.city")}</dt><dd>${selectedCompany.city||"—"}</dd></div></dl>
           <div class="agency-commercial-actions">
             <button class="btn primary" type="button" onClick=${()=>{setLead({companyId:selectedCompany.id,source:"crm",notes:""});setLeadForm(true);switchTab("leads");}}><${Icon} name="plus"/>${t("agency.createLeadFromCompany")}</button>
+            <button class="btn" type="button" onClick=${()=>{setEditingCompany(v=>!v);setEditCompanyDraft({name:selectedCompany.name||"",website:selectedCompany.website||"",industry:selectedCompany.industry||"",countryCode:selectedCompany.countryCode||"SN",city:selectedCompany.city||""});}}>${editingCompany?t("agency.cancel"):t("agency.editBtn")}</button>
             ${selectedCompany.website&&html`<button class="btn" type="button" disabled=${!!busy} onClick=${()=>auditCompanySite(selectedCompany.id)}>${t("agency.websiteAuditBtn")}</button>`}
             <button class="text" type="button" disabled=${!!busy} onClick=${()=>archiveCompany(selectedCompany.id)}>${t("agency.archiveBtn")}</button>
           </div>
+          ${editingCompany&&html`<form class="agency-form agency-inline-edit" onSubmit=${e=>saveCompanyEdit(e,selectedCompany.id)}>
+            <${Field} label=${t("agency.companyName")} value=${editCompanyDraft.name} required onInput=${v=>update(setEditCompanyDraft,"name",v)}/>
+            <${Field} label=${t("agency.website")} value=${editCompanyDraft.website} onInput=${v=>update(setEditCompanyDraft,"website",v)}/>
+            <${Field} label=${t("agency.industry")} value=${editCompanyDraft.industry} onInput=${v=>update(setEditCompanyDraft,"industry",v)}/>
+            <${Field} label=${t("agency.city")} value=${editCompanyDraft.city} onInput=${v=>update(setEditCompanyDraft,"city",v)}/>
+            <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.saveCompany")}</button></div>
+          </form>`}
           ${auditResultByCompany[selectedCompany.id]&&html`<p class="agency-research-feedback" role="status">${auditResultByCompany[selectedCompany.id]}</p>`}
           <div class="agency-contact-heading"><h3>${t("agency.contacts")}</h3><button class="text" onClick=${()=>setContactForm(v=>!v)}>${t("agency.addContact")}</button></div>
           ${contactForm&&html`<form class="agency-form agency-contact-form" onSubmit=${createContact}><${Field} label=${t("agency.contactName")} value=${contact.displayName} required onInput=${v=>update(setContact,"displayName",v)}/><${Field} label=${t("agency.role")} value=${contact.role} onInput=${v=>update(setContact,"role",v)}/><${Field} label=${t("agency.email")} value=${contact.email} type="email" onInput=${v=>update(setContact,"email",v)}/><${Field} label=${t("agency.phone")} value=${contact.phone} type="tel" onInput=${v=>update(setContact,"phone",v)}/><button class="btn primary block" type="submit">${t("agency.saveContact")}</button></form>`}
@@ -1338,11 +1628,27 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             const phoneValid=/^\+[1-9][0-9]{7,14}$/.test(recipient);
             return html`<div class="agency-contact-manage">
               <div class="agency-contact-row"><span class="agency-contact-avatar">${(p.displayName||"?").slice(0,1).toUpperCase()}</span><span><strong>${p.displayName}</strong><small>${p.role||p.email||p.phone||"—"}</small></span>
-                <button class="text" type="button" aria-expanded=${consentContactId===p.id} onClick=${()=>openWhatsAppConsent(p)}>${consentContactId===p.id?t("agency.cancel"):t("agency.whatsappManageConsent")}</button>
+                <div class="agency-commercial-actions">
+                  <button class="text" type="button" onClick=${()=>{setEditingContactId(id=>id===p.id?"":p.id);setEditContactDraft({displayName:p.displayName||"",role:p.role||"",email:p.email||"",phone:p.phone||""});}}>${editingContactId===p.id?t("agency.cancel"):t("agency.editBtn")}</button>
+                  <button class="text" type="button" aria-expanded=${consentContactId===p.id} onClick=${()=>openWhatsAppConsent(p,consentChannel)}>${consentContactId===p.id?t("agency.cancel"):t("agency.whatsappManageConsent")}</button>
+                </div>
               </div>
+              ${editingContactId===p.id&&html`<form class="agency-form agency-inline-edit" onSubmit=${e=>saveContactEdit(e,p.id)}>
+                <${Field} label=${t("agency.contactName")} value=${editContactDraft.displayName} required onInput=${v=>update(setEditContactDraft,"displayName",v)}/>
+                <${Field} label=${t("agency.role")} value=${editContactDraft.role} onInput=${v=>update(setEditContactDraft,"role",v)}/>
+                <${Field} label=${t("agency.email")} value=${editContactDraft.email} type="email" onInput=${v=>update(setEditContactDraft,"email",v)}/>
+                <${Field} label=${t("agency.phone")} value=${editContactDraft.phone} type="tel" onInput=${v=>update(setEditContactDraft,"phone",v)}/>
+                <button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.saveContact")}</button>
+              </form>`}
               ${consentContactId===p.id&&html`
                 <section class="agency-consent-panel">
-                  <div class="agency-contact-heading"><h4>${t("agency.whatsappConsentTitle")}</h4><span class="agency-qualification-status">${latest?t(`agency.whatsappConsentStatus.${latest.status}`):t("agency.whatsappConsentMissing")}</span></div>
+                  <div class="agency-contact-heading">
+                    <h4>${t("agency.whatsappConsentTitle")} (${consentChannel})</h4>
+                    <div class="agency-subtabs">
+                      <button type="button" class=${consentChannel==="whatsapp"?"active":""} onClick=${()=>setConsentChannel("whatsapp")}>WhatsApp</button>
+                      <button type="button" class=${consentChannel==="email"?"active":""} onClick=${()=>setConsentChannel("email")}>Email</button>
+                    </div>
+                  </div>
                   ${whatsappConsentError&&html`<div class="agency-alert" role="alert">${whatsappConsentError}</div>`}
                   ${whatsappConsentNotice&&html`<p class="agency-research-feedback" role="status">${whatsappConsentNotice}</p>`}
                   ${whatsappConsentBusy&&html`<div class="agency-loading"><${Spinner}/>${t("agency.loading")}</div>`}
@@ -1418,10 +1724,16 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       ${tab==="leads"&&rows.items?.length>0&&leadViewMode==="list"&&html`<div class="agency-lead-list">${rows.items.filter(l=>leadStageFilter==="all"||l.stage===leadStageFilter).map(l=>html`<article class="agency-lead-card"><div class="agency-lead-main"><div><strong>${companyOptions.find(c=>c.id===l.companyId)?.name||l.companyId}</strong><p>${l.notes||l.source||t("agency.noLeadNotes")}</p></div><span class=${"agency-whatsapp-state "+l.stage}>${t(`agency.stage.${l.stage}`)}</span></div>
         <div class="agency-lead-footer"><span>${t("agency.updated")} · ${new Date(l.updatedAt).toLocaleDateString()}</span>
           <div class="agency-commercial-actions">
+            <button class="btn" type="button" onClick=${()=>{setEditingLeadId(id=>id===l.id?"":l.id);setEditLeadDraft({source:l.source||"",notes:l.notes||""});}}>${editingLeadId===l.id?t("agency.cancel"):t("agency.editBtn")}</button>
             <button class="btn" type="button" onClick=${()=>{setSelectedLeadId(l.id);setSelectedConvId("");switchTab("commercial");}}>${t("agency.openCommercial")}</button>
             <label class="agency-stage-select"><span>${t("agency.moveTo")}</span><select class="field" value=${l.stage} disabled=${busy==="stage"||!NEXT[l.stage]?.length} onChange=${e=>moveLead(l.id,e.currentTarget.value)}><option value=${l.stage}>${t(`agency.stage.${l.stage}`)}</option>${(NEXT[l.stage]||[]).map(s=>html`<option value=${s}>${t(`agency.stage.${s}`)}</option>`)}</select></label>
           </div>
         </div>
+        ${editingLeadId===l.id&&html`<form class="agency-form agency-inline-edit" onSubmit=${e=>saveLeadEdit(e,l.id)}>
+          <${Field} label=${t("agency.source")} value=${editLeadDraft.source} onInput=${v=>update(setEditLeadDraft,"source",v)}/>
+          <${Field} label=${t("agency.notes")} value=${editLeadDraft.notes} onInput=${v=>update(setEditLeadDraft,"notes",v)}/>
+          <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.saveLead")}</button></div>
+        </form>`}
       </article>`)}</div>`}
       ${tab==="leads"&&rows.items?.length>0&&leadViewMode==="kanban"&&html`<div class="agency-kanban">
         ${["new","qualified","proposal","won","lost"].map(stage=>{
@@ -1460,15 +1772,30 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.saveCatalogItem")}</button></div>
           </form>`}
           <div class="agency-commercial-list">
-            ${!catalogItems.length&&html`<p class="agency-muted">${t("agency.noCatalogItems")}</p>`}
+            ${!catalogItems.length&&html`<div class="agency-commercial-card"><p class="agency-muted">${t("agency.noCatalogItems")}</p><button class="btn primary" type="button" disabled=${!!busy} onClick=${bootstrapDefaults}>${t("agency.bootstrapBtn")}</button></div>`}
             ${catalogItems.map(item=>html`<article class="agency-commercial-card">
-              <div class="agency-commercial-head"><strong>${item.name} · ${item.code}</strong><span class="agency-whatsapp-state">${t(`agency.solutionType.${item.category}`)}</span></div>
+              <div class="agency-commercial-head"><strong>${item.name} · ${item.code}</strong><span class=${"agency-whatsapp-state "+(item.active?"accepted":"blocked")}>${t(`agency.solutionType.${item.category}`)}${!item.active?` · ${t("agency.inactiveLabel")}`:""}</span></div>
               <p>${item.description}</p>
               <div class="agency-commercial-head">
                 <strong class="agency-price-hero">${fmtNum(item.priceBase)} ${cur}</strong>
                 <small>${fmtNum(item.priceMin)}–${fmtNum(item.priceMax)} ${cur} · ${item.estimatedDays}d</small>
               </div>
-              <div class="agency-commercial-actions"><button class="btn" type="button" onClick=${()=>previewTiers(item.id)}>${t("agency.previewTiers")}</button></div>
+              <div class="agency-commercial-actions">
+                <button class="btn" type="button" onClick=${()=>previewTiers(item.id)}>${t("agency.previewTiers")}</button>
+                <button class="btn" type="button" onClick=${()=>{setEditingCatalogId(id=>id===item.id?"":item.id);setEditCatalogDraft({code:item.code,name:item.name,category:item.category,description:item.description,estimatedDays:String(item.estimatedDays),priceMin:String(item.priceMin),priceBase:String(item.priceBase),priceMax:String(item.priceMax),estimatedCost:String(item.estimatedCost)});}}>${editingCatalogId===item.id?t("agency.cancel"):t("agency.editBtn")}</button>
+                <button class="text" type="button" disabled=${!!busy} onClick=${()=>toggleCatalogActive(item)}>${item.active?t("agency.deactivateBtn"):t("agency.activateBtn")}</button>
+              </div>
+              ${editingCatalogId===item.id&&html`<form class="agency-form agency-form-grid agency-inline-edit" onSubmit=${e=>saveCatalogEdit(e,item.id)}>
+                <${Field} label=${t("agency.catalogName")} value=${editCatalogDraft.name} required onInput=${v=>update(setEditCatalogDraft,"name",v)}/>
+                <label class="agency-field"><span>${t("agency.catalogCategory")}</span><select class="field" value=${editCatalogDraft.category} onChange=${e=>update(setEditCatalogDraft,"category",e.currentTarget.value)}>${SOLUTION_TYPES.map(st=>html`<option value=${st}>${t(`agency.solutionType.${st}`)}</option>`)}</select></label>
+                <${Field} label=${t("agency.catalogDays")} value=${editCatalogDraft.estimatedDays} type="number" required onInput=${v=>update(setEditCatalogDraft,"estimatedDays",v)}/>
+                <${Field} label=${t("agency.catalogPriceMin")} value=${editCatalogDraft.priceMin} type="number" required onInput=${v=>update(setEditCatalogDraft,"priceMin",v)}/>
+                <${Field} label=${t("agency.catalogPriceBase")} value=${editCatalogDraft.priceBase} type="number" required onInput=${v=>update(setEditCatalogDraft,"priceBase",v)}/>
+                <${Field} label=${t("agency.catalogPriceMax")} value=${editCatalogDraft.priceMax} type="number" required onInput=${v=>update(setEditCatalogDraft,"priceMax",v)}/>
+                <${Field} label=${t("agency.catalogCost")} value=${editCatalogDraft.estimatedCost} type="number" required onInput=${v=>update(setEditCatalogDraft,"estimatedCost",v)}/>
+                <label class="agency-field agency-form-wide"><span>${t("agency.catalogDescription")}</span><textarea class="field" rows="2" required value=${editCatalogDraft.description} onInput=${e=>update(setEditCatalogDraft,"description",e.currentTarget.value)}></textarea></label>
+                <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.saveCatalogItem")}</button></div>
+              </form>`}
             </article>`)}
             ${tierPreview.length>0&&html`<div class="agency-tier-grid">
               ${tierPreview.map(tier=>html`<article class="agency-commercial-card">
@@ -1599,7 +1926,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                     <button class="btn" type="button" disabled=${!!busy} onClick=${()=>reviseQuote(q.id)}>${t("agency.reviseQuoteBtn")}</button>
                     <input class="field" type="number" value=${negDiscount} onInput=${e=>setNegDiscount(e.currentTarget.value)} aria-label=${t("agency.negotiateDiscount")}/>
                     <button class="btn" type="button" onClick=${()=>evaluateQuoteNeg(q.id)}>${t("agency.evaluateNegotiation")}</button>
-                    ${q.status==="draft"&&html`<button class="btn" type="button" onClick=${()=>quoteAction(q.id,"request-approval",{reason:"Review quote before sending"})}>${t("agency.requestQuoteApproval")}</button>`}
+                    ${q.status==="draft"&&html`<button class="btn" type="button" onClick=${()=>{setEditingQuoteId(q.id);setQuoteDraft({title:q.title,tier:q.tier,lineLabel:"",linePrice:"2500",lineCost:"1200",lineDays:"10",discountPct:String(q.discountPct||0)});setQuoteLines((q.lines||[]).map(l=>({label:l.label||"",unitPrice:String(l.unitPrice??0),unitCost:String(l.unitCost??0),estimatedDays:String(l.estimatedDays??1)})));setQuoteFormOpen(true);}}>${t("agency.editBtn")}</button><button class="btn" type="button" onClick=${()=>quoteAction(q.id,"request-approval",{reason:"Review quote before sending"})}>${t("agency.requestQuoteApproval")}</button>`}
                     ${q.status==="pending_approval"&&ap?.status==="pending"&&html`<button class="btn primary" type="button" onClick=${()=>approveRecord(ap.id)}>${t("agency.approveAndSend")}</button>`}
                     ${q.status==="pending_approval"&&ap?.status==="approved"&&html`<button class="btn primary" type="button" onClick=${()=>quoteAction(q.id,"send")}>${t("agency.sendQuoteBtn")}</button>`}
                     ${q.status==="sent"&&html`<button class="btn primary" type="button" onClick=${()=>quoteAction(q.id,"decision",{decision:"accepted"})}>${t("agency.acceptQuoteBtn")}</button><button class="text" type="button" onClick=${()=>quoteAction(q.id,"decision",{decision:"rejected"})}>${t("agency.rejectQuoteBtn")}</button>`}
@@ -1630,7 +1957,22 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                     ${c.status==="pending_approval"&&ap?.status==="approved"&&html`<button class="btn primary" type="button" onClick=${()=>contractAction(c.id,"sign")}>${t("agency.signContractBtn")}</button>`}
                     ${c.status==="signed"&&c.depositStatus==="unpaid"&&html`<input class="field" placeholder=${t("agency.depositRef")} value=${depositRefByContract[c.id]||""} onInput=${e=>setDepositRefByContract(p=>({...p,[c.id]:e.currentTarget.value}))}/><button class="btn primary" type="button" disabled=${!(depositRefByContract[c.id]||"").trim()} onClick=${()=>contractAction(c.id,"deposit",{status:"paid",reference:depositRefByContract[c.id]})}>${t("agency.recordDepositBtn")}</button>`}
                     ${c.status==="signed"&&(c.depositAmount===0||c.depositStatus==="paid")&&html`<button class="btn primary" type="button" onClick=${()=>{setProjectDraft(cur=>({...cur,contractId:c.id,title:c.title}));setProjectFormOpen(true);switchTab("projects");}}>${t("agency.launchProject")}</button>`}
+                    ${!invoices.some(inv=>inv.contractId===c.id&&inv.status!=="cancelled")&&html`<button class="btn" type="button" disabled=${!!busy} onClick=${()=>generateContractMilestones(c.id)}>${t("agency.generateMilestonesBtn")}</button>`}
                   </div>
+                  ${invoices.filter(inv=>inv.contractId===c.id).length>0&&html`<div class="agency-milestones">
+                    <strong>${t("agency.milestonesTitle")}</strong>
+                    ${invoices.filter(inv=>inv.contractId===c.id).map(inv=>html`<div class="agency-milestone-row">
+                      <span><strong>${inv.invoiceNumber}</strong> · ${inv.milestoneLabel} (${inv.percentage}%) — ${fmtNum(inv.amount)} ${inv.currency}</span>
+                      <div class="agency-commercial-actions">
+                        <span class=${"agency-whatsapp-state "+inv.status}>${t(`agency.invoiceStatus.${inv.status}`)}</span>
+                        <a class="btn" target="_blank" rel="noopener noreferrer" href=${`/amb/api/agency/${enc(orgId)}/invoices/${enc(inv.id)}/document`}>${t("agency.previewInvoiceBtn")}</a>
+                        ${inv.status!=="paid"&&inv.status!=="cancelled"&&html`
+                          <input class="field" placeholder=${t("agency.depositRef")} value=${invoiceRefById[inv.id]||""} onInput=${e=>setInvoiceRefById(p=>({...p,[inv.id]:e.currentTarget.value}))}/>
+                          <button class="btn primary" type="button" disabled=${!!busy} onClick=${()=>updateInvoiceStatus(inv.id,"paid",invoiceRefById[inv.id]||"VIREMENT")}>${t("agency.markInvoicePaidBtn")}</button>
+                        `}
+                      </div>
+                    </div>`)}
+                  </div>`}
                 </article>`;
               })}
             </div>
@@ -1703,6 +2045,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                 ${lot.evidenceSummary&&html`<small>${lot.evidenceSummary}</small>`}
                 <div class="agency-commercial-actions">
                   <input class="field" placeholder=${t("agency.lotVerifyEvidence")} value=${lotEvidenceById[lot.id]||""} onInput=${e=>setLotEvidenceById(p=>({...p,[lot.id]:e.currentTarget.value}))}/>
+                  ${lot.status!=="verified"&&lot.status!=="done"&&html`<button class="btn" type="button" disabled=${!!busy} onClick=${()=>runLotPipeline(lot.id)}>${busy==="lot-pipeline"?t("agency.runningPipeline"):t("agency.runLotPipelineBtn")}</button>`}
                   ${lot.status==="pending"&&html`<button class="btn" type="button" onClick=${()=>updateLotStatus(lot.id,"in_progress")}>${t("agency.markLotInProgress")}</button>`}
                   ${lot.status!=="verified"&&lot.status!=="done"&&html`<button class="btn primary" type="button" disabled=${!(lotEvidenceById[lot.id]||lot.evidenceSummary).trim()} onClick=${()=>updateLotStatus(lot.id,"verified")}>${t("agency.markLotVerified")}</button>`}
                   <button class="text" type="button" onClick=${()=>generateBrief(lot.id)}>${t("agency.generateBriefBtn")}</button>
@@ -1742,6 +2085,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               <h3>${t("agency.qaGateTitle")}</h3>
               <div class="agency-commercial-actions">
                 <button class="btn primary" type="button" disabled=${!!busy} onClick=${()=>runFourAxisQa(selectedProject.id)}>${t("agency.qaAuditAllBtn")}</button>
+                ${(qaChecks.some(c=>c.status==="failed"||c.status==="blocked")||(qaGate&&!qaGate.readyForDelivery))&&html`<button class="btn" type="button" disabled=${!!busy} onClick=${()=>qaAutofixProject(selectedProject.id)}>${busy==="qa-autofix"?t("agency.qaAutofixRunning"):t("agency.qaAutofixBtn")}</button>`}
                 <button class="btn" type="button" onClick=${()=>setQaFormOpen(v=>!v)}><${Icon} name=${qaFormOpen?"close":"plus"} size="sm"/>${qaFormOpen?t("agency.cancel"):t("agency.recordQaCheckBtn")}</button>
               </div>
             </div>
@@ -1841,6 +2185,10 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             <span class="agency-quick-icon tone-purple"><${Icon} name="spark" size="sm"/></span>
             <strong>${t("agency.copilot")}</strong>
           </button>
+        </div>
+        <div class="agency-commercial-actions">
+          <button class="btn" type="button" disabled=${!!busy} onClick=${bootstrapDefaults}>${busy==="bootstrap"?t("agency.loading"):t("agency.bootstrapBtn")}</button>
+          ${bootstrapNotice&&html`<span class="agency-research-feedback" role="status">${bootstrapNotice}</span>`}
         </div>
         ${metrics&&html`<div class="agency-kpi-grid">
           <${Metric} label=${t("agency.kpiSignedRevenue")} value=${`${fmtNum(metrics.signedRevenue)} ${cur}`.trim()} icon="banknotes" tone="green"/>

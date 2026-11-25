@@ -22,7 +22,7 @@ import type {
   CreateCatalogItemInput, CreateCompanyInput, CreateContactInput, CreateContractInput,
   CreateConversationInput, CreateLeadInput, CreateMissionInput, CreateOrganizationInput,
   CreateProjectInput, CreateProjectLotInput, CreateQuoteInput, DepositStatus, DetectedDevTool,
-  EmailOutboxMessage, Evidence, FollowUpStatus, FollowUpType, Lead, LeadSearchFilters, LeadStage, MessageDirection,
+  EmailOutboxMessage, Evidence, FollowUpStatus, FollowUpType, Invoice, InvoiceMilestoneInput, InvoiceStatus, Lead, LeadSearchFilters, LeadStage, MessageDirection,
   NeedsQualification, NegotiationEvaluation, Organization, Page, PrepareDeliveryInput,
   Project, ProjectDelivery, ProjectLot, ProjectLotStatus, ProjectStatus,
   ProposeScopeChangeInput, QaCategory, QaCheck, QaCheckStatus, QaGateEvaluation, QueueEmailInput, Quote,
@@ -1864,6 +1864,133 @@ export class AgencyService {
       const updated=this.store.updateContractDeposit(organizationId,contract.id,status,cleanRef,this.now())!;
       this.audit(organizationId,actorId,"contract.deposit_updated","contract",contract.id,{
         depositStatus:updated.depositStatus,depositReference:updated.depositReference,depositAmount:updated.depositAmount,
+      });
+      return updated;
+    });
+  }
+
+  listInvoices(organizationId: string, actorId: string, contractId?: string): Invoice[] {
+    this.requireMember(organizationId, actorId, ["owner", "admin", "member", "client", "auditor"]);
+    return this.store.listInvoices(organizationId, contractId ? requiredText(contractId, "contractId", 100) : undefined);
+  }
+
+  getInvoice(organizationId: string, actorId: string, invoiceId: string): Invoice {
+    this.requireMember(organizationId, actorId, ["owner", "admin", "member", "client", "auditor"]);
+    const inv = this.store.getInvoice(organizationId, requiredText(invoiceId, "invoiceId", 100));
+    if (!inv) throw new AgencyError("NOT_FOUND", "Invoice not found");
+    return inv;
+  }
+
+  generateContractMilestones(
+    organizationId: string,
+    actorId: string,
+    contractId: string,
+    schedule?: InvoiceMilestoneInput[],
+  ): Invoice[] {
+    this.requireMember(organizationId, actorId, ["owner", "admin"]);
+    const contract = this.store.getContract(organizationId, requiredText(contractId, "contractId", 100));
+    if (!contract) throw new AgencyError("NOT_FOUND", "Contract not found");
+    if (contract.status === "cancelled") {
+      throw new AgencyError("CONFLICT", "Cannot generate billing milestones for a cancelled contract");
+    }
+    const existing = this.store.listInvoices(organizationId, contract.id).filter((i) => i.status !== "cancelled");
+    if (existing.length > 0) {
+      throw new AgencyError("CONFLICT", "Billing milestones already exist for this contract");
+    }
+    const plan: InvoiceMilestoneInput[] = schedule && schedule.length > 0
+      ? schedule
+      : [
+        { label: "Acompte signature (40%)", percentage: 40, dueInDays: 0 },
+        { label: "Recette intermédiaire (40%)", percentage: 40, dueInDays: 15 },
+        { label: "Solde livraison finale (20%)", percentage: 20, dueInDays: 30 },
+      ];
+    if (plan.length > 10) {
+      throw new AgencyError("VALIDATION_ERROR", "Maximum 10 billing milestones allowed");
+    }
+    const pctSum = plan.reduce((acc, m) => acc + Number(m.percentage || 0), 0);
+    if (Math.abs(pctSum - 100) > 0.05) {
+      throw new AgencyError("VALIDATION_ERROR", "Milestone percentages must sum to 100%");
+    }
+    const now = this.now();
+    const year = new Date(now).getUTCFullYear();
+    return this.store.transaction(() => {
+      let seq = this.store.nextInvoiceSequence(organizationId, year);
+      let allocated = 0;
+      const created: Invoice[] = [];
+      for (let i = 0; i < plan.length; i++) {
+        const step = plan[i];
+        const label = requiredText(step.label, "milestone.label", 160);
+        const pct = nonNegativeNumber(Number(step.percentage), "milestone.percentage");
+        if (pct <= 0 || pct > 100) {
+          throw new AgencyError("VALIDATION_ERROR", "Each milestone percentage must be between 1 and 100");
+        }
+        const isLast = i === plan.length - 1;
+        const amount = isLast
+          ? Math.max(0, Math.round((contract.totalAmount - allocated + Number.EPSILON) * 100) / 100)
+          : Math.round((contract.totalAmount * (pct / 100) + Number.EPSILON) * 100) / 100;
+        allocated += amount;
+        const dueDays = Math.max(0, Math.round(Number(step.dueInDays ?? i * 15)));
+        const inv: Invoice = {
+          id: this.id(),
+          organizationId,
+          contractId: contract.id,
+          invoiceNumber: `FAC-${year}-${String(seq++).padStart(3, "0")}`,
+          milestoneLabel: label,
+          percentage: pct,
+          amount,
+          currency: contract.currency,
+          status: "issued",
+          dueDate: now + dueDays * 86_400_000,
+          paidAt: 0,
+          paymentReference: "",
+          createdAt: now,
+          updatedAt: now,
+        };
+        this.store.insertInvoice(inv);
+        this.audit(organizationId, actorId, "invoice.created", "invoice", inv.id, {
+          contractId: contract.id,
+          invoiceNumber: inv.invoiceNumber,
+          percentage: inv.percentage,
+          amount: inv.amount,
+        });
+        created.push(inv);
+      }
+      return created;
+    });
+  }
+
+  updateInvoiceStatus(
+    organizationId: string,
+    actorId: string,
+    invoiceId: string,
+    status: InvoiceStatus,
+    paymentReference = "",
+  ): Invoice {
+    this.requireMember(organizationId, actorId, ["owner", "admin"]);
+    const inv = this.store.getInvoice(organizationId, requiredText(invoiceId, "invoiceId", 100));
+    if (!inv) throw new AgencyError("NOT_FOUND", "Invoice not found");
+    const allowed: InvoiceStatus[] = ["draft", "issued", "paid", "cancelled"];
+    if (!allowed.includes(status)) {
+      throw new AgencyError("VALIDATION_ERROR", "Invalid invoice status");
+    }
+    if (inv.status === "cancelled" && status !== "cancelled") {
+      throw new AgencyError("CONFLICT", "Cancelled invoices cannot be reopened");
+    }
+    const cleanRef = status === "paid"
+      ? requiredText(paymentReference || inv.paymentReference || "VIREMENT", "paymentReference", 200)
+      : optionalText(paymentReference, "paymentReference", 200);
+    const now = this.now();
+    return this.store.transaction(() => {
+      const updated = this.store.updateInvoice(organizationId, inv.id, {
+        status,
+        paidAt: status === "paid" ? (inv.paidAt || now) : 0,
+        paymentReference: cleanRef,
+        updatedAt: now,
+      })!;
+      this.audit(organizationId, actorId, "invoice.status_updated", "invoice", inv.id, {
+        invoiceNumber: inv.invoiceNumber,
+        status: updated.status,
+        paymentReference: updated.paymentReference,
       });
       return updated;
     });

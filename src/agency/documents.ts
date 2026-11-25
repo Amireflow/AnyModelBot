@@ -1,4 +1,4 @@
-import type { Company, Contract, Organization, Project, ProjectDelivery, ProjectLot, QaCheck, Quote } from "./types.js";
+import type { Company, Contract, Invoice, Organization, Project, ProjectDelivery, ProjectLot, QaCheck, Quote } from "./types.js";
 
 export function escapeHtml(value: unknown): string {
   return String(value ?? "")
@@ -430,4 +430,77 @@ export function renderDeliveryReportHtml(input: {
   `;
 
   return baseDocumentShell(`${en ? "Delivery Report" : "Rapport de livraison"} — ${project.title}`, bannerHtml, bodyHtml, lang);
+}
+
+export function renderInvoiceDocumentHtml(input: {
+  organization: Organization;
+  company?: Company;
+  contract: Contract;
+  invoice: Invoice;
+  lang?: string;
+}): string {
+  const { organization, company, contract, invoice, lang = "fr" } = input;
+  const en = lang.startsWith("en");
+  const isPaid = invoice.status === "paid";
+  const statusLabels: Record<Invoice["status"], string> = en
+    ? { draft: "DRAFT INVOICE", issued: "INVOICE ISSUED — PAYMENT DUE", paid: "INVOICE PAID", cancelled: "CANCELLED" }
+    : { draft: "BROUILLON DE FACTURE", issued: "FACTURE ÉMISE — À RÉGLER", paid: "FACTURE ACQUITTÉE", cancelled: "FACTURE ANNULÉE" };
+  const bannerHtml = `<div class="banner${isPaid ? " signed" : ""}">${escapeHtml(statusLabels[invoice.status] || invoice.status.toUpperCase())}</div>`;
+
+  const bodyHtml = `
+    <header>
+      <div>
+        <h1>${en ? "Invoice" : "Facture"} ${escapeHtml(invoice.invoiceNumber)}</h1>
+        <p>${escapeHtml(contract.title)} · <code>${escapeHtml(contract.id)}</code></p>
+      </div>
+      <div style="text-align:right">
+        <strong>${escapeHtml(organization.name)}</strong>
+        <p>${escapeHtml(organization.countryCode)} · ${escapeHtml(invoice.currency)}</p>
+        <p>${en ? "Issued" : "Émise le"} : ${escapeHtml(formatDate(invoice.createdAt, lang))}</p>
+        <p>${en ? "Due date" : "Échéance"} : ${escapeHtml(formatDate(invoice.dueDate, lang))}</p>
+      </div>
+    </header>
+    <section class="meta-grid">
+      <div class="card">
+        <strong>${en ? "Billed by" : "Émetteur"}</strong>
+        <small>${escapeHtml(organization.name)}</small>
+        <small>${escapeHtml(organization.countryCode || "SN")}</small>
+      </div>
+      <div class="card">
+        <strong>${en ? "Bill to" : "Client facturé"}</strong>
+        <small>${escapeHtml(company?.name || contract.leadId)}</small>
+        ${company ? `<small>${escapeHtml([company.industry, company.city, company.website].filter(Boolean).join(" · ") || "—")}</small>` : ""}
+      </div>
+    </section>
+    <h2>${en ? "Milestone Billing Details" : "Détail de l'échéance"}</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>${en ? "Milestone" : "Jalon de facturation"}</th>
+          <th class="num">${en ? "Share" : "Part"}</th>
+          <th class="num">${en ? "Contract Total" : "Total contrat"}</th>
+          <th class="num">${en ? "Amount Due" : "Montant facturé"}</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>${escapeHtml(invoice.milestoneLabel)}</strong></td>
+          <td class="num">${escapeHtml(invoice.percentage)} %</td>
+          <td class="num">${formatMoney(contract.totalAmount, invoice.currency)}</td>
+          <td class="num">${formatMoney(invoice.amount, invoice.currency)}</td>
+        </tr>
+      </tbody>
+    </table>
+    <section class="totals">
+      <div class="totals-row grand"><span>${en ? "Total Due" : "Net à payer"}</span><span>${formatMoney(invoice.amount, invoice.currency)}</span></div>
+      ${isPaid ? `<div class="totals-row"><span>${en ? "Paid on" : "Payée le"}</span><span>${escapeHtml(formatDate(invoice.paidAt, lang))}</span></div>` : ""}
+      ${invoice.paymentReference ? `<div class="totals-row"><span>${en ? "Reference" : "Référence"}</span><span>${escapeHtml(invoice.paymentReference)}</span></div>` : ""}
+    </section>
+    <footer>
+      <span>${escapeHtml(organization.name)} · ${escapeHtml(invoice.invoiceNumber)}</span>
+      <span>${escapeHtml(contract.paymentTerms || (en ? "Payable upon receipt" : "Payable à réception"))}</span>
+    </footer>
+  `;
+
+  return baseDocumentShell(`${invoice.invoiceNumber} — ${invoice.milestoneLabel}`, bannerHtml, bodyHtml, lang);
 }
