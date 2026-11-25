@@ -1,3 +1,4 @@
+import fr from "./channels.fr";
 import ja from "./channels.ja";
 import ko from "./channels.ko";
 import ru from "./channels.ru";
@@ -30,8 +31,8 @@ export interface Channel {
   guide: { title: string; steps: string[]; limit?: string; qr?: string };
 }
 
-export const CHANNELS: Record<Lang, Channel[]> = {
-  ja, ko, ru, es, pt, tr,
+export const CHANNELS: Record<Lang | "fr", Channel[]> = {
+  fr, ja, ko, ru, es, pt, tr,
   zh: [
     {
       id: "wechat", icon: "chat", title: "微信", body: "扫码接入，在微信里直接聊，图片和文件也能发。", format: "渠道（iLink 扫码登录）",

@@ -42,6 +42,7 @@ export interface Announcement {
   es: BannerCopy;
   pt: BannerCopy;
   tr: BannerCopy;
+  fr?: BannerCopy;
 }
 
 /** 发版提示：版本号和下载地址取自 releases.json；按钮按访客的系统直接下载对应安装包（识别不出时去 /download）。 */
@@ -200,6 +201,7 @@ export const ANNOUNCEMENTS: Announcement[] = [
     es: { tag: "App gratis", text: "Una sola clave para {modelCount} modelos", cta: { label: "Precios", href: "/pricing" } },
     pt: { tag: "App grátis", text: "Uma só chave para {modelCount} modelos", cta: { label: "Preços", href: "/pricing" } },
     tr: { tag: "Ücretsiz uygulama", text: "{modelCount} model için tek anahtar", cta: { label: "Fiyatlar", href: "/pricing" } },
+    fr: { tag: "App gratuite", text: "Une clé pour {modelCount} modèles", cta: { label: "Tarifs", href: "/pricing" } },
   },
   // 社群开通（链接在 data/community.ts）：中文站主按钮去 QQ 群，其他语言去 Discord；次要链接都是 Telegram。只挂一个月
   {
@@ -215,6 +217,7 @@ export const ANNOUNCEMENTS: Announcement[] = [
     es: { tag: "Comunidad", text: "Charla con nosotros en Discord o Telegram", cta: { label: "Unirme a Discord", href: COMMUNITY.discord.url }, link: { label: "Telegram", href: COMMUNITY.telegram.url } },
     pt: { tag: "Comunidade", text: "Converse com a gente no Discord ou no Telegram", cta: { label: "Entrar no Discord", href: COMMUNITY.discord.url }, link: { label: "Telegram", href: COMMUNITY.telegram.url } },
     tr: { tag: "Topluluk", text: "Discord veya Telegram'da bizimle sohbet et", cta: { label: "Discord'a katıl", href: COMMUNITY.discord.url }, link: { label: "Telegram", href: COMMUNITY.telegram.url } },
+    fr: { tag: "Communauté", text: "Discutez avec nous sur Discord ou Telegram", cta: { label: "Rejoindre Discord", href: COMMUNITY.discord.url }, link: { label: "Telegram", href: COMMUNITY.telegram.url } },
   },
   // 公告示例（维护通知）：到点自动出现、过期自动消失，复制后改 id、时间和文案即可
   // {

@@ -343,3 +343,35 @@ Le Lot 4 reste ouvert jusqu'à l'exposition HTTPS réelle, la revue visuelle des
 - Le backend revalide l'approbation, son expiration, le hash, le consentement et le numéro avant chaque envoi. Un état ambigu ne propose pas de retry automatique.
 
 **Validation :** test HTTP ajouté pour la lecture des approbations et l'isolation entre organisations. Les tests, le typecheck et le build n'ont pas été exécutés.
+
+
+---
+
+## État global consolidé sur `master` (26 novembre 2026)
+
+### Ce qui est implémenté et vérifié
+
+1. **Architecture & Cœur d'agence (`Lot 0` – `Lot 3`, `Lot 5`, `Lot 7` – `Lot 11`)** :
+   - Données SQLite locales (`src/store/agency.ts`), domaine pur et machines à états dans `src/agency/service.ts` et `src/agency/orchestrator.ts`.
+   - **Prospection Web profonde + LLM** (`src/agency/prospecting.ts`) : requêtes multiples (Exa MCP, Bing, DuckDuckGo, Tavily), lecture de pages web, extraction structurée et qualification ICP avec LLM + fallback déterministe (`test/prospecting-deep-search.unit.test.ts` + test réel avec `GLM-5.3` et Exa MCP).
+   - **Chaîne commerciale** : CRM entreprises & contacts, consentements horodatés, boîte d'envoi e-mail (`src/agency/email-outbox.ts`), qualification des besoins, catalogue de services, chiffrage, devis PDF/HTML, négociation bornée et jalons contractuels.
+   - **Suivi de projets locaux & Pont IDE** (`src/agency/project-tracker.ts`, `src/agency/ide-bridge.ts`) : suivi des dépôts Git/fichiers sur la machine et dispatch vers VS Code, Cursor, Windsurf, Antigravity, Claude Code et Codex CLI (le Studio in-app redondant a été retiré).
+2. **Pont WhatsApp Desktop local (remplacement complet de Meta WhatsApp Cloud API)** :
+   - Suppression complète de l'intégration Meta Cloud API (`whatsapp-cloud.ts`, `whatsapp-webhook.ts`, `whatsapp-secrets.ts`), remplacée par `src/agency/whatsapp-desktop.ts` + coffre générique `src/agency/secret-box.ts`.
+   - Détection locale de l'application WhatsApp Desktop Windows/macOS/Linux, normalisation E.164, ouverture via URI `whatsapp://send?phone=...&text=...` après contrôle du consentement CRM, et journalisation des conversations/audits dans SQLite (`test/whatsapp-desktop.unit.test.ts`).
+3. **QA Visuelle E2E, Adaptateurs de déploiement et Exploitation (`Lot 10` – `Lot 12`)** :
+   - **QA Visuelle Headless E2E** (`src/agency/qa-e2e.ts`) : audit DOM + captures Chrome/Edge headless desktop et mobile sauvegardées sur disque (`test/qa-e2e-deployer-ops.unit.test.ts`).
+   - **Déploiement & Health Checks** (`src/agency/deployer.ts`) : adaptateurs Docker Compose, SSH/systemd, Netlify, Vercel, vérifications HTTP `/health` et journaux de déploiement.
+   - **Outils d'exploitation** (`src/agency/ops-tools.ts`) : sauvegardes SQLite avec liste de restauration, export CSV protégé contre l'injection de formules, et registre d'usage/coûts LLM.
+4. **Modularisation UI & API** :
+   - Sous-routeur dédié `src/web/routes/agency-ops.ts` extrait de `src/web/routes/agency.ts`.
+   - Écran `ui/screens/agency/operations.js` extrait de `ui/screens/agency.js` et navigation latérale groupée dans `ui/screens/sidebar.js` (conforme au design system exclusif `test/design-system.unit.test.ts`).
+5. **Localisation française complète (`fr: ready`)** :
+   - Dictionnaires UI (`ui/locales/fr/`) et serveur (`src/i18n/locales/fr/`), catalogues `site/src/data/channels.fr.ts` & `announcements.ts`, ainsi que les documents `*_fr.md` vérifiés par `npm run i18n:check`.
+
+### Limites connues et éléments hors périmètre / futurs
+
+- **Multi-utilisateurs SaaS / PostgreSQL distant** : le serveur fonctionne aujourd'hui en mononœud local-first sur `127.0.0.1` avec SQLite (`node:sqlite`) ; l'authentification multi-locataires distante et PostgreSQL restent futurs.
+- **Webhooks de paiement et signature électronique tiers (Stripe / DocuSign / PandaDoc)** : les devis, jalons et factures suivent leur machine d'états locale sans passerelle de paiement ou e-signature cloud connectée par défaut.
+- **Bundle DSH (`electron`) / tests de liens symboliques Windows** : FlowAuto et PIO restent strictement hors périmètre (`AGENTS.md`) ; sur Windows sans privilèges administrateur, 2 tests préexistants liés aux symlinks dans `test/agency-company-research-import.unit.test.ts` retournent `EPERM`.
+
