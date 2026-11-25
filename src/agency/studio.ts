@@ -1254,6 +1254,7 @@ export async function runStudioAiAgent(input: {
   onStep?: (step: StudioAgentStep) => void;
 }): Promise<{
   summary: string;
+  ok: boolean;
   modifiedFiles: string[];
   steps: StudioAgentStep[];
   model: string;
@@ -1391,8 +1392,12 @@ export async function runStudioAiAgent(input: {
   if (!finalSummary) {
     finalSummary = `Agent exécuté (${steps.length} étape(s), ${modified.size} fichier(s) modifié(s)).`;
   }
+  const criticalTools = new Set(["write_file", "patch_file", "delete_file", "add_dependency", "run_check"]);
+  const criticalFailure = steps.some((step) => !step.ok && criticalTools.has(step.tool));
+  const explicitlyFinished = steps.some((step) => step.tool === "finish" && step.ok);
   return {
     summary: finalSummary,
+    ok: explicitlyFinished && !criticalFailure,
     modifiedFiles: [...modified],
     steps,
     model,

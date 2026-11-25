@@ -775,4 +775,13 @@ export default {
   },
   "studioNewProjectTitle": "New Studio Project",
   "studioNewChatOption": "+ New project (start a chat)"
+  "studioTabChanges": "Изменения",
+  "studioChangesTitle": "Изменённые файлы",
+  "studioNoChanges": "Здесь появятся файлы, изменённые генерацией или вручную.",
+  "studioFileRemoved": "Удалён",
+  "studioPreviewLaunchConfirm": "Запуск предпросмотра может установить зависимости и выполнить скрипты проекта. Продолжайте, только если доверяете этой рабочей области.",
+  "studioPreviewRestartBtn": "Перезапустить предпросмотр",
+  "studioPreviewRestartHint": "Зависимости изменились. Перезапустите предпросмотр, чтобы применить обновление.",
+  "studioPreviewReadyHint": "Код готов. Запустите предпросмотр, когда захотите выполнить проект.",
+  "studioUnsavedSwitchConfirm": "В этом файле есть несохранённые изменения. Отменить их?",
 };

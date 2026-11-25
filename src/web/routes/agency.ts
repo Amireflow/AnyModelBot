@@ -117,21 +117,8 @@ function resolveStudioRuntimeSafe(
   role: AgencyAgentRole,
   fallbackModel?: string,
 ) {
-  try {
-    return resolveAgentRuntime(service, organizationId, actor, role, fallbackModel);
-  } catch {
-    const configured = service.getConfiguredAgent(organizationId, actor, role);
-    const skillsPrompt = resolveSkillsPromptBlock(configured.config.skills);
-    const combinedInstructions = [configured.config.systemPrompt.trim(), skillsPrompt].filter(Boolean).join("\n\n");
-    return {
-      model: configured.config.model || fallbackModel,
-      maxSteps: configured.config.maxSteps,
-      agentInstructions: combinedInstructions,
-      agentRules: configured.config.rules,
-      skills: configured.config.skills,
-      displayName: configured.config.displayName,
-    };
-  }
+  // A disabled profile must be rejected by every Studio execution path.
+  return resolveAgentRuntime(service, organizationId, actor, role, fallbackModel);
 }
 function sendHtmlDocument(
   res: Parameters<Route>[1],
@@ -1312,14 +1299,15 @@ export function agencyRoutes(ctx: WebContext): Route {
             if (seg.length===6 && seg[5]==="state" && method==="GET") {
               const st=await loadStudioState(dataDir,projectId);
               const subagents=STUDIO_SUBAGENTS.map((spec) => {
-                const rt=resolveStudioRuntimeSafe(service,organizationId,actor,spec.agencyRole,ctx.app?.config?.llm?.defaultModel);
+                const configured=service.getConfiguredAgent(organizationId,actor,spec.agencyRole).config;
                 return {
                   id:spec.id,
                   agencyRole:spec.agencyRole,
                   focus:spec.focus,
-                  displayName:rt.displayName,
-                  skills:rt.skills,
-                  model:rt.model || "",
+                  displayName:configured.displayName,
+                  skills:configured.skills,
+                  model:configured.model || ctx.app?.config?.llm?.defaultModel || "",
+                  enabled:configured.enabled,
                 };
               });
               return send(res,200,{ messages:st.messages, plan:st.plan, subagents });

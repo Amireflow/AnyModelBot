@@ -119,6 +119,7 @@ export function ProjectStudio({
   const [newFileOpen, setNewFileOpen] = useState(false);
   const [newFilePath, setNewFilePath] = useState("");
   const [snapshots, setSnapshots] = useState([]);
+  const [changedFiles, setChangedFiles] = useState([]);
 
   // Conversational workbench state
   const [mode, setMode] = useState("build");
@@ -167,8 +168,9 @@ export function ProjectStudio({
     resizeComposer();
   }, [input]);
 
-  const openFile = async (relPath, pid = project?.id) => {
+  const openFile = async (relPath, pid = project?.id, force = false) => {
     if (!relPath || !pid) return;
+    if (!force && relPath !== selectedPath && isDirty && !window.confirm(t("agency.studioUnsavedSwitchConfirm"))) return;
     setSelectedPath(relPath);
     setOpenTabs((prev) => (prev.includes(relPath) ? prev : [...prev.slice(-7), relPath]));
     try {
@@ -183,11 +185,12 @@ export function ProjectStudio({
 
   const closeTab = (relPath, e) => {
     e?.stopPropagation();
+    if (selectedPath === relPath && isDirty && !window.confirm(t("agency.studioUnsavedSwitchConfirm"))) return;
     const nextTabs = openTabs.filter((p) => p !== relPath);
     setOpenTabs(nextTabs);
     if (selectedPath === relPath) {
       const fallback = nextTabs[nextTabs.length - 1] || "";
-      if (fallback) void openFile(fallback);
+      if (fallback) void openFile(fallback, project?.id, true);
       else {
         setSelectedPath("");
         setContent("");
@@ -222,8 +225,8 @@ export function ProjectStudio({
       setFiles(list);
       const validPaths = new Set(list.map((f) => f.path));
       setOpenTabs((prev) => prev.filter((p) => validPaths.has(p)));
-      const next = preferPath || (validPaths.has(selectedPath) ? selectedPath : (list[0]?.path || ""));
-      if (next) await openFile(next, pid);
+      const next = (preferPath && validPaths.has(preferPath)) ? preferPath : (validPaths.has(selectedPath) ? selectedPath : (list[0]?.path || ""));
+      if (next) await openFile(next, pid, true);
       else { setSelectedPath(""); setContent(""); setSavedContent(""); }
       void loadSnapshots(pid);
     } catch (err) {
@@ -239,8 +242,11 @@ export function ProjectStudio({
     }
     try {
       const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/state`);
-      setMessages(Array.isArray(res.messages) ? res.messages : []);
+      const history = Array.isArray(res.messages) ? res.messages : [];
+      setMessages(history);
       setPlan(res.plan || null);
+      const latestBuild = [...history].reverse().find((message) => message?.role === "assistant" && Array.isArray(message.modifiedFiles));
+      setChangedFiles(latestBuild?.modifiedFiles || []);
     } catch {
       setMessages([]);
       setPlan(null);
@@ -264,6 +270,7 @@ export function ProjectStudio({
 
   const startDevServer = async (pid = project?.id, { restart = false } = {}) => {
     if (!orgId || !pid || devServerBusy) return null;
+    if (!window.confirm(t("agency.studioPreviewLaunchConfirm"))) return null;
     setDevServerBusy(true); setError(""); setNotice("");
     try {
       const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/devserver/start`, {
@@ -317,6 +324,7 @@ export function ProjectStudio({
       setSnapshots([]);
       setMessages([]);
       setPlan(null);
+      setChangedFiles([]);
       setDevServer(null);
       setWorkspaceTab("preview");
       return;
@@ -460,17 +468,16 @@ export function ProjectStudio({
       }
 
       const modified = Array.isArray(finalPayload?.modifiedFiles) ? finalPayload.modifiedFiles : [];
+      setChangedFiles(modified);
       await loadFiles(modified[0] || "", activeProjectId);
       const ds = await loadDevServer(activeProjectId);
       if (modified.length > 0 || runMode === "build") {
         setWorkspaceTab("preview");
         setPreviewNonce((n) => n + 1);
-        if (ds?.hasDevScript) {
-          if (!ds.running) {
-            await startDevServer(activeProjectId, { restart: false });
-          } else if (modified.includes("package.json")) {
-            await startDevServer(activeProjectId, { restart: true });
-          }
+        if (modified.includes("package.json") && ds?.running) {
+          setNotice(t("agency.studioPreviewRestartHint"));
+        } else if (ds?.hasDevScript && !ds.running) {
+          setNotice(t("agency.studioPreviewReadyHint"));
         }
       }
       onChanged?.();
@@ -489,6 +496,7 @@ export function ProjectStudio({
       await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/history`, { method: "DELETE" });
       setMessages([]);
       setPlan(null);
+      setChangedFiles([]);
       setLiveSteps([]);
     } catch (err) {
       setError(err.message);
@@ -520,6 +528,7 @@ export function ProjectStudio({
         body: { path: selectedPath, content },
       });
       setSavedContent(content);
+      setChangedFiles((prev) => [...new Set([...prev, selectedPath])]);
       setPreviewNonce((n) => n + 1);
       setNotice(`${selectedPath} ✓`);
       await loadFiles(selectedPath);
@@ -544,6 +553,7 @@ export function ProjectStudio({
     setBusy("del"); setError("");
     try {
       await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/file?path=${enc(selectedPath)}`, { method: "DELETE" });
+      setChangedFiles((prev) => [...new Set([...prev, selectedPath])]);
       setPreviewNonce((n) => n + 1);
       await loadFiles();
     } catch (err) { setError(err.message); } finally { setBusy(""); }
@@ -643,7 +653,7 @@ export function ProjectStudio({
 
   const renderPlanCard = (pl, compact = false) => {
     if (!pl) return null;
-    const canApprove = pl.status !== "running" && pl.tasks?.length > 0;
+    const canApprove = pl.status === "draft" && pl.tasks?.length > 0;
     return html`<div class="agency-studio-plan-card">
       <div class="agency-studio-plan-head">
         <div>
@@ -677,6 +687,11 @@ export function ProjectStudio({
     </div>`;
   };
 
+  const selectProjectSafely = (nextId) => {
+    if (isDirty && !window.confirm(t("agency.studioUnsavedSwitchConfirm"))) return;
+    onSelectProject?.(nextId);
+  };
+
   const canSend = !busy && (input.trim().length > 0 || attachments.length > 0);
 
   return html`<section class="agency-studio-workbench">
@@ -692,7 +707,7 @@ export function ProjectStudio({
             class="field agency-studio-project-select"
             aria-label=${t("agency.projectsTitle")}
             value=${selectedProjectId}
-            onChange=${(e) => onSelectProject?.(e.currentTarget.value)}
+            onChange=${(e) => selectProjectSafely(e.currentTarget.value)}
           >
             <option value="__new__">${t("agency.studioNewChatOption")}</option>
             ${projects.map((p) => html`<option value=${p.id}>${p.title}</option>`)}
@@ -717,7 +732,7 @@ export function ProjectStudio({
             type="button"
             title=${t("agency.newStudioProjectBtn")}
             aria-label=${t("agency.newStudioProjectBtn")}
-            onClick=${() => onSelectProject?.("__new__")}
+            onClick=${() => selectProjectSafely("__new__")}
           >
             <${Icon} name="plus" size="sm" />
           </button>
@@ -950,6 +965,10 @@ export function ProjectStudio({
           <button type="button" role="tab" aria-selected=${workspaceTab === "code"} class=${workspaceTab === "code" ? "active" : ""} onClick=${() => setWorkspaceTab("code")}>
             <${Icon} name="code" size="sm" /><span>${t("agency.studioTabCode")}</span>
           </button>
+          <button type="button" role="tab" aria-selected=${workspaceTab === "changes"} class=${workspaceTab === "changes" ? "active" : ""} onClick=${() => setWorkspaceTab("changes")}>
+            <${Icon} name="file" size="sm" /><span>${t("agency.studioTabChanges")}</span>
+            ${changedFiles.length > 0 && html`<span class="agency-count-pill">${changedFiles.length}</span>`}
+          </button>
         </div>
 
         ${workspaceTab === "preview" && (hasIndex || devServer?.hasDevScript) && html`<div class="agency-studio-preview-bar">
@@ -963,6 +982,9 @@ export function ProjectStudio({
               ? html`<${Spinner} />`
               : html`<${Icon} name=${devServer.running ? "stop" : "spark"} size="xs" />`}
             <span>${devServer.running ? t("common.off") : t("agency.startMissionBtn")}</span>
+          </button>`}
+          ${devServer?.hasDevScript && devServer.running && html`<button type="button" class="icon-btn sm" disabled=${devServerBusy} title=${t("agency.studioPreviewRestartBtn")} aria-label=${t("agency.studioPreviewRestartBtn")} onClick=${() => startDevServer(project?.id, { restart: true })}>
+            <${Icon} name="refresh" size="sm" />
           </button>`}
           ${hasIndex && html`<div class="agency-studio-vp-group">
             <button type="button" class=${viewport === "desktop" ? "active" : ""} title="Desktop" onClick=${() => setViewport("desktop")}>
@@ -1000,7 +1022,7 @@ export function ProjectStudio({
               <p>${t("agency.studioBuildingStatus")}</p>
             </div>`
           : hasIndex
-            ? html`<iframe key=${`${previewUrl}#${previewNonce}`} class=${"agency-studio-frame " + viewport} title=${t("agency.studioPreviewTitle")} src=${previewUrl}></iframe>`
+            ? html`<iframe key=${`${previewUrl}#${previewNonce}`} class=${"agency-studio-frame " + viewport} title=${t("agency.studioPreviewTitle")} src=${previewUrl} sandbox=${devServer?.running ? "allow-scripts allow-same-origin allow-forms allow-modals allow-popups" : "allow-scripts allow-forms allow-modals allow-popups"} referrerpolicy="no-referrer"></iframe>`
             : html`<div class="agency-empty">
                 <${Icon} name="code" size="lg" />
                 <strong>${t("agency.studioNoPreviewTitle")}</strong>
@@ -1045,6 +1067,28 @@ export function ProjectStudio({
           <${Spinner} />
           <span class="agency-truncate">${activeSubagent?.title || t("agency.studioBuildingStatus")}</span>
         </div>`}
+      </div>`}
+
+      ${workspaceTab === "changes" && html`<div class="agency-studio-changes-pane">
+        <div class="agency-studio-changes-head">
+          <div>
+            <strong>${t("agency.studioChangesTitle")}</strong>
+            <p>${t("agency.studioNoChanges")}</p>
+          </div>
+          <span class="agency-count-pill">${changedFiles.length}</span>
+        </div>
+        ${changedFiles.length > 0
+          ? html`<div class="agency-studio-changes-list">
+              ${changedFiles.map((filePath) => {
+                const exists = files.some((f) => f.path === filePath);
+                return html`<button type="button" class="agency-studio-change-row" disabled=${!exists} onClick=${() => openFileInCode(filePath)} title=${filePath}>
+                  <${Icon} name=${exists ? "file" : "trash"} size="sm" />
+                  <span class="agency-truncate">${filePath}</span>
+                  <small>${exists ? t("agency.studioTabCode") : t("agency.studioFileRemoved")}</small>
+                </button>`;
+              })}
+            </div>`
+          : html`<div class="agency-empty"><${Icon} name="file" size="lg" /><strong>${t("agency.studioNoChanges")}</strong></div>`}
       </div>`}
 
       ${workspaceTab === "code" && html`<div class="agency-studio-code-shell">

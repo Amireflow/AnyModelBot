@@ -603,13 +603,12 @@ export async function runStudioConversation(input: {
 
   let tasksToRun: StudioPlanTask[] = [];
   if (input.executePlan && state.plan?.tasks.length) {
+    if (state.plan.tasks.every((task) => task.status === "done")) {
+      throw new AgencyError("CONFLICT", "Ce plan est déjà terminé. Créez un nouveau plan avant de relancer une construction.");
+    }
     state.plan.status = "running";
     state.plan.updatedAt = new Date().toISOString();
     tasksToRun = state.plan.tasks.filter((t) => t.status !== "done");
-    if (tasksToRun.length === 0) {
-      tasksToRun = state.plan.tasks.map((t) => ({ ...t, status: "pending" as const }));
-      state.plan.tasks = tasksToRun;
-    }
     input.onEvent?.("plan", { plan: state.plan });
   } else if (input.targetSubagent) {
     const spec = SUBAGENT_SPEC_MAP.get(input.targetSubagent) ?? SUBAGENT_SPEC_MAP.get("frontend")!;
@@ -739,6 +738,13 @@ export async function runStudioConversation(input: {
           input.onEvent?.("step", { ...step, taskId: task.id, subagent: spec.id });
         },
       });
+      if (!execResult.ok) {
+        const failures = execResult.steps
+          .filter((step) => !step.ok && ["write_file", "patch_file", "delete_file", "add_dependency", "run_check"].includes(step.tool))
+          .map((step) => `${step.tool}${step.target ? ` (${step.target})` : ""}: ${step.summary}`)
+          .join(" ; ");
+        throw new AgencyError("CONFLICT", failures || "Le sous-agent n'a pas confirmé la fin correcte de ses actions.");
+      }
       task.status = "done";
       task.summary = execResult.summary;
       task.modifiedFiles = execResult.modifiedFiles;

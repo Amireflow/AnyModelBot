@@ -10,7 +10,7 @@ import {
   saveStudioState,
   type StudioRuntimeProfile,
 } from "../src/agency/studio-orchestrator.js";
-import { readWorkspaceFile, writeWorkspaceFile } from "../src/agency/studio.js";
+import { readWorkspaceFile, runStudioAiAgent, writeWorkspaceFile } from "../src/agency/studio.js";
 import type { Project } from "../src/agency/types.js";
 import type { ModelClient } from "../src/llm/client.js";
 
@@ -169,6 +169,83 @@ describe("Studio conversational multi-subagent orchestrator", () => {
     const saved = await loadStudioState(dir, project.id);
     expect(saved.messages).toHaveLength(2);
     expect(() => readWorkspaceFile(dir, project, "index.html")).toThrow();
+  });
+
+  it("refuses to execute a plan whose tasks are already complete", async () => {
+    const dir = makeTempDir();
+    const project = makeProject();
+    await saveStudioState(dir, project.id, {
+      version: 1,
+      messages: [],
+      plan: {
+        summary: "Plan déjà terminé",
+        architecture: "index.html",
+        designDirection: "Sobre",
+        stack: ["HTML5"],
+        status: "completed",
+        updatedAt: new Date().toISOString(),
+        tasks: [{ id: "done-1", title: "Page d'accueil", description: "Déjà livrée", subagent: "frontend", targetFiles: ["index.html"], status: "done" }],
+      },
+    });
+    let modelCalls = 0;
+    const mockClient: ModelClient = {
+      listModels: async () => ["test-model"],
+      streamChat: async () => { modelCalls += 1; return "<studio-done>Ne doit pas être appelé</studio-done>"; },
+    };
+    await expect(runStudioConversation({
+      dataDir: dir,
+      project,
+      message: "",
+      mode: "build",
+      executePlan: true,
+      modelClient: mockClient,
+      defaultModel: "test-model",
+      hasLlmEndpoint: true,
+      resolveRuntime: makeRuntimeResolver(),
+    })).rejects.toThrow(/déjà terminé/i);
+    expect(modelCalls).toBe(0);
+  });
+
+  it("reports a failed result when a critical file operation fails even if the model emits done", async () => {
+    const dir = makeTempDir();
+    const project = makeProject();
+    const mockClient: ModelClient = {
+      listModels: async () => ["test-model"],
+      streamChat: async () => '<studio-write path="../outside.txt">unsafe</studio-write><studio-done>Terminé</studio-done>',
+    };
+    const result = await runStudioAiAgent({
+      dataDir: dir,
+      project,
+      instruction: "Créer un fichier sans sortir du workspace",
+      modelClient: mockClient,
+      defaultModel: "test-model",
+      hasLlmEndpoint: true,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.steps.some((step) => step.tool === "write_file" && !step.ok)).toBe(true);
+  });
+
+  it("propagates a disabled sub-agent runtime instead of silently using it", async () => {
+    const dir = makeTempDir();
+    const project = makeProject();
+    const mockClient: ModelClient = {
+      listModels: async () => ["test-model"],
+      streamChat: async () => "<studio-done>Ne doit pas être appelé</studio-done>",
+    };
+    await expect(runStudioConversation({
+      dataDir: dir,
+      project,
+      message: "Intervenir côté frontend",
+      mode: "build",
+      targetSubagent: "frontend",
+      modelClient: mockClient,
+      defaultModel: "test-model",
+      hasLlmEndpoint: true,
+      resolveRuntime: (role) => {
+        if (role === "developer") throw new Error("Agent developer is currently disabled");
+        return makeRuntimeResolver()(role);
+      },
+    })).rejects.toThrow(/currently disabled/i);
   });
 
   it("executes approved plan across specialized subagents and persists modified files", async () => {

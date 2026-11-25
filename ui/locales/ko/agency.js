@@ -775,4 +775,13 @@ export default {
   },
   "studioNewProjectTitle": "New Studio Project",
   "studioNewChatOption": "+ New project (start a chat)"
+  "studioTabChanges": "변경 사항",
+  "studioChangesTitle": "변경된 파일",
+  "studioNoChanges": "생성 또는 수동 편집으로 변경된 파일이 여기에 표시됩니다.",
+  "studioFileRemoved": "삭제됨",
+  "studioPreviewLaunchConfirm": "미리보기를 시작하면 종속 항목이 설치되고 프로젝트 스크립트가 실행될 수 있습니다. 이 작업 공간을 신뢰하는 경우에만 계속하세요.",
+  "studioPreviewRestartBtn": "미리보기 다시 시작",
+  "studioPreviewRestartHint": "종속 항목이 변경되었습니다. 업데이트를 적용하려면 미리보기를 다시 시작하세요.",
+  "studioPreviewReadyHint": "코드가 준비되었습니다. 프로젝트를 실행할 때 미리보기를 시작하세요.",
+  "studioUnsavedSwitchConfirm": "이 파일에 저장하지 않은 변경 사항이 있습니다. 버릴까요?",
 };

@@ -775,4 +775,13 @@ export default {
   },
   "studioNewProjectTitle": "New Studio Project",
   "studioNewChatOption": "+ New project (start a chat)"
+  "studioTabChanges": "変更",
+  "studioChangesTitle": "変更されたファイル",
+  "studioNoChanges": "生成または手動編集で変更されたファイルがここに表示されます。",
+  "studioFileRemoved": "削除済み",
+  "studioPreviewLaunchConfirm": "プレビューの起動時に依存関係のインストールやプロジェクトスクリプトの実行が行われる場合があります。信頼できるワークスペースの場合のみ続行してください。",
+  "studioPreviewRestartBtn": "プレビューを再起動",
+  "studioPreviewRestartHint": "依存関係が変更されました。更新を適用するにはプレビューを再起動してください。",
+  "studioPreviewReadyHint": "コードの準備ができました。プロジェクトを実行するときにプレビューを開始してください。",
+  "studioUnsavedSwitchConfirm": "このファイルには未保存の変更があります。破棄しますか？",
 };

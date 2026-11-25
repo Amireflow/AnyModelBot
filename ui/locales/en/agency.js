@@ -775,4 +775,13 @@ export default {
   },
   "studioNewProjectTitle": "New Studio Project",
   "studioNewChatOption": "+ New project (start a chat)"
+  "studioTabChanges": "Changes",
+  "studioChangesTitle": "Changed files",
+  "studioNoChanges": "Files changed by generation or manual edits appear here.",
+  "studioFileRemoved": "Removed",
+  "studioPreviewLaunchConfirm": "Starting this preview may install dependencies and execute project scripts. Continue only if you trust this workspace.",
+  "studioPreviewRestartBtn": "Restart preview",
+  "studioPreviewRestartHint": "Dependencies changed. Restart the preview to apply the update.",
+  "studioPreviewReadyHint": "The code is ready. Start the preview when you want to run the project.",
+  "studioUnsavedSwitchConfirm": "This file has unsaved changes. Discard them?",
 };

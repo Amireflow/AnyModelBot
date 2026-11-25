@@ -775,4 +775,13 @@ export default {
   },
   "studioNewProjectTitle": "新建 Studio 项目",
   "studioNewChatOption": "+ 新建项目（直接对话）"
+  "studioTabChanges": "更改",
+  "studioChangesTitle": "已修改的文件",
+  "studioNoChanges": "生成或手动编辑后更改的文件会显示在这里。",
+  "studioFileRemoved": "已删除",
+  "studioPreviewLaunchConfirm": "启动预览可能会安装依赖并执行项目脚本。仅在信任此工作区时继续。",
+  "studioPreviewRestartBtn": "重启预览",
+  "studioPreviewRestartHint": "依赖项已更改。请重启预览以应用更新。",
+  "studioPreviewReadyHint": "代码已就绪。需要运行项目时再启动预览。",
+  "studioUnsavedSwitchConfirm": "此文件包含未保存的更改。要放弃这些更改吗？",
 };

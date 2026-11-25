@@ -775,4 +775,13 @@ export default {
   },
   "studioNewProjectTitle": "Nouveau projet Studio",
   "studioNewChatOption": "+ Nouveau projet (démarrer un chat)"
+  "studioTabChanges": "Modifications",
+  "studioChangesTitle": "Fichiers modifiés",
+  "studioNoChanges": "Les fichiers modifiés par la génération ou l’édition manuelle apparaîtront ici.",
+  "studioFileRemoved": "Supprimé",
+  "studioPreviewLaunchConfirm": "Le lancement de l’aperçu peut installer des dépendances et exécuter des scripts du projet. Continuez uniquement si vous faites confiance à ce workspace.",
+  "studioPreviewRestartBtn": "Redémarrer l’aperçu",
+  "studioPreviewRestartHint": "Les dépendances ont changé. Redémarrez l’aperçu pour appliquer les modifications.",
+  "studioPreviewReadyHint": "Le code est prêt. Lancez l’aperçu lorsque vous souhaitez exécuter le projet.",
+  "studioUnsavedSwitchConfirm": "Ce fichier contient des modifications non enregistrées. Les abandonner ?",
 };

@@ -775,4 +775,13 @@ export default {
   },
   "studioNewProjectTitle": "New Studio Project",
   "studioNewChatOption": "+ New project (start a chat)"
+  "studioTabChanges": "Değişiklikler",
+  "studioChangesTitle": "Değiştirilen dosyalar",
+  "studioNoChanges": "Oluşturma veya manuel düzenleme ile değiştirilen dosyalar burada görünür.",
+  "studioFileRemoved": "Silindi",
+  "studioPreviewLaunchConfirm": "Önizlemeyi başlatmak bağımlılıkları yükleyebilir ve proje betiklerini çalıştırabilir. Yalnızca bu çalışma alanına güveniyorsanız devam edin.",
+  "studioPreviewRestartBtn": "Önizlemeyi yeniden başlat",
+  "studioPreviewRestartHint": "Bağımlılıklar değişti. Güncellemeyi uygulamak için önizlemeyi yeniden başlatın.",
+  "studioPreviewReadyHint": "Kod hazır. Projeyi çalıştırmak istediğinizde önizlemeyi başlatın.",
+  "studioUnsavedSwitchConfirm": "Bu dosyada kaydedilmemiş değişiklikler var. Atılsın mı?",
 };

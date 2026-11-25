@@ -775,4 +775,13 @@ export default {
   },
   "studioNewProjectTitle": "New Studio Project",
   "studioNewChatOption": "+ New project (start a chat)"
+  "studioTabChanges": "Cambios",
+  "studioChangesTitle": "Archivos modificados",
+  "studioNoChanges": "Aquí aparecerán los archivos modificados durante la generación o edición manual.",
+  "studioFileRemoved": "Eliminado",
+  "studioPreviewLaunchConfirm": "Iniciar esta vista previa puede instalar dependencias y ejecutar scripts del proyecto. Continúa solo si confías en este espacio de trabajo.",
+  "studioPreviewRestartBtn": "Reiniciar vista previa",
+  "studioPreviewRestartHint": "Han cambiado las dependencias. Reinicia la vista previa para aplicar la actualización.",
+  "studioPreviewReadyHint": "El código está listo. Inicia la vista previa cuando quieras ejecutar el proyecto.",
+  "studioUnsavedSwitchConfirm": "Este archivo tiene cambios sin guardar. ¿Descartarlos?",
 };
