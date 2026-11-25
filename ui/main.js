@@ -66,7 +66,7 @@ function parseHash() {
   if (kind === "new") return { view: "new", query };
   if (kind === "templates") return { view: a ? "template-preview" : "templates", catalogId: a };
   if (kind === "needs") return { view: "needs" };
-  if (kind === "agency") return { view: "agency" };
+  if (kind === "agency") return { view: "agency", tab: ["operations", "companies", "leads", "commercial", "catalog", "projects"].includes(a) ? a : "operations" };
   if (kind === "discover") return { view: "discover" };
   if (kind === "scheduled") return { view: "scheduled", sub: a === "library" ? "library" : "" };
   if (kind === "apps") return { view: "apps", tab: a === "connected" ? "connected" : "all" };
@@ -748,15 +748,15 @@ function App() {
       ? html`<${SettingsSide} tab=${route.tab} query=${settingsQ} onQuery=${setSettingsQ} onTab=${(t) => openSettings(t)} onBack=${() => openChat()}
           nav=${{ bots, view, onToggleSide: toggleSide, onOpenSearch: openSearch, onNew: newBot, onTemplates: () => openTemplates(), onNewGroup: () => setGroupSheet({}) }}
           username=${status && status.username} account=${managed ? account : null} authUser=${authData?.user} onLogout=${logoutAuth} update=${update} onUpdateChanged=${reloadUpdate} />`
-      : html`<${Sidebar} bots=${bots} botsError=${botsErr} reloadBots=${reloadBots} selectedId=${bot && bot.id} view=${sideView} collapsed=${sideOff} onToggleSide=${toggleSide}
+      : html`<${Sidebar} bots=${bots} botsError=${botsErr} reloadBots=${reloadBots} selectedId=${bot && bot.id} view=${sideView} agencyTab=${route.view === "agency" ? route.tab : ""} collapsed=${sideOff} onToggleSide=${toggleSide}
           previews=${previews} pending=${pending} working=${working} needs=${needs} username=${status && status.username} account=${managed ? account : null} authUser=${authData?.user} onLogout=${logoutAuth} update=${update} onUpdateChanged=${reloadUpdate}
-          onNew=${newBot} onTemplates=${() => openTemplates()} onSelect=${openChat} onNeeds=${openNeeds} onDeleted=${onDeleted} onOpenSettings=${(tab) => openSettings(tab)} onBotSettings=${openBotSettings} onGuide=${startGuide}
+          onNew=${newBot} onTemplates=${() => openTemplates()} onSelect=${openChat} onNeeds=${openNeeds} onDeleted=${onDeleted} onOpenSettings=${(tab) => openSettings(tab)} onOpenApps=${() => openApps()} onBotSettings=${openBotSettings} onGuide=${startGuide}
           groups=${groups} groupsLoaded=${!!groupsData} groupId=${route.groupId} onNewGroup=${() => setGroupSheet({})} onSelectGroup=${openGroup} onEditGroup=${(group) => setGroupSheet({ group })} onDeletedGroup=${onDeletedGroup}
           catalog=${catalog} catalogId=${route.catalogId} onDiscover=${openDiscover} onOpenCatalog=${openCatalog}
-          onAgency={() => go("/agency")} onOpenSearch=${openSearch} />`}
+          onAgency=${(tab) => go(tab ? `/agency/${tab}` : "/agency/operations")} onOpenSearch=${openSearch} />`}
     ${!sideOff && html`<${Splitter} class="split-side" size="--side-w" label=${t("app.resizeSide")} value=${sideW} room=${room("--panel-track")} onCommit=${(v) => setPrefs({ sideW: v })} />`}
     <main class="main">
-      ${mf.keyChangeNotice && html`<div class="key-change-note"><${Notice} action=${html`<${IconButton} icon="close" label=${t("common.close")} onClick=${async () => { await api("/account/key-notice", { method: "DELETE" }); reloadMf(); }} />`}>${t("firstUse.keyChanged")}<//></div>`}
+      ${mf?.keyChangeNotice && html`<div class="key-change-note"><${Notice} action=${html`<${IconButton} icon="close" label=${t("common.close")} onClick=${async () => { await api("/account/key-notice", { method: "DELETE" }); reloadMf(); }} />`}>${t("firstUse.keyChanged")}<//></div>`}
       <div class="route-content" inert=${searchOpen || undefined}>
       ${view === "chat" && bot && html`<${ChatScreen} key=${bot.id} bot=${bot} models=${models} modelsError=${modelsError} reloadModels=${reloadModels}
         initialFocus=${{ id: route.messageId, query: route.query, nonce: messageJump }} onBackToSearch=${fromSearch ? () => openSearch() : undefined}
@@ -764,7 +764,7 @@ function App() {
         onWorking=${onWorking} pending=${pending[bot.id] || 0} serverBusy=${!!agentWorking[bot.id]} onOpenSettings=${openSettings} onOpenBotSettings=${openBotSettings} onBotUpdated=${onBotUpdated}
         account=${managed ? account : null} onAccount=${setAccount} cuBlocked=${cuBlocked.includes(bot.id)} />`}
       ${view === "discover" && html`<${DiscoverScreen} catalog=${catalog} onOpen=${openCatalog} onTemplates=${() => openTemplates("discover")} />`}
-      ${view === "agency" && html`<${AgencyScreen} />`}
+      ${view === "agency" && html`<${AgencyScreen} initialTab=${route.tab} onTabChange=${(next) => go(`/agency/${next}`)} />`}
       ${view === "templates" && html`<${TemplateGallery} bots=${bots || []} />`}
       ${view === "template-preview" && html`<${TemplatePreview} key=${route.catalogId} id=${route.catalogId} bots=${bots || []} models=${models} modelsError=${modelsError} reloadModels=${reloadModels} defaultModel=${settings?.defaultModel || ""} account=${account} onCreated=${onCreated} />`}
       ${view === "scheduled" && (route.sub === "library" ? html`<${RoutineLibraryPage} />` : html`<${ScheduledPage} bots=${bots || []} />`)}

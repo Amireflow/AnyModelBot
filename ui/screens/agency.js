@@ -51,7 +51,7 @@ function Empty({title,detail}) {
   return html`<div class="agency-empty"><${Icon} name="inbox" size="xl" /><strong>${title}</strong><span>${detail}</span></div>`;
 }
 
-export function AgencyScreen() {
+export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const lang=useLang();
   const [orgs,setOrgs]=useState([]);
   const [orgId,setOrgId]=useState(storedOrg);
@@ -59,7 +59,9 @@ export function AgencyScreen() {
   const [orgLoading,setOrgLoading]=useState(true);
   const [orgError,setOrgError]=useState("");
   const [dashboard,setDashboard]=useState(null);
-  const [tab,setTab]=useState("companies");
+  const [tab,setTab]=useState(initialTab || "operations");
+  useEffect(()=>{if(initialTab && initialTab !== tab){setTab(initialTab);setPage(0);}},[initialTab]);
+  const switchTab=(next)=>{setTab(next);setPage(0);onTabChange?.(next);};
   const [query,setQuery]=useState("");
   const [page,setPage]=useState(0);
   const [rows,setRows]=useState({items:[],total:0});
@@ -916,110 +918,112 @@ export function AgencyScreen() {
         <${Metric} label=${t("agency.leads")} value=${dashboard?.leadCount} icon="clipboardCheck"/>
         <${Metric} label=${t("agency.won")} value=${dashboard?.wonLeadCount} icon="check"/>
       </div>
-      <section class="agency-whatsapp-card">
-        <div class="agency-whatsapp-heading">
-          <div><span class="agency-eyebrow">${t("agency.whatsappEyebrow")}</span><h2>${t("agency.whatsappTitle")}</h2><p>${t("agency.whatsappDescription")}</p></div>
+      <div class="agency-channels-bar">
+        <div class="agency-whatsapp-status">
+          <span class=${"agency-whatsapp-dot "+(whatsappConfig?.configured?"ready":"")}></span>
+          <strong>${t("agency.whatsappTitle")}</strong>
+          <span>${whatsappConfig?.configured?t("agency.whatsappConnected"):t("agency.whatsappNotConnected")}</span>
+          ${whatsappConfig?.phoneNumberId&&html`<code>${whatsappConfig.phoneNumberId}</code>`}
+          ${whatsappConfig?.webhookConfigured&&html`<span class="agency-whatsapp-webhook-ready">${t("agency.whatsappWebhookReady")}</span>`}
+        </div>
+        <div class="agency-channels-actions">
           <button class="btn" type="button" aria-expanded=${whatsappOpen} onClick=${()=>{setWhatsappOpen(v=>!v);setWhatsappError("");setWhatsappNotice("");}}>
             ${whatsappOpen?t("agency.cancel"):t("agency.whatsappConfigure")}
           </button>
+          <button class="btn" type="button" aria-expanded=${whatsappWorkflowOpen} onClick=${()=>setWhatsappWorkflowOpen(v=>!v)}>
+            ${whatsappWorkflowOpen?t("agency.cancel"):t("agency.whatsappWorkflowOpen")}
+          </button>
         </div>
-        ${whatsappConfig&&html`<div class="agency-whatsapp-status">
-          <span class=${"agency-whatsapp-dot "+(whatsappConfig.configured?"ready":"")}></span>
-          <strong>${whatsappConfig.configured?t("agency.whatsappConnected"):t("agency.whatsappNotConnected")}</strong>
-          <span>${whatsappConfig.source==="secure_storage"?t("agency.whatsappSecureStorage"):whatsappConfig.source==="environment"?t("agency.whatsappEnvironment"):t("agency.whatsappNoCredential")}</span>
-          ${whatsappConfig.phoneNumberId&&html`<code>${whatsappConfig.phoneNumberId}</code>`}
-          ${whatsappConfig.webhookConfigured&&html`<span class="agency-whatsapp-webhook-ready">${t("agency.whatsappWebhookReady")}</span>`}
-        </div>`}
-        ${whatsappOpen&&html`
-          ${whatsappBusy==="load"&&html`<div class="agency-loading"><${Spinner}/>${t("agency.loading")}</div>`}
-          ${whatsappError&&html`<div class="agency-alert" role="alert">${whatsappError}</div>`}
-          ${whatsappNotice&&html`<p class="agency-research-feedback" role="status">${whatsappNotice}</p>`}
-          ${whatsappConfig&&!whatsappConfig.secureStorageAvailable&&html`<div class="agency-whatsapp-note">${t("agency.whatsappSecureStorageUnavailable",{reason:whatsappConfig.secureStorageReason||"unknown"})} ${whatsappConfig.environmentConfigured?t("agency.whatsappEnvironmentActive"):t("agency.whatsappDesktopOnly")}</div>`}
-          ${whatsappConfig?.secureStorageReason&&whatsappConfig.secureStorageAvailable&&html`<div class="agency-whatsapp-note">${t("agency.whatsappSecureStorageUnavailable",{reason:whatsappConfig.secureStorageReason})}</div>`}
-          ${whatsappConfig?.savedInSecureStorage&&!whatsappConfig.organizationMatches&&!whatsappConfig.secureStorageReason&&html`<div class="agency-whatsapp-note">${t("agency.whatsappStoredForOtherOrg")}</div>`}
-          ${whatsappConfig?.secureStorageAvailable&&(!whatsappConfig.savedInSecureStorage||whatsappConfig.organizationMatches)&&html`
-            <form class="agency-form agency-form-grid agency-whatsapp-form" onSubmit=${saveWhatsAppConfig}>
-              <div class="agency-form-head"><div><h3>${whatsappConfig.savedInSecureStorage?t("agency.whatsappReplaceTitle"):t("agency.whatsappCredentialsTitle")}</h3><p>${t("agency.whatsappSecretNote")}</p></div></div>
-              <${Field} label=${t("agency.whatsappAccessToken")} value=${whatsappDraft.accessToken} type="password" required onInput=${v=>update(setWhatsappDraft,"accessToken",v)}/>
-              <${Field} label=${t("agency.whatsappPhoneNumberId")} value=${whatsappDraft.phoneNumberId} required onInput=${v=>update(setWhatsappDraft,"phoneNumberId",v)}/>
-              <${Field} label=${t("agency.whatsappBusinessAccountId")} value=${whatsappDraft.businessAccountId} required onInput=${v=>update(setWhatsappDraft,"businessAccountId",v)}/>
-              <${Field} label=${t("agency.whatsappGraphVersion")} value=${whatsappDraft.apiVersion} required onInput=${v=>update(setWhatsappDraft,"apiVersion",v)}/>
-              <${Field} label=${t("agency.whatsappAppSecret")} value=${whatsappDraft.appSecret} type="password" onInput=${v=>update(setWhatsappDraft,"appSecret",v)}/>
-              <${Field} label=${t("agency.whatsappVerifyToken")} value=${whatsappDraft.verifyToken} type="password" onInput=${v=>update(setWhatsappDraft,"verifyToken",v)}/>
-              <p class="agency-muted agency-form-wide">${t("agency.whatsappOrganizationBinding")}</p>
-              <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${whatsappBusy==="save"||whatsappBusy==="clear"||!whatsappDraft.accessToken.trim()||!whatsappDraft.phoneNumberId.trim()||!whatsappDraft.businessAccountId.trim()}>${whatsappBusy==="save"?t("agency.whatsappSaving"):t("agency.whatsappSave")}</button></div>
-            </form>
-          `}
-          ${whatsappConfig?.savedInSecureStorage&&(whatsappConfig.organizationMatches||!!whatsappConfig.secureStorageReason)&&html`
-            <div class="agency-whatsapp-clear">
-              ${!whatsappClearConfirm
-                ?html`<button class="text" type="button" onClick=${()=>setWhatsappClearConfirm(true)}>${t("agency.whatsappRemove")}</button>`
-                :html`<span>${t("agency.whatsappConfirmRemove")}</span><button class="btn" type="button" disabled=${whatsappBusy==="clear"} onClick=${clearWhatsAppConfig}>${whatsappBusy==="clear"?t("agency.whatsappRemoving"):t("agency.whatsappConfirm")}</button><button class="text" type="button" onClick=${()=>setWhatsappClearConfirm(false)}>${t("agency.cancel")}</button>`}
-            </div>`}
+      </div>
+      ${whatsappOpen&&html`<section class="agency-whatsapp-card">
+        <div class="agency-whatsapp-heading">
+          <div><span class="agency-eyebrow">${t("agency.whatsappEyebrow")}</span><h2>${t("agency.whatsappTitle")}</h2><p>${t("agency.whatsappDescription")}</p></div>
+        </div>
+        ${whatsappBusy==="load"&&html`<div class="agency-loading"><${Spinner}/>${t("agency.loading")}</div>`}
+        ${whatsappError&&html`<div class="agency-alert" role="alert">${whatsappError}</div>`}
+        ${whatsappNotice&&html`<p class="agency-research-feedback" role="status">${whatsappNotice}</p>`}
+        ${whatsappConfig&&!whatsappConfig.secureStorageAvailable&&html`<div class="agency-whatsapp-note">${t("agency.whatsappSecureStorageUnavailable",{reason:whatsappConfig.secureStorageReason||"unknown"})} ${whatsappConfig.environmentConfigured?t("agency.whatsappEnvironmentActive"):t("agency.whatsappDesktopOnly")}</div>`}
+        ${whatsappConfig?.secureStorageReason&&whatsappConfig.secureStorageAvailable&&html`<div class="agency-whatsapp-note">${t("agency.whatsappSecureStorageUnavailable",{reason:whatsappConfig.secureStorageReason})}</div>`}
+        ${whatsappConfig?.savedInSecureStorage&&!whatsappConfig.organizationMatches&&!whatsappConfig.secureStorageReason&&html`<div class="agency-whatsapp-note">${t("agency.whatsappStoredForOtherOrg")}</div>`}
+        ${whatsappConfig?.secureStorageAvailable&&(!whatsappConfig.savedInSecureStorage||whatsappConfig.organizationMatches)&&html`
+          <form class="agency-form agency-form-grid agency-whatsapp-form" onSubmit=${saveWhatsAppConfig}>
+            <div class="agency-form-head"><div><h3>${whatsappConfig.savedInSecureStorage?t("agency.whatsappReplaceTitle"):t("agency.whatsappCredentialsTitle")}</h3><p>${t("agency.whatsappSecretNote")}</p></div></div>
+            <${Field} label=${t("agency.whatsappAccessToken")} value=${whatsappDraft.accessToken} type="password" required onInput=${v=>update(setWhatsappDraft,"accessToken",v)}/>
+            <${Field} label=${t("agency.whatsappPhoneNumberId")} value=${whatsappDraft.phoneNumberId} required onInput=${v=>update(setWhatsappDraft,"phoneNumberId",v)}/>
+            <${Field} label=${t("agency.whatsappBusinessAccountId")} value=${whatsappDraft.businessAccountId} required onInput=${v=>update(setWhatsappDraft,"businessAccountId",v)}/>
+            <${Field} label=${t("agency.whatsappGraphVersion")} value=${whatsappDraft.apiVersion} required onInput=${v=>update(setWhatsappDraft,"apiVersion",v)}/>
+            <${Field} label=${t("agency.whatsappAppSecret")} value=${whatsappDraft.appSecret} type="password" onInput=${v=>update(setWhatsappDraft,"appSecret",v)}/>
+            <${Field} label=${t("agency.whatsappVerifyToken")} value=${whatsappDraft.verifyToken} type="password" onInput=${v=>update(setWhatsappDraft,"verifyToken",v)}/>
+            <p class="agency-muted agency-form-wide">${t("agency.whatsappOrganizationBinding")}</p>
+            <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${whatsappBusy==="save"||whatsappBusy==="clear"||!whatsappDraft.accessToken.trim()||!whatsappDraft.phoneNumberId.trim()||!whatsappDraft.businessAccountId.trim()}>${whatsappBusy==="save"?t("agency.whatsappSaving"):t("agency.whatsappSave")}</button></div>
+          </form>
         `}
-      </section>
-      <section class="agency-whatsapp-workflow">
+        ${whatsappConfig?.savedInSecureStorage&&(whatsappConfig.organizationMatches||!!whatsappConfig.secureStorageReason)&&html`
+          <div class="agency-whatsapp-clear">
+            ${!whatsappClearConfirm
+              ?html`<button class="text" type="button" onClick=${()=>setWhatsappClearConfirm(true)}>${t("agency.whatsappRemove")}</button>`
+              :html`<span>${t("agency.whatsappConfirmRemove")}</span><button class="btn" type="button" disabled=${whatsappBusy==="clear"} onClick=${clearWhatsAppConfig}>${whatsappBusy==="clear"?t("agency.whatsappRemoving"):t("agency.whatsappConfirm")}</button><button class="text" type="button" onClick=${()=>setWhatsappClearConfirm(false)}>${t("agency.cancel")}</button>`}
+          </div>`}
+      </section>`}
+      ${whatsappWorkflowOpen&&html`<section class="agency-whatsapp-workflow">
         <div class="agency-whatsapp-heading">
           <div><span class="agency-eyebrow">${t("agency.whatsappWorkflowEyebrow")}</span><h2>${t("agency.whatsappWorkflowTitle")}</h2><p>${t("agency.whatsappWorkflowHint")}</p></div>
           <div class="agency-whatsapp-workflow-actions">
-            <button class="btn" type="button" onClick=${()=>setWhatsappWorkflowOpen(v=>!v)}>${whatsappWorkflowOpen?t("agency.cancel"):t("agency.whatsappWorkflowOpen")}</button>
-            ${whatsappWorkflowOpen&&html`<button class="btn" type="button" disabled=${whatsappWorkflowBusy} onClick=${refreshWhatsAppWorkflow}>${whatsappWorkflowBusy?t("agency.loading"):t("agency.whatsappRefresh")}</button>`}
+            <button class="btn" type="button" disabled=${whatsappWorkflowBusy} onClick=${refreshWhatsAppWorkflow}>${whatsappWorkflowBusy?t("agency.loading"):t("agency.whatsappRefresh")}</button>
           </div>
         </div>
-        ${whatsappWorkflowOpen&&html`
-          ${whatsappWorkflowError&&html`<div class="agency-alert" role="alert">${whatsappWorkflowError}</div>`}
-          <div class="agency-whatsapp-workflow-grid">
-            <section class="agency-whatsapp-list">
-              <div class="agency-contact-heading"><h3>${t("agency.whatsappApprovals")}</h3><span class="agency-qualification-status">${whatsappApprovals.filter(a=>a.action==="send_message"&&a.resourceType==="whatsapp_template").length}</span></div>
-              ${whatsappApprovals.filter(a=>a.action==="send_message"&&a.resourceType==="whatsapp_template").map(approval=>{
-                const payload=approvalPayload(approval);
-                const expired=approval.status==="pending"&&approval.expiresAt&&approval.expiresAt<=Date.now();
-                const queued=whatsappOutbox.some(item=>item.approvalId===approval.id);
-                return html`<article class="agency-whatsapp-item">
-                  <div class="agency-whatsapp-item-head"><strong>${payload?.template?.name||approval.resourceId}</strong><span class=${"agency-whatsapp-state "+(expired?"expired":approval.status)}>${t(`agency.whatsappApprovalStatus.${expired?"expired":approval.status}`)}</span></div>
-                  <p>${payload?.recipient||approval.resourceId} · ${payload?.purpose||"—"} · ${payload?.template?.language||"—"}</p>
-                  <small>${approval.reason}</small>
-                  <small>${t("agency.whatsappPayloadHash")} <code>${approval.payloadHash}</code></small>
-                  ${payload?.template&&html`<details class="agency-whatsapp-preview"><summary>${t("agency.whatsappExactPayload")}</summary><pre>${JSON.stringify(payload.template.components||[],null,2)}</pre></details>`}
-                  ${approval.decisionReason&&html`<small>${t("agency.whatsappDecisionReason")} ${approval.decisionReason}</small>`}
-                  <small>${t("agency.whatsappExpires")} ${new Date(approval.expiresAt).toLocaleString()}</small>
-                  ${approval.status==="pending"&&!expired&&html`<div class="agency-whatsapp-item-actions">
-                    <button class="btn primary" type="button" disabled=${whatsappWorkflowBusy} onClick=${()=>decideWhatsAppApproval(approval,"approved")}>${t("agency.whatsappApprove")}</button>
-                    <button class="btn" type="button" disabled=${whatsappWorkflowBusy} onClick=${()=>decideWhatsAppApproval(approval,"rejected")}>${t("agency.whatsappReject")}</button>
-                  </div>`}
-                  ${approval.status==="approved"&&!queued&&html`<button class="btn" type="button" disabled=${whatsappWorkflowBusy||!payload} onClick=${()=>queueWhatsAppApproval(approval)}>${t("agency.whatsappQueue")}</button>`}
-                  ${approval.status==="approved"&&queued&&html`<small>${t("agency.whatsappAlreadyQueued")}</small>`}
-                </article>`;
-              })}
-              ${!whatsappApprovals.some(a=>a.action==="send_message"&&a.resourceType==="whatsapp_template")&&html`<p class="agency-muted">${t("agency.whatsappNoApprovals")}</p>`}
-            </section>
-            <section class="agency-whatsapp-list">
-              <div class="agency-contact-heading"><h3>${t("agency.whatsappOutbox")}</h3><span class="agency-qualification-status">${whatsappOutbox.length}</span></div>
-              ${whatsappOutbox.map(message=>html`<article class="agency-whatsapp-item">
-                <div class="agency-whatsapp-item-head"><strong>${message.templateName}</strong><span class=${"agency-whatsapp-state "+message.status}>${t(`agency.whatsappOutboxStatus.${message.status}`)}</span></div>
-                <p>${message.recipient} · ${message.language}</p>
-                <small>${t("agency.whatsappProviderStatus")} ${message.providerStatus?t(`agency.whatsappProviderStatusValues.${message.providerStatus}`):t("agency.whatsappProviderPending")}</small>
-                ${(message.failureCode||message.providerErrorCode)&&html`<small>${t("agency.whatsappFailure")} ${message.failureCode||message.providerErrorCode}</small>`}
-                ${message.status==="queued"&&html`
-                  ${whatsappSendConfirmId!==message.id
-                    ?html`<button class="btn" type="button" disabled=${whatsappWorkflowBusy} onClick=${()=>setWhatsappSendConfirmId(message.id)}>${t("agency.whatsappSend")}</button>`
-                    :html`<div class="agency-whatsapp-item-actions"><span>${t("agency.whatsappSendConfirm")}</span><button class="btn primary" type="button" disabled=${whatsappWorkflowBusy} onClick=${()=>sendWhatsAppOutbox(message)}>${t("agency.whatsappConfirmSend")}</button><button class="text" type="button" onClick=${()=>setWhatsappSendConfirmId("")}>${t("agency.cancel")}</button></div>`}
-                `}
-              </article>`)}
-              ${!whatsappOutbox.length&&html`<p class="agency-muted">${t("agency.whatsappNoOutbox")}</p>`}
-            </section>
-          </div>
-          <p class="agency-muted">${t("agency.whatsappAcceptedNote")}</p>
-        `}
-      </section>
+        ${whatsappWorkflowError&&html`<div class="agency-alert" role="alert">${whatsappWorkflowError}</div>`}
+        <div class="agency-whatsapp-workflow-grid">
+          <section class="agency-whatsapp-list">
+            <div class="agency-contact-heading"><h3>${t("agency.whatsappApprovals")}</h3><span class="agency-qualification-status">${whatsappApprovals.filter(a=>a.action==="send_message"&&a.resourceType==="whatsapp_template").length}</span></div>
+            ${whatsappApprovals.filter(a=>a.action==="send_message"&&a.resourceType==="whatsapp_template").map(approval=>{
+              const payload=approvalPayload(approval);
+              const expired=approval.status==="pending"&&approval.expiresAt&&approval.expiresAt<=Date.now();
+              const queued=whatsappOutbox.some(item=>item.approvalId===approval.id);
+              return html`<article class="agency-whatsapp-item">
+                <div class="agency-whatsapp-item-head"><strong>${payload?.template?.name||approval.resourceId}</strong><span class=${"agency-whatsapp-state "+(expired?"expired":approval.status)}>${t(`agency.whatsappApprovalStatus.${expired?"expired":approval.status}`)}</span></div>
+                <p>${payload?.recipient||approval.resourceId} · ${payload?.purpose||"—"} · ${payload?.template?.language||"—"}</p>
+                <small>${approval.reason}</small>
+                <small>${t("agency.whatsappPayloadHash")} <code>${approval.payloadHash}</code></small>
+                ${payload?.template&&html`<details class="agency-whatsapp-preview"><summary>${t("agency.whatsappExactPayload")}</summary><pre>${JSON.stringify(payload.template.components||[],null,2)}</pre></details>`}
+                ${approval.decisionReason&&html`<small>${t("agency.whatsappDecisionReason")} ${approval.decisionReason}</small>`}
+                <small>${t("agency.whatsappExpires")} ${new Date(approval.expiresAt).toLocaleString()}</small>
+                ${approval.status==="pending"&&!expired&&html`<div class="agency-whatsapp-item-actions">
+                  <button class="btn primary" type="button" disabled=${whatsappWorkflowBusy} onClick=${()=>decideWhatsAppApproval(approval,"approved")}>${t("agency.whatsappApprove")}</button>
+                  <button class="btn" type="button" disabled=${whatsappWorkflowBusy} onClick=${()=>decideWhatsAppApproval(approval,"rejected")}>${t("agency.whatsappReject")}</button>
+                </div>`}
+                ${approval.status==="approved"&&!queued&&html`<button class="btn" type="button" disabled=${whatsappWorkflowBusy||!payload} onClick=${()=>queueWhatsAppApproval(approval)}>${t("agency.whatsappQueue")}</button>`}
+                ${approval.status==="approved"&&queued&&html`<small>${t("agency.whatsappAlreadyQueued")}</small>`}
+              </article>`;
+            })}
+            ${!whatsappApprovals.some(a=>a.action==="send_message"&&a.resourceType==="whatsapp_template")&&html`<p class="agency-muted">${t("agency.whatsappNoApprovals")}</p>`}
+          </section>
+          <section class="agency-whatsapp-list">
+            <div class="agency-contact-heading"><h3>${t("agency.whatsappOutbox")}</h3><span class="agency-qualification-status">${whatsappOutbox.length}</span></div>
+            ${whatsappOutbox.map(message=>html`<article class="agency-whatsapp-item">
+              <div class="agency-whatsapp-item-head"><strong>${message.templateName}</strong><span class=${"agency-whatsapp-state "+message.status}>${t(`agency.whatsappOutboxStatus.${message.status}`)}</span></div>
+              <p>${message.recipient} · ${message.language}</p>
+              <small>${t("agency.whatsappProviderStatus")} ${message.providerStatus?t(`agency.whatsappProviderStatusValues.${message.providerStatus}`):t("agency.whatsappProviderPending")}</small>
+              ${(message.failureCode||message.providerErrorCode)&&html`<small>${t("agency.whatsappFailure")} ${message.failureCode||message.providerErrorCode}</small>`}
+              ${message.status==="queued"&&html`
+                ${whatsappSendConfirmId!==message.id
+                  ?html`<button class="btn" type="button" disabled=${whatsappWorkflowBusy} onClick=${()=>setWhatsappSendConfirmId(message.id)}>${t("agency.whatsappSend")}</button>`
+                  :html`<div class="agency-whatsapp-item-actions"><span>${t("agency.whatsappSendConfirm")}</span><button class="btn primary" type="button" disabled=${whatsappWorkflowBusy} onClick=${()=>sendWhatsAppOutbox(message)}>${t("agency.whatsappConfirmSend")}</button><button class="text" type="button" onClick=${()=>setWhatsappSendConfirmId("")}>${t("agency.cancel")}</button></div>`}
+              `}
+            </article>`)}
+            ${!whatsappOutbox.length&&html`<p class="agency-muted">${t("agency.whatsappNoOutbox")}</p>`}
+          </section>
+        </div>
+        <p class="agency-muted">${t("agency.whatsappAcceptedNote")}</p>
+      </section>`}
       <div class="agency-toolbar">
         <div class="agency-tabs" role="tablist">
-          <button role="tab" aria-selected=${tab==="companies"} class=${tab==="companies"?"active":""} onClick=${()=>{setTab("companies");setPage(0);}}>${t("agency.companies")}</button>
-          <button role="tab" aria-selected=${tab==="leads"} class=${tab==="leads"?"active":""} onClick=${()=>{setTab("leads");setPage(0);}}>${t("agency.leads")}</button>
-          <button role="tab" aria-selected=${tab==="commercial"} class=${tab==="commercial"?"active":""} onClick=${()=>setTab("commercial")}>${t("agency.commercial")}</button>
-          <button role="tab" aria-selected=${tab==="catalog"} class=${tab==="catalog"?"active":""} onClick=${()=>setTab("catalog")}>${t("agency.catalog")}</button>
-          <button role="tab" aria-selected=${tab==="projects"} class=${tab==="projects"?"active":""} onClick=${()=>setTab("projects")}>${t("agency.projects")}</button>
-          <button role="tab" aria-selected=${tab==="operations"} class=${tab==="operations"?"active":""} onClick=${()=>setTab("operations")}>${t("agency.operations")}</button>
+          <button role="tab" aria-selected=${tab==="operations"} class=${tab==="operations"?"active":""} onClick=${()=>switchTab("operations")}>${t("agency.operations")}</button>
+          <button role="tab" aria-selected=${tab==="companies"} class=${tab==="companies"?"active":""} onClick=${()=>switchTab("companies")}>${t("agency.companies")}</button>
+          <button role="tab" aria-selected=${tab==="leads"} class=${tab==="leads"?"active":""} onClick=${()=>switchTab("leads")}>${t("agency.leads")}</button>
+          <button role="tab" aria-selected=${tab==="commercial"} class=${tab==="commercial"?"active":""} onClick=${()=>switchTab("commercial")}>${t("agency.commercial")}</button>
+          <button role="tab" aria-selected=${tab==="catalog"} class=${tab==="catalog"?"active":""} onClick=${()=>switchTab("catalog")}>${t("agency.catalog")}</button>
+          <button role="tab" aria-selected=${tab==="projects"} class=${tab==="projects"?"active":""} onClick=${()=>switchTab("projects")}>${t("agency.projects")}</button>
         </div>
         ${tab==="companies"&&html`<button class="btn" onClick=${()=>setQualificationForm(v=>!v)}>${t("agency.qualificationProfile")}</button>`}
         ${(tab==="companies"||tab==="leads")&&html`<label class="agency-search"><${Icon} name="search"/><input type="search" value=${query} placeholder=${t("agency.search")} onInput=${e=>{setQuery(e.currentTarget.value);setPage(0);}}/></label>`}
@@ -1421,55 +1425,57 @@ export function AgencyScreen() {
           </section>
         </div>`}
       </div>`}
-      ${tab==="operations"&&html`<div class="agency-ops-grid">
-        <div class="agency-commercial-col">
+      ${tab==="operations"&&html`<div class="agency-ops-stack">
+        <section class="agency-project-section">
+          <h2>${t("agency.kpisTitle")}</h2>
+          ${metrics&&html`<div class="agency-metrics">
+            <${Metric} label=${t("agency.kpiSignedRevenue")} value=${metrics.signedRevenue} icon="check"/>
+            <${Metric} label=${t("agency.kpiQuoteAcceptance")} value=${metrics.quoteAcceptanceRate} icon="clipboardCheck"/>
+            <${Metric} label=${t("agency.kpiQaFirstPass")} value=${metrics.qaFirstPassRate} icon="check"/>
+            <${Metric} label=${t("agency.kpiProjectsDelivered")} value=${metrics.projectsDelivered} icon="folder"/>
+            <${Metric} label=${t("agency.kpiPendingFollowUps")} value=${metrics.pendingFollowUps} icon="user"/>
+            <${Metric} label=${t("agency.kpiOpenMissions")} value=${metrics.openMissions} icon="clipboardCheck"/>
+          </div>`}
+        </section>
+        <div class="agency-ops-grid">
+          <div class="agency-commercial-col">
+            <section class="agency-project-section">
+              <h3>${t("agency.devToolsTitle")}</h3>
+              <div class="agency-tool-list">
+                ${devTools.map(tool=>html`<div class="agency-tool-chip"><strong>${tool.name}</strong><span>${tool.available?(tool.version||t("agency.toolAvailable")):t("agency.toolMissing")}</span></div>`)}
+              </div>
+            </section>
+            <section class="agency-project-section">
+              <h3>${t("agency.agentsTitle")}</h3>
+              <div class="agency-agent-list">
+                ${agentProfiles.map(ag=>html`<article class="agency-commercial-card">
+                  <div class="agency-commercial-head"><strong>${ag.name}</strong><span class="agency-whatsapp-state">${ag.independentFromBuild?t("agency.agentIndependentQa"):t("agency.agentBuildRole")}</span></div>
+                  <small>${ag.mission}</small>
+                </article>`)}
+              </div>
+            </section>
+          </div>
           <section class="agency-project-section">
-            <h2>${t("agency.kpisTitle")}</h2>
-            ${metrics&&html`<div class="agency-metrics">
-              <${Metric} label=${t("agency.kpiSignedRevenue")} value=${metrics.signedRevenue} icon="check"/>
-              <${Metric} label=${t("agency.kpiQuoteAcceptance")} value=${metrics.quoteAcceptanceRate} icon="clipboardCheck"/>
-              <${Metric} label=${t("agency.kpiQaFirstPass")} value=${metrics.qaFirstPassRate} icon="check"/>
-              <${Metric} label=${t("agency.kpiProjectsDelivered")} value=${metrics.projectsDelivered} icon="folder"/>
-              <${Metric} label=${t("agency.kpiPendingFollowUps")} value=${metrics.pendingFollowUps} icon="user"/>
-              <${Metric} label=${t("agency.kpiOpenMissions")} value=${metrics.openMissions} icon="clipboardCheck"/>
-            </div>`}
-          </section>
-          <section class="agency-project-section">
-            <h3>${t("agency.devToolsTitle")}</h3>
-            <div class="agency-tool-list">
-              ${devTools.map(tool=>html`<div class="agency-tool-chip"><strong>${tool.name}</strong><span>${tool.available?(tool.version||t("agency.toolAvailable")):t("agency.toolMissing")}</span></div>`)}
-            </div>
-          </section>
-          <section class="agency-project-section">
-            <h3>${t("agency.agentsTitle")}</h3>
-            <div class="agency-agent-list">
-              ${agentProfiles.map(ag=>html`<article class="agency-commercial-card">
-                <div class="agency-commercial-head"><strong>${ag.name}</strong><span class="agency-whatsapp-state">${ag.independentFromBuild?t("agency.agentIndependentQa"):t("agency.agentBuildRole")}</span></div>
-                <small>${ag.mission}</small>
+            <h3>${t("agency.missionsTitle")}</h3>
+            <form class="agency-form agency-form-grid" onSubmit=${createMission}>
+              <label class="agency-field"><span>${t("agency.missionRoleLabel")}</span><select class="field" value=${missionDraft.agentRole} onChange=${e=>update(setMissionDraft,"agentRole",e.currentTarget.value)}>${AGENT_ROLES.map(r=>html`<option value=${r}>${r}</option>`)}</select></label>
+              <${Field} label=${t("agency.missionTitle")} value=${missionDraft.title} required onInput=${v=>update(setMissionDraft,"title",v)}/>
+              <${Field} label=${t("agency.missionObjective")} value=${missionDraft.objective} onInput=${v=>update(setMissionDraft,"objective",v)}/>
+              <${Field} label=${t("agency.missionToolLabel")} value=${missionDraft.preferredTool} onInput=${v=>update(setMissionDraft,"preferredTool",v)}/>
+              <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.createMissionBtn")}</button></div>
+            </form>
+            <div class="agency-commercial-list">
+              ${missions.map(m=>html`<article class="agency-commercial-card">
+                <div class="agency-commercial-head"><strong>${m.title} · ${m.agentRole}</strong><span class="agency-whatsapp-state">${t(`agency.missionStatus.${m.status}`)}</span></div>
+                <small>${m.preferredTool||"—"}</small>
+                <div class="agency-commercial-actions">
+                  ${m.status==="planned"&&html`<button class="btn" type="button" onClick=${()=>updateMission(m.id,"running")}>${t("agency.startMissionBtn")}</button>`}
+                  ${(m.status==="planned"||m.status==="running")&&html`<button class="btn primary" type="button" onClick=${()=>updateMission(m.id,"completed")}>${t("agency.completeMissionBtn")}</button>`}
+                </div>
               </article>`)}
             </div>
           </section>
         </div>
-        <section class="agency-project-section">
-          <h3>${t("agency.missionsTitle")}</h3>
-          <form class="agency-form agency-form-grid" onSubmit=${createMission}>
-            <label class="agency-field"><span>${t("agency.missionRoleLabel")}</span><select class="field" value=${missionDraft.agentRole} onChange=${e=>update(setMissionDraft,"agentRole",e.currentTarget.value)}>${AGENT_ROLES.map(r=>html`<option value=${r}>${r}</option>`)}</select></label>
-            <${Field} label=${t("agency.missionTitle")} value=${missionDraft.title} required onInput=${v=>update(setMissionDraft,"title",v)}/>
-            <${Field} label=${t("agency.missionObjective")} value=${missionDraft.objective} onInput=${v=>update(setMissionDraft,"objective",v)}/>
-            <${Field} label=${t("agency.missionToolLabel")} value=${missionDraft.preferredTool} onInput=${v=>update(setMissionDraft,"preferredTool",v)}/>
-            <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.createMissionBtn")}</button></div>
-          </form>
-          <div class="agency-commercial-list">
-            ${missions.map(m=>html`<article class="agency-commercial-card">
-              <div class="agency-commercial-head"><strong>${m.title} · ${m.agentRole}</strong><span class="agency-whatsapp-state">${t(`agency.missionStatus.${m.status}`)}</span></div>
-              <small>${m.preferredTool||"—"}</small>
-              <div class="agency-commercial-actions">
-                ${m.status==="planned"&&html`<button class="btn" type="button" onClick=${()=>updateMission(m.id,"running")}>${t("agency.startMissionBtn")}</button>`}
-                ${(m.status==="planned"||m.status==="running")&&html`<button class="btn primary" type="button" onClick=${()=>updateMission(m.id,"completed")}>${t("agency.completeMissionBtn")}</button>`}
-              </div>
-            </article>`)}
-          </div>
-        </section>
       </div>`}
     `}
   </section>`;

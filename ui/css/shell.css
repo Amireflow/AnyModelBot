@@ -532,4 +532,6 @@ a.text { display: inline-flex; align-items: center; text-decoration: none; }
   .auth-tabs button.active { background: var(--surface); color: var(--fg); }
   .auth-form { display: grid; gap: var(--space-3-5); }
   .auth-field { display: grid; gap: var(--space-1-5); font-size: var(--fs-xs); color: var(--muted); text-align: left; }
+  .side-nav-label { padding: var(--space-1) var(--side-row-px) var(--space-0-5); font-size: var(--fs-xs); font-weight: var(--fw-semibold); color: var(--muted); }
+  .side-nav-sep { height: var(--space-2); }
 }

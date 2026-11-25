@@ -186,7 +186,7 @@ export function SideRail(props) {
   return html`<div class="side-rail anim-fade-in"><${SideActions} collapsed ...${props} /></div>`;
 }
 
-export function Sidebar({ bots, botsError, reloadBots, selectedId, view, previews, pending, working, needs = { n: 0, bots: {} }, username, account, authUser, onLogout, update, onUpdateChanged, onNew, onTemplates, onSelect, onNeeds, onDeleted, onOpenSettings, onBotSettings, onGuide, groups = [], groupsLoaded = true, groupId, onNewGroup, onSelectGroup, onEditGroup, onDeletedGroup, catalog = [], catalogId, onDiscover, onOpenCatalog, onAgency, onOpenSearch, collapsed, onToggleSide }) {
+export function Sidebar({ bots, botsError, reloadBots, selectedId, view, agencyTab = "", previews, pending, working, needs = { n: 0, bots: {} }, username, account, authUser, onLogout, update, onUpdateChanged, onNew, onTemplates, onSelect, onNeeds, onDeleted, onOpenSettings, onOpenApps, onBotSettings, onGuide, groups = [], groupsLoaded = true, groupId, onNewGroup, onSelectGroup, onEditGroup, onDeletedGroup, catalog = [], catalogId, onDiscover, onOpenCatalog, onAgency, onOpenSearch, collapsed, onToggleSide }) {
   const lang = useLang();
   const seen = useStore(catalogSeen);
   const removedNow = useStore(locallyRemoved);
@@ -450,13 +450,31 @@ export function Sidebar({ bots, botsError, reloadBots, selectedId, view, preview
       <//>
     </div>
     <div class="side-nav">
+      <span class="side-nav-label">${t("agency.nav")}</span>
+      ${[
+        ["operations", "agency.operations", "monitor"],
+        ["companies", "agency.companies", "folder"],
+        ["leads", "agency.leads", "user"],
+        ["commercial", "agency.commercial", "wallet"],
+        ["catalog", "agency.catalog", "clipboardCheck"],
+        ["projects", "agency.projects", "spark"],
+      ].map(([id, key, icon]) => {
+        const active = agencyOn && (agencyTab || "operations") === id;
+        return html`<button type="button" key=${id} class=${`nav-item${active ? " sel" : ""}`} aria-current=${active ? "page" : undefined} onClick=${() => onAgency?.(id)}>
+          <${Icon} name=${icon} size="md" /><span class="label">${t(key)}</span>
+        </button>`;
+      })}
+      <div class="side-nav-sep" aria-hidden="true"></div>
       ${catalog.length > 0 && html`<button type="button" class=${`nav-item${discoverOn ? " sel" : ""}`} aria-current=${discoverOn ? "page" : undefined} onClick=${onDiscover}>
         <${Icon} name="compass" size="md" /><span class="label">${t("botapp.sidebar.discover")}</span>${hasNew && html`<span class="thread-new-dot" title=${t("botapp.sidebar.new")}></span>`}
       </button>`}
-      <button type="button" class=${`nav-item${agencyOn ? " sel" : ""}`} aria-current=${agencyOn ? "page" : undefined} onClick=${onAgency}>
-        <${Icon} name="clipboardCheck" size="md" /><span class="label">${t("agency.nav")}</span>
-      </button>
       <${ScheduledButton} active=${view === "scheduled"} />
+      ${onOpenApps && html`<button type="button" class=${`nav-item${view === "apps" ? " sel" : ""}`} aria-current=${view === "apps" ? "page" : undefined} onClick=${onOpenApps}>
+        <${Icon} name="link" size="md" /><span class="label">${t("apps.menu")}</span>
+      </button>`}
+      <button type="button" class=${`nav-item${view === "settings" ? " sel" : ""}`} aria-current=${view === "settings" ? "page" : undefined} onClick=${() => onOpenSettings?.()}>
+        <${Icon} name="gear" size="md" /><span class="label">${t("sidebar.settings")}</span>
+      </button>
       <${NeedsRow} count=${needs.n} on=${view === "needs"} onClick=${onNeeds} />
     </div>
     <nav class="side-list" aria-label=${t("sidebar.list")} onDragLeave=${(e) => drag && !e.currentTarget.contains(e.relatedTarget) && setDrop(null)}>

@@ -5,13 +5,13 @@
 .agency-eyebrow{display:inline-block;color:var(--muted);font-size:var(--fs-xs);font-weight:var(--fw-semibold)}
 .agency-org-picker{display:grid;gap:var(--space-1);width:min(280px,38%);color:var(--muted);font-size:var(--fs-xs)}
 .agency-org-picker .field{width:100%}
-.agency-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--space-3)}
-.agency-metric{min-width:0;min-height:108px;display:grid;grid-template-columns:36px minmax(0,1fr);grid-template-rows:auto auto;align-content:center;align-items:center;gap:var(--space-1) var(--space-3);padding:var(--card-pad);background:var(--well);border-radius:var(--r-card)}
+.agency-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:var(--space-3)}
+.agency-metric{min-width:0;min-height:92px;display:grid;grid-template-columns:36px minmax(0,1fr);grid-template-rows:auto auto;align-content:center;align-items:center;gap:var(--space-0-5) var(--space-3);padding:var(--card-pad);background:var(--well);border-radius:var(--r-card)}
 .agency-metric-icon{grid-row:span 2;width:36px;height:36px;display:grid;place-items:center;border-radius:var(--r-tile);background:var(--card);color:var(--muted)}
-.agency-metric-value{font-size:var(--fs-2xl);line-height:var(--lh-tight);font-weight:var(--fw-semibold)}
-.agency-metric-label{color:var(--muted);font-size:var(--fs-sm)}
+.agency-metric strong,.agency-metric-value{font-size:var(--fs-2xl);line-height:var(--lh-tight);font-weight:var(--fw-semibold)}
+.agency-metric>span:last-child,.agency-metric-label{color:var(--muted);font-size:var(--fs-sm);line-height:var(--lh-snug)}
 .agency-toolbar{display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap}
-.agency-tabs{display:inline-flex;align-items:center;gap:var(--space-0-5);padding:var(--space-1);border-radius:var(--r-ctl);background:var(--well)}
+.agency-tabs{display:inline-flex;align-items:center;flex-wrap:wrap;gap:var(--space-0-5);padding:var(--space-1);border-radius:var(--r-ctl);background:var(--well)}
 .agency-tabs button{min-height:var(--ctl-md);padding:0 var(--space-4);border-radius:var(--r-ctl);color:var(--muted);font-size:var(--fs-sm)}
 .agency-tabs button.active{background:var(--card);color:var(--fg);box-shadow:var(--shadow-float)}
 .agency-search{min-width:180px;max-width:320px;height:var(--ctl-lg);flex:1;display:flex;align-items:center;gap:var(--space-2);padding:0 var(--space-3);border-radius:var(--r-field);color:var(--muted);background:var(--fill-field)}
@@ -151,8 +151,13 @@
 .agency-commercial-actions{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
 .agency-msg-list{display:grid;gap:var(--space-1);max-height:220px;overflow:auto}
 .agency-msg-row{display:grid;gap:var(--space-0-5);padding:var(--space-2);border-radius:var(--r-item-sm);background:var(--well);font-size:var(--fs-xs)}
-.agency-projects-grid,.agency-ops-grid{display:grid;gap:var(--space-3);grid-template-columns:minmax(0,1fr) minmax(0,1.25fr)}
-.agency-project-section{display:grid;gap:var(--space-3);padding:var(--card-pad);border-radius:var(--r-card);background:var(--well)}
+.agency-ops-stack{display:grid;gap:var(--space-4)}
+.agency-projects-grid,.agency-ops-grid{display:grid;gap:var(--space-4);grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);align-items:start}
+.agency-project-section{display:grid;gap:var(--space-3);padding:var(--card-pad);border-radius:var(--r-card);background:var(--well);min-width:0}
+.agency-project-section .agency-metric{background:var(--card)}
+.agency-project-section .agency-metric-icon{background:var(--well)}
+.agency-channels-bar{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap;padding:var(--space-3) var(--card-pad);border-radius:var(--r-card);background:var(--well)}
+.agency-channels-actions{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
 .agency-qa-gate{display:grid;gap:var(--space-2);padding:var(--space-3);border-radius:var(--r-item);background:var(--card)}
 .agency-qa-gate.ready{background:var(--green-soft);color:var(--green)}
 .agency-qa-gate.blocked{background:var(--red-wash);color:var(--red)}
