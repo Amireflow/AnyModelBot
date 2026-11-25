@@ -6,7 +6,7 @@
  * free loopback port (`127.0.0.1:<port>`), streams logs into a ring buffer,
  * and cleans up idle processes automatically.
  */
-import { type ChildProcess, execFile, spawn } from "node:child_process";
+import { type ChildProcess, execFile, execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
@@ -22,6 +22,8 @@ export interface StudioDevServerStatus {
   projectId: string;
   running: boolean;
   executionMode: StudioExecutionMode | null;
+  recommendedMode: StudioExecutionMode;
+  dockerAvailable: boolean;
   status: DevServerState;
   hasDevScript: boolean;
   port: number | null;
@@ -29,6 +31,34 @@ export interface StudioDevServerStatus {
   logs: string[];
   error?: string;
   startedAt?: number;
+}
+
+const DOCKER_CACHE_TTL_MS = 60_000;
+let cachedDockerCap: { dockerAvailable: boolean; checkedAt: number } | null = null;
+
+export function detectStudioExecutionCapabilities(force = false): {
+  dockerAvailable: boolean;
+  recommendedMode: StudioExecutionMode;
+} {
+  const now = Date.now();
+  if (!force && cachedDockerCap && now - cachedDockerCap.checkedAt < DOCKER_CACHE_TTL_MS) {
+    return {
+      dockerAvailable: cachedDockerCap.dockerAvailable,
+      recommendedMode: cachedDockerCap.dockerAvailable ? "container" : "host",
+    };
+  }
+  let dockerAvailable = false;
+  try {
+    execFileSync("docker", ["info"], { stdio: "ignore", timeout: 4000, windowsHide: true });
+    dockerAvailable = true;
+  } catch {
+    dockerAvailable = false;
+  }
+  cachedDockerCap = { dockerAvailable, checkedAt: now };
+  return {
+    dockerAvailable,
+    recommendedMode: dockerAvailable ? "container" : "host",
+  };
 }
 
 interface RunningServer {
@@ -312,6 +342,7 @@ function runNpmInstall(workspaceDir: string, srv: RunningServer): Promise<{ ok: 
 
 export function getStudioDevServerStatus(dataDir: string, project: Project): StudioDevServerStatus {
   const info = detectProjectDevScript(dataDir, project);
+  const caps = detectStudioExecutionCapabilities();
   const srv = servers.get(project.id);
   if (!srv) {
     return {
@@ -319,6 +350,8 @@ export function getStudioDevServerStatus(dataDir: string, project: Project): Stu
       running: false,
       status: "stopped",
       executionMode: null,
+      recommendedMode: caps.recommendedMode,
+      dockerAvailable: caps.dockerAvailable,
       hasDevScript: info.hasDevScript,
       port: null,
       url: null,
@@ -331,6 +364,8 @@ export function getStudioDevServerStatus(dataDir: string, project: Project): Stu
     running: srv.status === "running",
     status: srv.status,
     executionMode: srv.executionMode,
+    recommendedMode: caps.recommendedMode,
+    dockerAvailable: caps.dockerAvailable,
     hasDevScript: info.hasDevScript,
     port: srv.port,
     url: srv.status === "running" ? srv.url : null,
@@ -357,11 +392,14 @@ export function stopStudioDevServer(projectId: string): StudioDevServerStatus {
     }
     servers.delete(projectId);
   }
+  const caps = detectStudioExecutionCapabilities();
   return {
     projectId,
     running: false,
     status: "stopped",
     executionMode: null,
+    recommendedMode: caps.recommendedMode,
+    dockerAvailable: caps.dockerAvailable,
     hasDevScript: false,
     port: null,
     url: null,
@@ -380,7 +418,9 @@ export async function startStudioDevServer(
     throw new AgencyError("CONFLICT", "No 'dev' or 'start' script found in package.json for this project");
   }
 
-  const executionMode = opts?.executionMode === "host" ? "host" : "container";
+  const executionMode = opts?.executionMode === "host" || opts?.executionMode === "container"
+    ? opts.executionMode
+    : detectStudioExecutionCapabilities().recommendedMode;
   const existing = servers.get(project.id);
   if (!opts?.restart && existing && existing.status === "running" && existing.executionMode === executionMode && existing.child && !existing.child.killed) {
     existing.lastTouch = Date.now();

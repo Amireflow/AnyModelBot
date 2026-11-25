@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { buildStudioDockerRunArgs } from "../src/agency/studio-devserver.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import type { Project } from "../src/agency/types.js";
+import { resolveStudioPreviewAsset, rewritePreviewHtmlForStudio, writeWorkspaceFile } from "../src/agency/studio.js";
+import { buildStudioDockerRunArgs, detectStudioExecutionCapabilities } from "../src/agency/studio-devserver.js";
 
 function optionValue(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag);
@@ -85,5 +90,64 @@ describe("Studio Docker preview isolation", () => {
     expect(command).toContain("npm ci --no-audit --no-fund");
     expect(command).toContain("npm install --no-audit --no-fund --no-package-lock");
     expect(command).toContain("npm run dev -- --host 0.0.0.0 --port 4173 --strictPort");
+  });
+});
+
+describe("Studio preview resolution & runtime bridge", () => {
+  const tmpDirs: string[] = [];
+  afterEach(() => {
+    while (tmpDirs.length) fs.rmSync(tmpDirs.pop()!, { recursive: true, force: true });
+  });
+
+  it("prioritizes dist/index.html and dist assets over unbundled Vite root index.html", () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "amb-preview-dist-"));
+    tmpDirs.push(dataDir);
+    const project: Project = {
+      id: "proj-prev",
+      organizationId: "org-1",
+      leadId: "lead-1",
+      contractId: "ctr-1",
+      title: "Preview App",
+      status: "in_progress",
+      targetStack: ["react", "vite"],
+      budgetAmount: 2000,
+      currency: "EUR",
+      estimatedDays: 3,
+      workspacePath: "projects/proj-prev",
+      technicalSpecs: "",
+      handoffSummary: "",
+      handoffAt: Date.now(),
+      deliveredAt: null,
+      acceptedAt: null,
+      createdBy: "operator",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    writeWorkspaceFile(dataDir, project, "index.html", `<script type="module" src="/src/main.tsx"></script>`);
+    writeWorkspaceFile(dataDir, project, "dist/index.html", `<script type="module" src="/assets/index-123.js"></script>`);
+    writeWorkspaceFile(dataDir, project, "dist/assets/index-123.js", `console.log("built");`);
+
+    const resolvedHtml = resolveStudioPreviewAsset(dataDir, project, "index.html");
+    expect(resolvedHtml.relPath).toBe("dist/index.html");
+
+    const resolvedAsset = resolveStudioPreviewAsset(dataDir, project, "assets/index-123.js");
+    expect(resolvedAsset.relPath).toBe("dist/assets/index-123.js");
+    expect(resolvedAsset.data.toString("utf8")).toContain("built");
+
+    const relRewritten = rewritePreviewHtmlForStudio(resolvedHtml.data.toString("utf8"), {
+      relativeAssets: true,
+      injectBridge: true,
+    });
+    expect(relRewritten).toContain('src="./assets/index-123.js"');
+    expect(relRewritten).toContain("amb-studio-preview");
+
+    const proxyRewritten = rewritePreviewHtmlForStudio(`<script src="/@vite/client"></script>`, {
+      basePrefix: "/amb/api/agency/org-1/projects/proj-prev/studio/live/",
+      injectBridge: true,
+    });
+    expect(proxyRewritten).toContain('src="/amb/api/agency/org-1/projects/proj-prev/studio/live/@vite/client"');
+
+    const caps = detectStudioExecutionCapabilities();
+    expect(["host", "container"]).toContain(caps.recommendedMode);
   });
 });

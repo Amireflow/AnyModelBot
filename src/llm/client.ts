@@ -19,12 +19,24 @@ export function acceptsImages(model: string): boolean {
   return IMAGE_INPUT_MODELS.test(model);
 }
 
+export interface ChatStreamMeta {
+  finishReason?: string | null;
+  usage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+  };
+}
+
 export interface ChatRequest {
   model: string;
   messages: ChatMessage[];
   signal?: AbortSignal;
   /** 推理强度；没有就不发，用模型默认 */
   reasoningEffort?: string;
+  maxTokens?: number;
+  temperature?: number;
+  onMeta?: (meta: ChatStreamMeta) => void;
 }
 
 export interface ModelClient {
@@ -57,40 +69,105 @@ export class OpenAICompatClient implements ModelClient {
   }
 
   async streamChat(req: ChatRequest, onDelta: (delta: string) => void): Promise<string> {
-    const res = await this.fetchImpl(`${this.endpoint().baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: { ...this.headers(), Accept: "text/event-stream" },
-      body: JSON.stringify({ model: req.model, messages: req.messages, stream: true, ...(req.reasoningEffort ? { reasoning_effort: req.reasoningEffort } : {}) }),
-      signal: req.signal,
-    });
-    if (!res.ok || !res.body) {
-      const detail = await res.text().catch(() => "");
-      throw new ModelError(`HTTP ${res.status}`, res.status, detail.slice(0, 500));
-    }
-    let full = "";
-    const parser = new SSEParser((data) => {
-      if (data === "[DONE]") return;
-      let chunk: { choices?: Array<{ delta?: { content?: string | null }; message?: { content?: string } }>; error?: { message?: string } };
+    const payload: Record<string, unknown> = {
+      model: req.model,
+      messages: req.messages,
+      stream: true,
+      ...(req.reasoningEffort ? { reasoning_effort: req.reasoningEffort } : {}),
+      ...(typeof req.maxTokens === "number" && req.maxTokens > 0 ? { max_tokens: Math.round(req.maxTokens) } : {}),
+      ...(typeof req.temperature === "number" ? { temperature: req.temperature } : {}),
+    };
+    const retryableStatuses = new Set([429, 502, 503, 504]);
+    const maxAttempts = 3;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let full = "";
+      let finishReason: string | null = null;
+      let usage: ChatStreamMeta["usage"];
       try {
-        chunk = JSON.parse(data);
-      } catch {
-        return;
+        const res = await this.fetchImpl(`${this.endpoint().baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: { ...this.headers(), Accept: "text/event-stream" },
+          body: JSON.stringify(payload),
+          signal: req.signal,
+        });
+        if (!res.ok || !res.body) {
+          const detail = await res.text().catch(() => "");
+          if (attempt < maxAttempts && retryableStatuses.has(res.status) && !req.signal?.aborted) {
+            const delayMs = 600 * attempt * attempt + Math.floor(Math.random() * 250);
+            await waitWithAbort(delayMs, req.signal);
+            continue;
+          }
+          throw new ModelError(`HTTP ${res.status}`, res.status, detail.slice(0, 500));
+        }
+        const parser = new SSEParser((data) => {
+          if (data === "[DONE]") return;
+          let chunk: {
+            choices?: Array<{ delta?: { content?: string | null }; message?: { content?: string }; finish_reason?: string | null }>;
+            usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+            error?: { message?: string };
+          };
+          try {
+            chunk = JSON.parse(data);
+          } catch {
+            return;
+          }
+          if (chunk.error) throw new ModelError(chunk.error.message || "upstream error", 502, "");
+          const choice = chunk.choices?.[0];
+          if (choice?.finish_reason) finishReason = choice.finish_reason;
+          if (chunk.usage) {
+            usage = {
+              promptTokens: chunk.usage.prompt_tokens,
+              completionTokens: chunk.usage.completion_tokens,
+              totalTokens: chunk.usage.total_tokens,
+            };
+          }
+          const delta = choice?.delta?.content ?? choice?.message?.content ?? "";
+          if (delta) {
+            full += delta;
+            onDelta(delta);
+          }
+        });
+        const decoder = new TextDecoder();
+        for await (const bytes of res.body as unknown as AsyncIterable<Uint8Array>) {
+          parser.push(decoder.decode(bytes, { stream: true }));
+        }
+        parser.push(decoder.decode());
+        parser.end();
+        req.onMeta?.({ finishReason, usage });
+        return full;
+      } catch (err) {
+        if (req.signal?.aborted || full.length > 0 || attempt >= maxAttempts) {
+          throw err;
+        }
+        const status = err instanceof ModelError ? err.status : 0;
+        const transientNetwork = !(err instanceof ModelError);
+        if (transientNetwork || retryableStatuses.has(status)) {
+          const delayMs = 600 * attempt * attempt + Math.floor(Math.random() * 250);
+          await waitWithAbort(delayMs, req.signal);
+          continue;
+        }
+        throw err;
       }
-      if (chunk.error) throw new ModelError(chunk.error.message || "upstream error", 502, "");
-      const delta = chunk.choices?.[0]?.delta?.content ?? chunk.choices?.[0]?.message?.content ?? "";
-      if (delta) {
-        full += delta;
-        onDelta(delta);
-      }
-    });
-    const decoder = new TextDecoder();
-    for await (const bytes of res.body as unknown as AsyncIterable<Uint8Array>) {
-      parser.push(decoder.decode(bytes, { stream: true }));
     }
-    parser.push(decoder.decode());
-    parser.end();
-    return full;
+    throw new Error("unreachable");
   }
+}
+
+function waitWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) return new Promise((resolve) => setTimeout(resolve, ms));
+  if (signal.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export class ModelError extends Error {

@@ -11,6 +11,7 @@ import type {
   QaCategory, QaCheckStatus, QuoteLineItem, QuoteTier, ServiceCatalogItem, SolutionType,
   UpdateQualificationProfileInput, UpsertNeedsQualificationInput,
 } from "../../agency/types.js";
+import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { HttpError, readJson, send, webEvent, type Route, type WebContext } from "../http.js";
 import { CompanyResearchImportError, findActiveCompanyResearchJob, listCompanyResearchJobs, loadCompanyResearchSources } from "../../agency/company-research-import.js";
@@ -53,6 +54,7 @@ import {
   planProjectLotsWithAi,
   readWorkspaceFile,
   resolveStudioPreviewAsset,
+  rewritePreviewHtmlForStudio,
   rollbackStudioSnapshot,
   runStudioAiAgent,
   runStudioCommand,
@@ -1326,7 +1328,12 @@ export function agencyRoutes(ctx: WebContext): Route {
                   enabled:configured.enabled,
                 };
               });
-              return send(res,200,{ messages:st.messages, plan:st.plan, subagents });
+              return send(res,200,{
+                messages:st.messages,
+                plan:st.plan,
+                subagents,
+                activeRun:STUDIO_EXECUTION_CONTROLLERS.has(executionKey),
+              });
             }
             if (seg.length===6 && seg[5]==="history" && method==="DELETE") {
               await clearStudioState(dataDir,projectId);
@@ -1586,22 +1593,94 @@ export function agencyRoutes(ctx: WebContext): Route {
             }
             if (seg.length===7 && seg[5]==="devserver" && seg[6]==="start" && method==="POST") {
               const body=await readObject(req).catch(() => ({} as Record<string,unknown>));
-              const executionMode=body.executionMode==="host" ? "host" : "container";
+              const executionMode=body.executionMode==="host" || body.executionMode==="container" ? body.executionMode : undefined;
               return send(res,200,await startStudioDevServer(dataDir,project,{ restart:body.restart===true, executionMode }));
             }
             if (seg.length===7 && seg[5]==="devserver" && seg[6]==="stop" && method==="POST") {
               return send(res,200,stopStudioDevServer(project.id));
             }
+            if (seg[5]==="live" && (method==="GET" || method==="HEAD" || method==="POST" || method==="PUT" || method==="PATCH" || method==="DELETE" || method==="OPTIONS")) {
+              const status=getStudioDevServerStatus(dataDir,project);
+              if (!status.running || !status.port) {
+                return send(res,409,{error:"DEV_SERVER_NOT_RUNNING",message:"Live dev server is not running"});
+              }
+              const parsedReqUrl=new URL(req.url || "/", "http://127.0.0.1");
+              const subPath=seg.length>6 ? "/"+seg.slice(6).join("/") : "/";
+              const targetPath=`${subPath}${parsedReqUrl.search}`;
+              const proxyReqHeaders: Record<string,string|string[]|undefined> = { ...req.headers };
+              delete proxyReqHeaders["host"];
+              delete proxyReqHeaders["accept-encoding"];
+              delete proxyReqHeaders["connection"];
+              await new Promise<void>((resolveProxy) => {
+                const upstream=http.request(
+                  {
+                    hostname:"127.0.0.1",
+                    port:status.port!,
+                    path:targetPath,
+                    method,
+                    headers:proxyReqHeaders,
+                  },
+                  (upRes) => {
+                    const headersOut: Record<string,string|string[]> = {};
+                    for (const [hk,hv] of Object.entries(upRes.headers)) {
+                      if (hv!==undefined && hk.toLowerCase()!=="content-length" && hk.toLowerCase()!=="x-frame-options" && hk.toLowerCase()!=="content-security-policy") {
+                        headersOut[hk]=hv;
+                      }
+                    }
+                    const ct=String(upRes.headers["content-type"] || "");
+                    if (ct.includes("text/html")) {
+                      const chunks: Buffer[]=[];
+                      upRes.on("data",(chunk: Buffer) => chunks.push(chunk));
+                      upRes.on("end",() => {
+                        const rawHtml=Buffer.concat(chunks).toString("utf8");
+                        const basePrefix=parsedReqUrl.pathname.replace(/\/live(?:\/.*)?$/, "/live/");
+                        const rewritten=rewritePreviewHtmlForStudio(rawHtml,{
+                          basePrefix,
+                          injectBridge:true,
+                        });
+                        headersOut["cache-control"]="no-store";
+                        res.writeHead(upRes.statusCode ?? 200,headersOut);
+                        res.end(Buffer.from(rewritten,"utf8"));
+                        resolveProxy();
+                      });
+                    } else {
+                      res.writeHead(upRes.statusCode ?? 200,headersOut);
+                      upRes.pipe(res);
+                      upRes.on("end",() => resolveProxy());
+                    }
+                  },
+                );
+                upstream.on("error",(err) => {
+                  if (!res.headersSent) {
+                    send(res,502,{error:"LIVE_PROXY_ERROR",message:(err as Error).message || "Upstream unavailable"});
+                  } else {
+                    res.end();
+                  }
+                  resolveProxy();
+                });
+                if (method!=="GET" && method!=="HEAD") {
+                  req.pipe(upstream);
+                } else {
+                  upstream.end();
+                }
+              });
+              return;
+            }
             if (seg[5]==="preview" && method==="GET") {
               const relPath=seg.length>6 ? seg.slice(6).map((s) => decodeURIComponent(s)).join("/") : "index.html";
               const asset=resolveStudioPreviewAsset(dataDir,project,relPath);
+              let payload=asset.data;
+              if (asset.mimeType.startsWith("text/html")) {
+                const rewritten=rewritePreviewHtmlForStudio(asset.data.toString("utf8"),{ relativeAssets:true, injectBridge:true });
+                payload=Buffer.from(rewritten,"utf8");
+              }
               res.writeHead(200,{
                 "content-type":asset.mimeType,
                 "cache-control":"no-store",
                 "x-content-type-options":"nosniff",
                 "content-security-policy":"default-src 'self' https: 'unsafe-inline' 'unsafe-eval' data: blob:; img-src 'self' https: data: blob:; font-src 'self' https: data:; style-src 'self' https: 'unsafe-inline'; script-src 'self' https: 'unsafe-inline' 'unsafe-eval'",
               });
-              res.end(asset.data);
+              res.end(payload);
               return;
             }
           }

@@ -21,12 +21,16 @@
 export type StudioParsedAction =
   | { tool: "list_files" }
   | { tool: "search_files"; query: string }
-  | { tool: "read_file"; path: string }
+  | { tool: "glob_files"; pattern: string }
+  | { tool: "grep_files"; query: string; path?: string }
+  | { tool: "read_file"; path: string; startLine?: number; endLine?: number }
   | { tool: "write_file"; path: string; content: string }
   | { tool: "patch_file"; path: string; search: string; replace: string }
   | { tool: "delete_file"; path: string }
   | { tool: "add_dependency"; packages: string[] }
   | { tool: "run_check"; action: string }
+  | { tool: "diagnostics" }
+  | { tool: "run_command"; command: string }
   | { tool: "finish"; summary: string };
 
 export interface ParsedStudioReply {
@@ -57,7 +61,25 @@ function parsePackageList(raw: string): string[] {
 }
 
 const XML_TAG_PATTERN =
-  /<studio-(write|patch|delete|read|search|list|add-dep|run|done)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/studio-\1>)/gi;
+  /<studio-(write|patch|delete|read|search|glob|grep|list|add-dep|run|diagnostics|cmd|done)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/studio-\1>)/gi;
+
+function getIntAttr(attrText: string, name: string): number | undefined {
+  const raw = getAttr(attrText, name);
+  if (!raw) return undefined;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+export function hasTruncatedStudioTag(reply: string): string | null {
+  const text = String(reply ?? "");
+  const openMatches = [...text.matchAll(/<studio-(write|patch|cmd)\b[^>]*>/gi)];
+  if (openMatches.length === 0) return null;
+  const last = openMatches[openMatches.length - 1];
+  const tag = last[1].toLowerCase();
+  const tail = text.slice((last.index ?? 0) + last[0].length);
+  const closeRe = new RegExp(`</studio-${tag}>`, "i");
+  return closeRe.test(tail) ? null : tag;
+}
 
 export function parseStudioActions(reply: string): ParsedStudioReply {
   const text = String(reply ?? "");
@@ -77,12 +99,25 @@ export function parseStudioActions(reply: string): ParsedStudioReply {
         break;
       case "read": {
         const p = getAttr(attrs, "path") || body.trim();
-        if (p) actions.push({ tool: "read_file", path: p });
+        const startLine = getIntAttr(attrs, "start") ?? getIntAttr(attrs, "startLine");
+        const endLine = getIntAttr(attrs, "end") ?? getIntAttr(attrs, "endLine");
+        if (p) actions.push({ tool: "read_file", path: p, ...(startLine ? { startLine } : {}), ...(endLine ? { endLine } : {}) });
         break;
       }
       case "search": {
         const q = getAttr(attrs, "query") || body.trim();
         if (q) actions.push({ tool: "search_files", query: q });
+        break;
+      }
+      case "glob": {
+        const pattern = getAttr(attrs, "pattern") || body.trim();
+        if (pattern) actions.push({ tool: "glob_files", pattern });
+        break;
+      }
+      case "grep": {
+        const query = getAttr(attrs, "query") || body.trim();
+        const subPath = getAttr(attrs, "path") || undefined;
+        if (query) actions.push({ tool: "grep_files", query, ...(subPath ? { path: subPath } : {}) });
         break;
       }
       case "write": {
@@ -120,6 +155,14 @@ export function parseStudioActions(reply: string): ParsedStudioReply {
       case "run": {
         const action = getAttr(attrs, "action") || body.trim() || "npm_test";
         actions.push({ tool: "run_check", action });
+        break;
+      }
+      case "diagnostics":
+        actions.push({ tool: "diagnostics" });
+        break;
+      case "cmd": {
+        const command = getAttr(attrs, "command") || body.trim();
+        if (command) actions.push({ tool: "run_command", command });
         break;
       }
       case "done":
@@ -198,14 +241,18 @@ export const STUDIO_XML_PROTOCOL_PROMPT = [
   `- Modifier une portion précise d'un fichier existant :`,
   `  <studio-patch path="chemin/relatif.ext"><search>extrait exact</search><replace>nouveau code</replace></studio-patch>`,
   `- Supprimer un fichier : <studio-delete path="chemin/relatif.ext" />`,
-  `- Lire un fichier : <studio-read path="chemin/relatif.ext" />`,
+  `- Lire un fichier (optionnellement par plage de lignes) : <studio-read path="chemin/relatif.ext" start="1" end="250" />`,
   `- Lister les fichiers : <studio-list />`,
-  `- Rechercher dans le workspace : <studio-search query="mot-clé" />`,
+  `- Trouver des fichiers par motif glob : <studio-glob pattern="src/**/*.tsx" />`,
+  `- Rechercher texte/regex avec numéros de ligne : <studio-grep query="motif" path="src" />`,
+  `- Rechercher simple dans le workspace : <studio-search query="mot-clé" />`,
   `- Installer des packages npm : <studio-add-dep packages="lucide-react" />`,
+  `- Vérifier TypeScript (erreurs exactes fichier:ligne) : <studio-diagnostics />`,
   `- Exécuter une vérification : <studio-run action="npm_build" /> (actions: npm_test, npm_typecheck, npm_build, git_status, npm_install)`,
+  `- Exécuter une commande dev autorisée : <studio-cmd>npx tsc --noEmit</studio-cmd>`,
   `- Terminer : <studio-done>Résumé factuel et concis des modifications réalisées</studio-done>`,
   `RÈGLES IMPORTANTES :`,
   `- N'enveloppe JAMAIS les balises <studio-*> dans du JSON ni dans des blocs markdown \`\`\`.`,
-  `- Pour créer ou modifier plusieurs fichiers cohérents, émets plusieurs <studio-write> dans le MÊME message (c'est plus rapide et plus fiable).`,
-  `- Termine par <studio-done>...</studio-done> dès que ta tâche est complète.`,
+  `- Émets le code complet sans ellipses ni "// ... reste du code". Pour créer ou modifier plusieurs fichiers cohérents, émets plusieurs <studio-write> / <studio-patch> dans le MÊME message.`,
+  `- Avant de terminer (<studio-done>), vérifie toujours avec <studio-diagnostics /> et <studio-run action="npm_build" /> si le projet a un package.json.`,
 ].join("\n");

@@ -24,6 +24,7 @@ import {
   runStudioCommand,
   type StudioAgentStep,
 } from "./studio.js";
+import { buildWorkspaceRepoMap } from "./studio-context.js";
 import type { AgencyAgentRole, Project } from "./types.js";
 import { initProjectWorkspace, resolveSafeWorkspacePath } from "./workspace-runner.js";
 
@@ -73,6 +74,7 @@ export interface StudioPlanTask {
   description: string;
   subagent: StudioSubagentId;
   targetFiles: string[];
+  dependsOn?: string[];
   status: "pending" | "running" | "done" | "failed";
   summary?: string;
   modifiedFiles?: string[];
@@ -111,6 +113,8 @@ export interface StudioChatMessage {
   snapshotBeforeCommit?: string;
   snapshotCommit?: string;
   cancelled?: boolean;
+  durationMs?: number;
+  steps?: StudioAgentStep[];
 }
 
 export interface StudioProjectState {
@@ -165,11 +169,57 @@ function sanitizePlanTask(raw: unknown, idx: number): StudioPlanTask | null {
       : [],
     status,
   };
+  if (Array.isArray(t.dependsOn)) {
+    task.dependsOn = t.dependsOn.map((d) => String(d).trim()).filter(Boolean).slice(0, 10);
+  }
   if (typeof t.summary === "string") task.summary = t.summary.slice(0, 1000);
   if (Array.isArray(t.modifiedFiles)) {
     task.modifiedFiles = t.modifiedFiles.map((f) => String(f)).filter(Boolean).slice(0, 40);
   }
   return task;
+}
+
+export function partitionDisjointTaskWaves(tasks: readonly StudioPlanTask[]): StudioPlanTask[][] {
+  if (tasks.length <= 1) return tasks.length === 1 ? [[tasks[0]]] : [];
+  const allIds = new Set(tasks.map((t) => t.id));
+  const completed = new Set<string>();
+  const remaining = [...tasks];
+  const waves: StudioPlanTask[][] = [];
+  const normFile = (f: string) => f.trim().replaceAll("\\", "/").replace(/^\.\//, "").toLowerCase();
+
+  while (remaining.length > 0) {
+    const eligible = remaining.filter((t) =>
+      (t.dependsOn ?? []).every((dep) => !allIds.has(dep) || completed.has(dep)),
+    );
+    const pool = eligible.length > 0 ? eligible : [remaining[0]];
+    const first = pool[0];
+    const wave: StudioPlanTask[] = [first];
+    const usedFiles = new Set(first.targetFiles.map(normFile).filter(Boolean));
+    const canParallelizeFirst =
+      first.subagent !== "architect" &&
+      first.subagent !== "qa" &&
+      usedFiles.size > 0;
+
+    if (canParallelizeFirst) {
+      for (let i = 1; i < pool.length; i++) {
+        const candidate = pool[i];
+        if (candidate.subagent === "architect" || candidate.subagent === "qa") continue;
+        const candFiles = candidate.targetFiles.map(normFile).filter(Boolean);
+        if (candFiles.length === 0) continue;
+        if (candFiles.some((f) => usedFiles.has(f))) continue;
+        wave.push(candidate);
+        for (const f of candFiles) usedFiles.add(f);
+      }
+    }
+
+    const pickedIds = new Set(wave.map((t) => t.id));
+    for (const t of wave) completed.add(t.id);
+    for (let i = remaining.length - 1; i >= 0; i--) {
+      if (pickedIds.has(remaining[i].id)) remaining.splice(i, 1);
+    }
+    waves.push(wave);
+  }
+  return waves;
 }
 
 function sanitizePlan(raw: unknown): StudioPlan | null {
@@ -236,6 +286,33 @@ function sanitizeMessage(raw: unknown): StudioChatMessage | null {
   if (m.cancelled === true) msg.cancelled = true;
   if (typeof m.snapshotCommit === "string" && /^[0-9a-f]{7,40}$/i.test(m.snapshotCommit)) {
     msg.snapshotCommit = m.snapshotCommit;
+  }
+  if (typeof m.durationMs === "number" && Number.isFinite(m.durationMs) && m.durationMs >= 0) {
+    msg.durationMs = Math.round(m.durationMs);
+  }
+  if (Array.isArray(m.steps)) {
+    msg.steps = m.steps
+      .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
+      .slice(-40)
+      .map((s, idx) => {
+        const entry: StudioAgentStep = {
+          step: typeof s.step === "number" && Number.isFinite(s.step) ? Math.max(1, Math.round(s.step)) : idx + 1,
+          tool: String(s.tool ?? "").slice(0, 60),
+          target: String(s.target ?? "").slice(0, 240),
+          ok: s.ok === true,
+          summary: String(s.summary ?? "").slice(0, 500),
+        };
+        if (typeof s.durationMs === "number" && Number.isFinite(s.durationMs) && s.durationMs >= 0) {
+          entry.durationMs = Math.round(s.durationMs);
+        }
+        if (typeof s.subagent === "string" && s.subagent.trim()) {
+          entry.subagent = s.subagent.trim().slice(0, 40);
+        }
+        if (typeof s.taskId === "string" && s.taskId.trim()) {
+          entry.taskId = s.taskId.trim().slice(0, 60);
+        }
+        return entry;
+      });
   }
   return msg;
 }
@@ -331,8 +408,11 @@ export function buildProjectBriefContext(dataDir: string, project: Project): {
     }
   }
 
+  const repoMap = codeFiles.length > 0 ? buildWorkspaceRepoMap(dataDir, project, 6500) : "";
   chunks.push(
-    `### Fichiers applicatifs existants\n${codeFiles.length ? codeFiles.join(", ") : "(aucun fichier applicatif créé pour le moment)"}`,
+    repoMap
+      ? `### Carte du codebase\n${repoMap}`
+      : `### Fichiers applicatifs existants\n(aucun fichier applicatif créé pour le moment)`,
   );
 
   return {
@@ -520,6 +600,16 @@ export async function runStudioConversation(input: {
   }
 
   initProjectWorkspace({ dataDir: input.dataDir, project: input.project, lots: [] });
+  const turnStartedAt = Date.now();
+  const collectedSteps: StudioAgentStep[] = [];
+  const emitFocus = (
+    phase: string,
+    text: string,
+    extra?: { subagent?: StudioSubagentId; taskId?: string },
+  ) => {
+    input.onEvent?.("focus", { phase, text, ...extra });
+  };
+
   const state = await loadStudioState(input.dataDir, input.project.id);
   const brief = buildProjectBriefContext(input.dataDir, input.project);
 
@@ -550,6 +640,7 @@ export async function runStudioConversation(input: {
       snapshotCommit?: string;
     } = {},
   ) => {
+    const durationMs = Math.max(0, Date.now() - turnStartedAt);
     const assistantMsg: StudioChatMessage = {
       id: crypto.randomUUID(),
       role: "assistant",
@@ -557,6 +648,8 @@ export async function runStudioConversation(input: {
       text,
       at: new Date().toISOString(),
       cancelled: true,
+      durationMs,
+      ...(collectedSteps.length ? { steps: collectedSteps.slice(-40) } : {}),
       ...(details.modifiedFiles?.length ? { modifiedFiles: details.modifiedFiles } : {}),
       ...(details.subagentRuns?.length ? { subagentRuns: details.subagentRuns } : {}),
       ...(details.snapshotBeforeCommit ? { snapshotBeforeCommit: details.snapshotBeforeCommit } : {}),
@@ -585,6 +678,7 @@ export async function runStudioConversation(input: {
   if (input.mode === "plan") {
     const archRuntime = input.resolveRuntime("architect");
     const model = await resolveModel(input.modelClient, archRuntime.model || input.defaultModel);
+    emitFocus("planning", "Analyse du cahier des charges et conception du plan", { subagent: "architect" });
 
     const systemPrompt = [
       `Tu es l'Architecte Principal du Studio IA (niveau Lovable / Bolt).`,
@@ -644,6 +738,7 @@ export async function runStudioConversation(input: {
       text: replyText,
       at: new Date().toISOString(),
       plan: nextPlan,
+      durationMs: Math.max(0, Date.now() - turnStartedAt),
     };
     state.plan = nextPlan;
     state.messages.push(assistantMsg);
@@ -655,6 +750,7 @@ export async function runStudioConversation(input: {
   }
 
   // MODE BUILD: Snapshot Git puis exécution orchestrée par les sous-agents spécialisés
+  emitFocus("snapshot", "Création du point de restauration Git");
   const beforeBuildSnapshot = await createStudioSnapshot(input.dataDir, input.project, "avant-studio-build").catch(() => undefined);
   if (input.signal?.aborted) {
     return persistCancelledTurn("Construction interrompue avant le démarrage des sous-agents.", {
@@ -684,63 +780,92 @@ export async function runStudioConversation(input: {
       },
     ];
   } else {
-    const archRuntime = input.resolveRuntime("architect");
-    const routerModel = await resolveModel(input.modelClient, archRuntime.model || input.defaultModel);
-    const routingPrompt = [
-      `Tu es l'orchestrateur du Studio IA pour "${input.project.title}".`,
-      `Découpe cette demande en 1 à 4 tâches ciblées confiées aux sous-agents spécialisés (architect, ui_ux, frontend, backend, qa).`,
-      `Si aucun fichier applicatif n'existe encore, prévois une construction complète sur mesure (ui_ux puis frontend, et backend si API/données requises, puis qa) tirée du brief et des documents.`,
-      `Si c'est un ajustement ciblé, ne crée que 1 à 2 tâches focalisées sur les sous-agents pertinents.`,
-      `Retourne STRICTEMENT un JSON : {"tasks":[{"id":"t1","title":"...","description":"...","subagent":"ui_ux|frontend|backend|architect|qa","targetFiles":["..."]}]}`,
-    ].join("\n");
+    const appSourceFiles = brief.codeFiles.filter((f) =>
+      /\.(html|css|js|jsx|mjs|ts|tsx|vue|svelte|py|json)$/i.test(f),
+    );
+    const looksLikeQuickEdit =
+      appSourceFiles.length >= 2 &&
+      userDisplay.length <= 240 &&
+      !/\b(refonte|architecture|complet|complète|base de données|database|backend\s*\+\s*frontend|multi-pages|application entière)\b/i.test(userDisplay);
 
-    const routingRaw = await input.modelClient.streamChat(
-      {
-        model: routerModel,
-        messages: [
-          { role: "system", content: routingPrompt },
-          {
-            role: "user",
-            content: [
-              brief.contextText,
-              historyLines.length ? `HISTORIQUE :\n${historyLines.slice(-6).join("\n")}` : "",
-              `INSTRUCTION :\n${userDisplay}`,
-            ].filter(Boolean).join("\n\n"),
-          },
-        ],
-        signal: input.signal,
-      },
-      () => {},
-    ).catch((error) => {
-      if (input.signal?.aborted) return "";
-      return "";
-    });
-    if (input.signal?.aborted) {
-      return persistCancelledTurn("Construction interrompue pendant la préparation des tâches.", {
-        snapshotBeforeCommit: beforeBuildSnapshot?.commitHash,
-      });
-    }
+    if (looksLikeQuickEdit) {
+      const quickSubagent: StudioSubagentId = /\b(bug|erreur|error|fix|répar|cass|typescript|build|test|tsc)\b/i.test(userDisplay)
+        ? "qa"
+        : /\b(api|route|server|backend|endpoint|sqlite|json\s+data|auth)\b/i.test(userDisplay)
+          ? "backend"
+          : /\b(css|style|design|couleur|color|police|font|layout|responsive|thème|theme|animation|bouton)\b/i.test(userDisplay)
+            ? "ui_ux"
+            : "frontend";
+      tasksToRun = [
+        {
+          id: "t1",
+          title: quickSubagent === "qa" ? "Diagnostic et correction ciblée" : "Ajustement rapide ciblé",
+          description: userDisplay,
+          subagent: quickSubagent,
+          targetFiles: brief.codeFiles.slice(0, 8),
+          status: "pending",
+        },
+      ];
+    } else {
+      const archRuntime = input.resolveRuntime("architect");
+      const routerModel = await resolveModel(input.modelClient, archRuntime.model || input.defaultModel);
+      emitFocus("routing", "Découpage de la demande en tâches sous-agents", { subagent: "architect" });
+      const routingPrompt = [
+        `Tu es l'orchestrateur du Studio IA pour "${input.project.title}".`,
+        `Découpe cette demande en 1 à 4 tâches ciblées confiées aux sous-agents spécialisés (architect, ui_ux, frontend, backend, qa).`,
+        `Si aucun fichier applicatif n'existe encore, prévois une construction complète sur mesure (ui_ux puis frontend, et backend si API/données requises, puis qa) tirée du brief et des documents.`,
+        `Si c'est un ajustement ciblé, ne crée que 1 à 2 tâches focalisées sur les sous-agents pertinents.`,
+        `Tu peux indiquer "dependsOn":["t1"] et des "targetFiles" disjoints pour permettre l'exécution en parallèle des tâches indépendantes.`,
+        `Retourne STRICTEMENT un JSON : {"tasks":[{"id":"t1","title":"...","description":"...","subagent":"ui_ux|frontend|backend|architect|qa","targetFiles":["..."],"dependsOn":[]}]}`,
+      ].join("\n");
 
-    const parsedRouting = parseJsonObjectFromReply(routingRaw);
-    const rawTasks = Array.isArray(parsedRouting?.tasks) ? parsedRouting.tasks : [];
-    tasksToRun = rawTasks
-      .map((t, idx) => sanitizePlanTask(t, idx))
-      .filter((x): x is StudioPlanTask => x !== null)
-      .slice(0, 5);
-
-    if (tasksToRun.length === 0) {
-      tasksToRun = brief.codeFiles.length === 0
-        ? buildFallbackPlanFromBrief(input.project, userDisplay).tasks
-        : [
+      const routingRaw = await input.modelClient.streamChat(
+        {
+          model: routerModel,
+          temperature: 0.1,
+          maxTokens: 2048,
+          messages: [
+            { role: "system", content: routingPrompt },
             {
-              id: "t1",
-              title: "Mise à jour applicative",
-              description: userDisplay,
-              subagent: "frontend",
-              targetFiles: brief.codeFiles.slice(0, 6),
-              status: "pending",
+              role: "user",
+              content: [
+                brief.contextText,
+                historyLines.length ? `HISTORIQUE :\n${historyLines.slice(-6).join("\n")}` : "",
+                `INSTRUCTION :\n${userDisplay}`,
+              ].filter(Boolean).join("\n\n"),
             },
-          ];
+          ],
+          signal: input.signal,
+        },
+        () => {},
+      ).catch(() => "");
+      if (input.signal?.aborted) {
+        return persistCancelledTurn("Construction interrompue pendant la préparation des tâches.", {
+          snapshotBeforeCommit: beforeBuildSnapshot?.commitHash,
+        });
+      }
+
+      const parsedRouting = parseJsonObjectFromReply(routingRaw);
+      const rawTasks = Array.isArray(parsedRouting?.tasks) ? parsedRouting.tasks : [];
+      tasksToRun = rawTasks
+        .map((t, idx) => sanitizePlanTask(t, idx))
+        .filter((x): x is StudioPlanTask => x !== null)
+        .slice(0, 5);
+
+      if (tasksToRun.length === 0) {
+        tasksToRun = brief.codeFiles.length === 0
+          ? buildFallbackPlanFromBrief(input.project, userDisplay).tasks
+          : [
+              {
+                id: "t1",
+                title: "Mise à jour applicative",
+                description: userDisplay,
+                subagent: "frontend",
+                targetFiles: brief.codeFiles.slice(0, 6),
+                status: "pending",
+              },
+            ];
+      }
     }
 
     state.plan = {
@@ -760,11 +885,12 @@ export async function runStudioConversation(input: {
   let rollingSummary = "";
   let cancelled = false;
 
-  for (const task of tasksToRun) {
-    if (input.signal?.aborted) { cancelled = true; break; }
+  const executeSingleTask = async (task: StudioPlanTask): Promise<void> => {
+    if (input.signal?.aborted) { cancelled = true; return; }
     const spec = SUBAGENT_SPEC_MAP.get(task.subagent) ?? SUBAGENT_SPEC_MAP.get("frontend")!;
     const runtime = input.resolveRuntime(spec.agencyRole);
     task.status = "running";
+    emitFocus("subagent", `${runtime.displayName} — ${task.title}`, { subagent: spec.id, taskId: task.id });
     input.onEvent?.("subagent_start", {
       taskId: task.id,
       subagent: spec.id,
@@ -796,15 +922,35 @@ export async function runStudioConversation(input: {
         dataDir: input.dataDir,
         project: input.project,
         instruction: taskInstruction,
-        maxSteps: Math.max(8, runtime.maxSteps || 10),
+        maxSteps: Math.max(12, runtime.maxSteps || 14),
+        temperature: 0.15,
+        maxTokens: 16384,
         modelClient: input.modelClient,
         defaultModel: runtime.model || input.defaultModel,
         hasLlmEndpoint: true,
         agentInstructions: directive,
         agentRules: runtime.agentRules,
         signal: input.signal,
+        onDelta: (delta) => {
+          input.onEvent?.("delta", { taskId: task.id, subagent: spec.id, delta });
+        },
+        onStepStart: (step) => {
+          emitFocus("tool", step.target ? `${step.tool} · ${step.target}` : step.tool, {
+            subagent: spec.id,
+            taskId: task.id,
+          });
+          input.onEvent?.("step_start", {
+            ...step,
+            taskId: task.id,
+            subagent: spec.id,
+            status: "running",
+            at: Date.now(),
+          });
+        },
         onStep: (step: StudioAgentStep) => {
-          input.onEvent?.("step", { ...step, taskId: task.id, subagent: spec.id });
+          const enriched: StudioAgentStep = { ...step, taskId: task.id, subagent: spec.id };
+          collectedSteps.push(enriched);
+          input.onEvent?.("step", { ...enriched, status: step.ok ? "done" : "error" });
         },
       });
       if (execResult.cancelled) {
@@ -824,11 +970,12 @@ export async function runStudioConversation(input: {
         };
         runs.push(cancelledRun);
         input.onEvent?.("subagent_done", cancelledRun);
-        break;
+        return;
       }
       if (!execResult.ok) {
         const failures = execResult.steps
-          .filter((step) => !step.ok && ["write_file", "patch_file", "delete_file", "add_dependency", "run_check"].includes(step.tool))
+          .filter((step) => !step.ok && ["write_file", "patch_file", "delete_file", "add_dependency", "run_check", "run_command", "diagnostics"].includes(step.tool))
+          .slice(-3)
           .map((step) => `${step.tool}${step.target ? ` (${step.target})` : ""}: ${step.summary}`)
           .join(" ; ");
         throw new AgencyError("CONFLICT", failures || "Le sous-agent n'a pas confirmé la fin correcte de ses actions.");
@@ -870,6 +1017,16 @@ export async function runStudioConversation(input: {
       runs.push(runSummary);
       input.onEvent?.("subagent_done", runSummary);
     }
+  };
+
+  const taskWaves = partitionDisjointTaskWaves(tasksToRun);
+  for (const wave of taskWaves) {
+    if (cancelled || input.signal?.aborted) { cancelled = true; break; }
+    if (wave.length === 1) {
+      await executeSingleTask(wave[0]);
+    } else {
+      await Promise.all(wave.map((task) => executeSingleTask(task)));
+    }
   }
 
   if (state.plan) {
@@ -883,7 +1040,7 @@ export async function runStudioConversation(input: {
   // Détection automatique d'erreurs (entrypoint aperçu / typecheck / build) + boucle d'auto-réparation QA
   if (!cancelled && !input.signal?.aborted && !input.skipAutoVerify && (allModified.size > 0 || runs.some((r) => r.ok))) {
     const qaRuntime = input.resolveRuntime("qa_technical");
-    const MAX_AUTO_FIX_ATTEMPTS = 2;
+    const MAX_AUTO_FIX_ATTEMPTS = 4;
     let didInstall = false;
     for (let attempt = 1; attempt <= MAX_AUTO_FIX_ATTEMPTS; attempt++) {
       if (input.signal?.aborted) { cancelled = true; break; }
@@ -892,40 +1049,75 @@ export async function runStudioConversation(input: {
 
       if (verifyPlan.needsInstall && !didInstall) {
         didInstall = true;
+        const installTaskId = `verify-${attempt}`;
+        emitFocus("verify", "Installation des dépendances (npm install)", { subagent: "qa", taskId: installTaskId });
+        input.onEvent?.("step_start", {
+          step: attempt,
+          tool: "add_dependency",
+          target: "npm install",
+          taskId: installTaskId,
+          subagent: "qa",
+          status: "running",
+          at: Date.now(),
+        });
+        const instStartedAt = Date.now();
         const inst = await runStudioCommand({ dataDir: input.dataDir, project: input.project, action: "npm_install", signal: input.signal });
-        input.onEvent?.("step", {
+        const instStep: StudioAgentStep = {
           step: attempt,
           tool: "add_dependency",
           target: "npm install",
           ok: inst.exitCode === 0,
           summary: inst.output.slice(0, 240),
+          durationMs: Math.max(0, Date.now() - instStartedAt),
           subagent: "qa",
-        });
+          taskId: installTaskId,
+        };
+        collectedSteps.push(instStep);
+        input.onEvent?.("step", { ...instStep, status: instStep.ok ? "done" : "error" });
       }
 
       let failedCheck: { action: string; output: string } | null = null;
       if (verifyPlan.missingPreviewReason) {
         failedCheck = { action: "preview_entrypoint", output: verifyPlan.missingPreviewReason };
-        input.onEvent?.("step", {
+        const epStep: StudioAgentStep = {
           step: attempt,
           tool: "run_check",
           target: "preview_entrypoint",
           ok: false,
           summary: verifyPlan.missingPreviewReason.slice(0, 240),
           subagent: "qa",
-        });
+          taskId: `verify-${attempt}`,
+        };
+        collectedSteps.push(epStep);
+        input.onEvent?.("step", { ...epStep, status: "error" });
       } else {
         for (const check of verifyPlan.checks) {
+          const checkTaskId = `verify-${attempt}`;
+          emitFocus("verify", `Vérification ${check}`, { subagent: "qa", taskId: checkTaskId });
+          input.onEvent?.("step_start", {
+            step: attempt,
+            tool: "run_check",
+            target: check,
+            taskId: checkTaskId,
+            subagent: "qa",
+            status: "running",
+            at: Date.now(),
+          });
+          const checkStartedAt = Date.now();
           const res = await runStudioCommand({ dataDir: input.dataDir, project: input.project, action: check, signal: input.signal });
           if (input.signal?.aborted) { cancelled = true; break; }
-          input.onEvent?.("step", {
+          const checkStep: StudioAgentStep = {
             step: attempt,
             tool: "run_check",
             target: check,
             ok: res.exitCode === 0,
             summary: res.output.slice(0, 240),
+            durationMs: Math.max(0, Date.now() - checkStartedAt),
             subagent: "qa",
-          });
+            taskId: checkTaskId,
+          };
+          collectedSteps.push(checkStep);
+          input.onEvent?.("step", { ...checkStep, status: checkStep.ok ? "done" : "error" });
           if (res.exitCode !== 0) {
             failedCheck = { action: check, output: res.output };
             break;
@@ -936,6 +1128,7 @@ export async function runStudioConversation(input: {
       if (!failedCheck) break;
 
       const fixTitle = `Correction automatique (${failedCheck.action})`;
+      emitFocus("subagent", `${qaRuntime.displayName} — ${fixTitle}`, { subagent: "qa", taskId: `auto-fix-${attempt}` });
       input.onEvent?.("subagent_start", {
         taskId: `auto-fix-${attempt}`,
         subagent: "qa",
@@ -949,18 +1142,38 @@ export async function runStudioConversation(input: {
           project: input.project,
           instruction: [
             `La vérification automatique \`${failedCheck.action}\` a échoué (tentative ${attempt}/${MAX_AUTO_FIX_ATTEMPTS}).`,
-            `ERREURS EXACTES :\n${failedCheck.output.slice(0, 3500)}`,
-            `Inspecte les fichiers concernés avec <studio-read>, corrige la cause racine avec <studio-patch> / <studio-write> (ou <studio-add-dep packages="..." />), puis termine avec <studio-done>.`,
+            `ERREURS EXACTES :\n${failedCheck.output.slice(0, 6000)}`,
+            `Inspecte les fichiers concernés avec <studio-read>, lance <studio-diagnostics /> si besoin, corrige la cause racine avec <studio-patch> / <studio-write> (ou <studio-add-dep packages="..." />), puis termine avec <studio-done>.`,
           ].join("\n\n"),
-          maxSteps: Math.max(6, qaRuntime.maxSteps || 8),
+          maxSteps: Math.max(10, qaRuntime.maxSteps || 12),
+          temperature: 0.15,
+          maxTokens: 16384,
           modelClient: input.modelClient,
           defaultModel: qaRuntime.model || input.defaultModel,
           hasLlmEndpoint: true,
           agentInstructions: qaRuntime.agentInstructions,
           agentRules: qaRuntime.agentRules,
           signal: input.signal,
+          onDelta: (delta) => {
+            input.onEvent?.("delta", { taskId: `auto-fix-${attempt}`, subagent: "qa", delta });
+          },
+          onStepStart: (step) => {
+            emitFocus("tool", step.target ? `${step.tool} · ${step.target}` : step.tool, {
+              subagent: "qa",
+              taskId: `auto-fix-${attempt}`,
+            });
+            input.onEvent?.("step_start", {
+              ...step,
+              taskId: `auto-fix-${attempt}`,
+              subagent: "qa",
+              status: "running",
+              at: Date.now(),
+            });
+          },
           onStep: (step: StudioAgentStep) => {
-            input.onEvent?.("step", { ...step, taskId: `auto-fix-${attempt}`, subagent: "qa" });
+            const enriched: StudioAgentStep = { ...step, taskId: `auto-fix-${attempt}`, subagent: "qa" };
+            collectedSteps.push(enriched);
+            input.onEvent?.("step", { ...enriched, status: step.ok ? "done" : "error" });
           },
         });
         if (fixResult.cancelled) {
@@ -1018,6 +1231,9 @@ export async function runStudioConversation(input: {
   if (input.signal?.aborted) cancelled = true;
 
   const modifiedList = [...allModified];
+  if (modifiedList.length > 0) {
+    emitFocus("checkpoint", "Enregistrement du checkpoint Git");
+  }
   const postSnap =
     modifiedList.length > 0
       ? await createStudioSnapshot(input.dataDir, input.project, userDisplay.slice(0, 60)).catch(() => undefined)
@@ -1036,6 +1252,8 @@ export async function runStudioConversation(input: {
     at: new Date().toISOString(),
     subagentRuns: runs,
     modifiedFiles: modifiedList,
+    durationMs: Math.max(0, Date.now() - turnStartedAt),
+    ...(collectedSteps.length ? { steps: collectedSteps.slice(-40) } : {}),
     ...(beforeBuildSnapshot?.commitHash ? { snapshotBeforeCommit: beforeBuildSnapshot.commitHash } : {}),
     ...(snapshotCommit ? { snapshotCommit } : {}),
     ...(cancelled ? { cancelled: true } : {}),

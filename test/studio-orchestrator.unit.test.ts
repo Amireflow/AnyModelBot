@@ -417,4 +417,110 @@ describe("Studio conversational multi-subagent orchestrator", () => {
     expect(res.message.subagentRuns?.some((r) => r.taskId === "auto-fix-1" && r.ok)).toBe(true);
     expect(readWorkspaceFile(dir, project, "fixed.txt").content).toBe("ok");
   });
+
+  it("emits focus and step_start events and persists step trace + durationMs on assistant messages", async () => {
+    const dir = makeTempDir();
+    const project = makeProject();
+
+    let call = 0;
+    const replies = [
+      JSON.stringify({
+        tasks: [{ id: "t1", title: "Page d'accueil", description: "Créer index.html", subagent: "frontend", targetFiles: ["index.html"] }],
+      }),
+      `<studio-write path="index.html"><h1>Trace Test</h1></studio-write><studio-done>index.html écrit</studio-done>`,
+    ];
+    const mockClient: ModelClient = {
+      listModels: async () => ["test-model"],
+      streamChat: async () => replies[call++] ?? "<studio-done>ok</studio-done>",
+    };
+
+    const events: Array<{ event: string; data: Record<string, unknown> }> = [];
+    const res = await runStudioConversation({
+      dataDir: dir,
+      project,
+      message: "Construis la page",
+      mode: "build",
+      modelClient: mockClient,
+      defaultModel: "test-model",
+      hasLlmEndpoint: true,
+      resolveRuntime: makeRuntimeResolver(),
+      onEvent: (event, data) => events.push({ event, data: (data ?? {}) as Record<string, unknown> }),
+    });
+
+    expect(events.some((e) => e.event === "focus" && e.data.phase === "routing")).toBe(true);
+    expect(events.some((e) => e.event === "focus" && e.data.phase === "subagent")).toBe(true);
+    expect(events.some((e) => e.event === "step_start" && e.data.tool === "write_file" && e.data.status === "running")).toBe(true);
+    expect(events.some((e) => e.event === "step" && e.data.tool === "write_file" && e.data.status === "done")).toBe(true);
+
+    expect(typeof res.message.durationMs).toBe("number");
+    expect(res.message.steps?.length).toBeGreaterThan(0);
+    const writeStep = res.message.steps?.find((s) => s.tool === "write_file");
+    expect(writeStep?.target).toBe("index.html");
+    expect(writeStep?.subagent).toBe("frontend");
+    expect(typeof writeStep?.durationMs).toBe("number");
+
+    const reloaded = await loadStudioState(dir, project.id);
+    const lastMsg = reloaded.messages[reloaded.messages.length - 1];
+    expect(lastMsg?.durationMs).toBe(res.message.durationMs);
+    expect(lastMsg?.steps?.some((s) => s.tool === "write_file" && s.target === "index.html")).toBe(true);
+  });
+
+  it("recovers from prior failed write/patch steps once subsequently fixed before studio-done", async () => {
+    const dir = makeTempDir();
+    const project = makeProject();
+
+    let call = 0;
+    const replies = [
+      `<studio-patch path="src/missing.ts"><search>old</search><replace>new</replace></studio-patch>`,
+      `<studio-write path="src/missing.ts">export const fixed = true;</studio-write><studio-done>Corrigé après création</studio-done>`,
+    ];
+    const mockClient: ModelClient = {
+      listModels: async () => ["test-model"],
+      streamChat: async () => replies[call++] ?? "<studio-done>ok</studio-done>",
+    };
+
+    const res = await runStudioAiAgent({
+      dataDir: dir,
+      project,
+      instruction: "Crée ou corrige src/missing.ts",
+      modelClient: mockClient,
+      defaultModel: "test-model",
+      hasLlmEndpoint: true,
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.modifiedFiles).toContain("src/missing.ts");
+    expect(readWorkspaceFile(dir, project, "src/missing.ts").content).toBe("export const fixed = true;");
+  });
+
+  it("auto-continues truncated <studio-write> tags when finishReason is length", async () => {
+    const dir = makeTempDir();
+    const project = makeProject();
+
+    let call = 0;
+    const mockClient: ModelClient = {
+      listModels: async () => ["test-model"],
+      streamChat: async (req) => {
+        call += 1;
+        if (call === 1) {
+          req.onMeta?.({ finishReason: "length" });
+          return `<studio-write path="index.html"><h1>Start `;
+        }
+        req.onMeta?.({ finishReason: "stop" });
+        return `Complete</h1></studio-write><studio-done>HTML terminé</studio-done>`;
+      },
+    };
+
+    const res = await runStudioAiAgent({
+      dataDir: dir,
+      project,
+      instruction: "Génère index.html",
+      modelClient: mockClient,
+      defaultModel: "test-model",
+      hasLlmEndpoint: true,
+    });
+
+    expect(res.ok).toBe(true);
+    expect(readWorkspaceFile(dir, project, "index.html").content).toBe("<h1>Start Complete</h1>");
+  });
 });

@@ -4,7 +4,8 @@ import path from "node:path";
 import type { ModelClient } from "../llm/client.js";
 import { AgencyError } from "./errors.js";
 import type { AgencyAgentRole, Contract, CreateProjectLotInput, Project, ProjectLot, StudioSnapshotEntry } from "./types.js";
-import { STUDIO_XML_PROTOCOL_PROMPT, parseStudioActions, type StudioParsedAction } from "./studio-xml.js";
+import { STUDIO_XML_PROTOCOL_PROMPT, hasTruncatedStudioTag, parseStudioActions, type StudioParsedAction } from "./studio-xml.js";
+import { compactAgentHistory } from "./studio-context.js";
 import { initProjectWorkspace, resolveSafeWorkspacePath } from "./workspace-runner.js";
 
 export type StudioTemplateId =
@@ -28,6 +29,9 @@ export interface StudioAgentStep {
   target: string;
   ok: boolean;
   summary: string;
+  durationMs?: number;
+  subagent?: string;
+  taskId?: string;
 }
 
 const MAX_LIST_FILES = 500;
@@ -163,6 +167,41 @@ export function deleteWorkspaceFile(dataDir: string, project: Project, relFilePa
   return { deleted: relPath };
 }
 
+export function readWorkspaceFileSlice(
+  dataDir: string,
+  project: Project,
+  relFilePath: string,
+  startLine?: number,
+  endLine?: number,
+): { path: string; content: string; totalLines: number; startLine: number; endLine: number; truncated: boolean } {
+  const file = readWorkspaceFile(dataDir, project, relFilePath);
+  const lines = file.content.split(/\r?\n/);
+  const totalLines = lines.length;
+  const start = Math.max(1, startLine ?? 1);
+  const maxLines = 350;
+  const requestedEnd = endLine ? Math.max(start, endLine) : Math.min(totalLines, start + maxLines - 1);
+  const end = Math.min(totalLines, requestedEnd, start + maxLines - 1);
+  const slice = lines.slice(start - 1, end);
+  const width = String(end).length;
+  const numbered = slice.map((line, idx) => `${String(start + idx).padStart(width, " ")} | ${line}`).join("\n");
+  const maxChars = 18_000;
+  const clipped = numbered.length > maxChars ? numbered.slice(0, maxChars) : numbered;
+  const truncated = end < totalLines || numbered.length > maxChars;
+  return {
+    path: file.path,
+    content: clipped,
+    totalLines,
+    startLine: start,
+    endLine: end,
+    truncated,
+  };
+}
+
+function stripOuterCodeFence(snippet: string): string {
+  const m = snippet.match(/^\s*```[a-zA-Z0-9_-]*\r?\n([\s\S]*?)\r?\n```\s*$/);
+  return m ? m[1] : snippet;
+}
+
 export function patchWorkspaceFile(
   dataDir: string,
   project: Project,
@@ -174,13 +213,179 @@ export function patchWorkspaceFile(
     throw new AgencyError("VALIDATION_ERROR", "patch_file requires a non-empty search block");
   }
   const current = readWorkspaceFile(dataDir, project, relFilePath);
-  const idx = current.content.indexOf(search);
-  if (idx < 0) {
-    throw new AgencyError("CONFLICT", `Search snippet not found in ${current.path}`);
+  const cleanSearch = stripOuterCodeFence(search);
+  const cleanReplace = stripOuterCodeFence(replace);
+
+  // Tier 1: exact match
+  const exactIdx = current.content.indexOf(cleanSearch);
+  if (exactIdx >= 0) {
+    const next = current.content.slice(0, exactIdx) + cleanReplace + current.content.slice(exactIdx + cleanSearch.length);
+    const saved = writeWorkspaceFile(dataDir, project, current.path, next);
+    return { path: saved.path, size: saved.size, replacements: 1 };
   }
-  const next = current.content.slice(0, idx) + replace + current.content.slice(idx + search.length);
-  const saved = writeWorkspaceFile(dataDir, project, current.path, next);
-  return { path: saved.path, size: saved.size, replacements: 1 };
+
+  // Normalize CRLF -> LF for resilient multi-tier matching
+  const hasCrlf = current.content.includes("\r\n");
+  const eol = hasCrlf ? "\r\n" : "\n";
+  const fileLines = current.content.split(/\r?\n/);
+  const searchLines = cleanSearch.split(/\r?\n/);
+  const replaceLines = cleanReplace.split(/\r?\n/);
+
+  // Tier 1b: normalized EOL exact match
+  const normContent = fileLines.join("\n");
+  const normSearch = searchLines.join("\n");
+  const normIdx = normContent.indexOf(normSearch);
+  if (normIdx >= 0) {
+    const nextNorm = normContent.slice(0, normIdx) + replaceLines.join("\n") + normContent.slice(normIdx + normSearch.length);
+    const saved = writeWorkspaceFile(dataDir, project, current.path, hasCrlf ? nextNorm.replace(/\n/g, eol) : nextNorm);
+    return { path: saved.path, size: saved.size, replacements: 1 };
+  }
+
+  // Tier 2: line-trimmed match (tolerates indentation drift)
+  const trimmedSearch = searchLines.map((l) => l.trim());
+  const matches: number[] = [];
+  if (trimmedSearch.length > 0 && trimmedSearch.some((l) => l.length > 0)) {
+    for (let i = 0; i <= fileLines.length - trimmedSearch.length; i++) {
+      let ok = true;
+      for (let j = 0; j < trimmedSearch.length; j++) {
+        if (fileLines[i + j].trim() !== trimmedSearch[j]) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) matches.push(i);
+    }
+  }
+  if (matches.length === 1) {
+    const startIdx = matches[0];
+    const nextLines = [
+      ...fileLines.slice(0, startIdx),
+      ...replaceLines,
+      ...fileLines.slice(startIdx + trimmedSearch.length),
+    ];
+    const saved = writeWorkspaceFile(dataDir, project, current.path, nextLines.join(eol));
+    return { path: saved.path, size: saved.size, replacements: 1 };
+  }
+
+  // Tier 3: block-anchor match (first + last non-empty trimmed lines when search >= 3 lines)
+  if (trimmedSearch.length >= 3) {
+    const firstNonEmpty = trimmedSearch.find((l) => l.length > 0) ?? "";
+    const lastNonEmpty = [...trimmedSearch].reverse().find((l) => l.length > 0) ?? "";
+    if (firstNonEmpty && lastNonEmpty) {
+      const anchorHits: Array<{ start: number; end: number }> = [];
+      for (let i = 0; i <= fileLines.length - trimmedSearch.length; i++) {
+        if (fileLines[i].trim() !== firstNonEmpty) continue;
+        const maxEnd = Math.min(fileLines.length - 1, i + Math.max(trimmedSearch.length + 6, Math.round(trimmedSearch.length * 1.5)));
+        for (let k = i + 2; k <= maxEnd; k++) {
+          if (fileLines[k].trim() === lastNonEmpty) {
+            anchorHits.push({ start: i, end: k });
+            break;
+          }
+        }
+      }
+      if (anchorHits.length === 1) {
+        const hit = anchorHits[0];
+        const nextLines = [...fileLines.slice(0, hit.start), ...replaceLines, ...fileLines.slice(hit.end + 1)];
+        const saved = writeWorkspaceFile(dataDir, project, current.path, nextLines.join(eol));
+        return { path: saved.path, size: saved.size, replacements: 1 };
+      }
+    }
+  }
+
+  // Provide closest line numbers to help the agent self-correct cleanly
+  const firstNeedle = (trimmedSearch.find((l) => l.length > 3) ?? "").toLowerCase();
+  const hints: string[] = [];
+  if (firstNeedle) {
+    const needlePrefix = firstNeedle.slice(0, 14);
+    const longestTok = (firstNeedle.match(/[a-z0-9_]{4,}/g) ?? []).sort((a, b) => b.length - a.length)[0] ?? "";
+    for (let i = 0; i < fileLines.length; i++) {
+      const lowerLine = fileLines[i].toLowerCase();
+      if (lowerLine.includes(needlePrefix) || (longestTok && lowerLine.includes(longestTok))) {
+        hints.push(`L${i + 1}: ${fileLines[i].trim().slice(0, 100)}`);
+        if (hints.length >= 3) break;
+      }
+    }
+  }
+  const hintMsg = hints.length > 0 ? ` Closest lines: ${hints.join(" | ")}` : "";
+  throw new AgencyError("CONFLICT", `Search snippet not found in ${current.path}.${hintMsg}`);
+}
+
+function globToRegex(glob: string): RegExp {
+  const norm = glob.trim().replaceAll("\\", "/").replace(/^\.\//, "");
+  let re = "^";
+  for (let i = 0; i < norm.length; i++) {
+    const ch = norm[i];
+    if (ch === "*") {
+      if (norm[i + 1] === "*") {
+        if (norm[i + 2] === "/") {
+          re += "(?:.+/)?";
+          i += 2;
+        } else {
+          re += ".*";
+          i += 1;
+        }
+      } else {
+        re += "[^/]*";
+      }
+    } else if (ch === "?") {
+      re += "[^/]";
+    } else {
+      re += ch.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+    }
+  }
+  re += "$";
+  return new RegExp(re, "i");
+}
+
+export function globWorkspaceFiles(dataDir: string, project: Project, pattern: string): StudioFileEntry[] {
+  const clean = pattern.trim();
+  if (!clean) throw new AgencyError("VALIDATION_ERROR", "glob_files pattern is required");
+  const files = listWorkspaceFiles(dataDir, project);
+  const re = globToRegex(clean.includes("/") ? clean : `**/${clean}`);
+  return files.filter((f) => re.test(f.path)).slice(0, 120);
+}
+
+export function grepWorkspaceFiles(
+  dataDir: string,
+  project: Project,
+  query: string,
+  subPath?: string,
+): Array<{ path: string; line: number; text: string }> {
+  const clean = query.trim();
+  if (!clean) throw new AgencyError("VALIDATION_ERROR", "grep_files query is required");
+  const prefix = subPath ? subPath.trim().replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/+$/, "") : "";
+  let matcher: (line: string) => boolean;
+  if (clean.startsWith("/") && clean.endsWith("/") && clean.length > 2) {
+    try {
+      const re = new RegExp(clean.slice(1, -1), "i");
+      matcher = (line) => re.test(line);
+    } catch {
+      const lower = clean.toLowerCase();
+      matcher = (line) => line.toLowerCase().includes(lower);
+    }
+  } else {
+    const lower = clean.toLowerCase();
+    matcher = (line) => line.toLowerCase().includes(lower);
+  }
+  const files = listWorkspaceFiles(dataDir, project).filter((f) => !prefix || f.path === prefix || f.path.startsWith(`${prefix}/`));
+  const hits: Array<{ path: string; line: number; text: string }> = [];
+  for (const entry of files) {
+    if (hits.length >= 60) break;
+    let content = "";
+    try {
+      content = readWorkspaceFile(dataDir, project, entry.path).content;
+    } catch {
+      continue;
+    }
+    const lines = content.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      if (matcher(lines[i])) {
+        hits.push({ path: entry.path, line: i + 1, text: lines[i].trim().slice(0, 180) });
+        if (hits.length >= 60) break;
+      }
+    }
+  }
+  return hits;
 }
 
 export function searchWorkspaceFiles(
@@ -791,13 +996,14 @@ function execStudioCmd(
   args: string[],
   cwd: string,
   signal?: AbortSignal,
+  timeoutMs = 120_000,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     try {
       execFile(
         command,
         args,
-        { cwd, timeout: 90_000, maxBuffer: 1_048_576, shell: false, windowsHide: true, encoding: "utf8", ...(signal ? { signal } : {}) },
+        { cwd, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024, shell: false, windowsHide: true, encoding: "utf8", ...(signal ? { signal } : {}) },
         (err, stdout, stderr) => {
           if (!err) {
             resolve({ exitCode: 0, stdout: stdout ?? "", stderr: stderr ?? "" });
@@ -831,30 +1037,140 @@ export async function runStudioCommand(input: {
     return { command: "npm", args: subArgs };
   };
 
-  let spec: { command: string; args: string[] };
+  let spec: { command: string; args: string[]; timeoutMs?: number };
   switch (input.action) {
     case "git_status":
       spec = { command: "git", args: ["status", "--short"] };
       break;
     case "npm_test":
-      spec = npm(["test"]);
+      spec = { ...npm(["test"]), timeoutMs: 180_000 };
       break;
     case "npm_typecheck":
-      spec = npm(["run", "typecheck"]);
+      spec = { ...npm(["run", "typecheck"]), timeoutMs: 120_000 };
       break;
     case "npm_build":
-      spec = npm(["run", "build"]);
+      spec = { ...npm(["run", "build"]), timeoutMs: 180_000 };
       break;
     case "npm_install":
-      spec = npm(["install", "--ignore-scripts"]);
+      spec = { ...npm(["install", "--no-audit", "--no-fund"]), timeoutMs: 240_000 };
       break;
     default:
       throw new AgencyError("VALIDATION_ERROR", `Unsupported studio command: ${String(input.action)}`);
   }
 
-  const res = await execStudioCmd(spec.command, spec.args, workspaceDir, input.signal);
+  const res = await execStudioCmd(spec.command, spec.args, workspaceDir, input.signal, spec.timeoutMs ?? 120_000);
   const output = [res.stdout.trim(), res.stderr.trim()].filter(Boolean).join("\n") || `exitCode=${res.exitCode}`;
-  return { action: input.action, exitCode: res.exitCode, output: output.slice(0, 8000) };
+  return { action: input.action, exitCode: res.exitCode, output: output.slice(0, 12000) };
+}
+
+export async function runStudioDiagnostics(
+  dataDir: string,
+  project: Project,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean; errorCount: number; summary: string; output: string }> {
+  const { workspaceDir } = resolveSafeWorkspacePath(dataDir, project.workspacePath);
+  if (!fs.existsSync(workspaceDir)) {
+    throw new AgencyError("CONFLICT", "Project workspace is not initialized yet");
+  }
+  const hasTsconfig = fs.existsSync(path.join(workspaceDir, "tsconfig.json"));
+  const localTsc = path.join(workspaceDir, "node_modules", "typescript", "bin", "tsc");
+  let res: { exitCode: number; stdout: string; stderr: string };
+  if (fs.existsSync(localTsc) && hasTsconfig) {
+    res = await execStudioCmd(process.execPath, [localTsc, "--noEmit", "--pretty", "false", "-p", "."], workspaceDir, signal, 120_000);
+  } else if (hasTsconfig) {
+    const cmdRes = await runStudioCommand({ dataDir, project, action: "npm_typecheck", signal });
+    res = { exitCode: cmdRes.exitCode, stdout: cmdRes.output, stderr: "" };
+  } else {
+    return { ok: true, errorCount: 0, summary: "No tsconfig.json detected — diagnostics skipped", output: "" };
+  }
+  const raw = [res.stdout.trim(), res.stderr.trim()].filter(Boolean).join("\n");
+  const errorLines = raw.split(/\r?\n/).filter((l) => /error TS\d+|^\S+\(\d+,\d+\):\s*error/i.test(l));
+  const ok = res.exitCode === 0;
+  return {
+    ok,
+    errorCount: ok ? 0 : Math.max(1, errorLines.length),
+    summary: ok ? "TypeScript diagnostics passed (0 errors)" : `${Math.max(1, errorLines.length)} TypeScript error(s)`,
+    output: (raw || `exitCode=${res.exitCode}`).slice(0, 12_000),
+  };
+}
+
+const ALLOWED_SHELL_BINARIES = new Set(["npm", "npx", "node", "tsc", "vitest", "vite", "eslint", "prettier", "git"]);
+const ALLOWED_GIT_SUBCOMMANDS = new Set(["status", "diff", "log"]);
+const FORBIDDEN_SHELL_META = /[;&|`$<>()\n\r]/;
+
+export async function runStudioShellCommand(input: {
+  dataDir: string;
+  project: Project;
+  command: string;
+  signal?: AbortSignal;
+}): Promise<{ exitCode: number; output: string }> {
+  const { workspaceDir } = resolveSafeWorkspacePath(input.dataDir, input.project.workspacePath);
+  if (!fs.existsSync(workspaceDir)) {
+    throw new AgencyError("CONFLICT", "Project workspace is not initialized yet");
+  }
+  const raw = input.command.trim();
+  if (!raw || raw.length > 400) {
+    throw new AgencyError("VALIDATION_ERROR", "Shell command must be 1-400 characters");
+  }
+  if (FORBIDDEN_SHELL_META.test(raw)) {
+    throw new AgencyError("FORBIDDEN", "Shell chaining/redirection operators are not permitted");
+  }
+  const tokens = raw.match(/(?:"[^"]*"|'[^']*'|\S+)/g)?.map((t) => {
+    if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+      return t.slice(1, -1);
+    }
+    return t;
+  }) ?? [];
+  if (tokens.length === 0) {
+    throw new AgencyError("VALIDATION_ERROR", "Empty command");
+  }
+  const bin = path.basename(tokens[0]).replace(/\.(cmd|exe|bat)$/i, "").toLowerCase();
+  if (!ALLOWED_SHELL_BINARIES.has(bin)) {
+    throw new AgencyError("FORBIDDEN", `Binary "${tokens[0]}" is not in the allowed dev toolchain (${[...ALLOWED_SHELL_BINARIES].join(", ")})`);
+  }
+  for (const arg of tokens.slice(1)) {
+    if (arg.includes("..") || /^[a-zA-Z]:/.test(arg) || arg.startsWith("/")) {
+      throw new AgencyError("FORBIDDEN", `Path argument "${arg}" cannot escape project workspace`);
+    }
+  }
+  if (bin === "git") {
+    const sub = (tokens[1] ?? "").toLowerCase();
+    if (!ALLOWED_GIT_SUBCOMMANDS.has(sub)) {
+      throw new AgencyError("FORBIDDEN", `Only read-only git subcommands (${[...ALLOWED_GIT_SUBCOMMANDS].join(", ")}) are allowed`);
+    }
+  }
+
+  let execBin = bin;
+  let execArgs = tokens.slice(1);
+  if (bin === "npm" && process.platform === "win32") {
+    const npmCli = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
+    if (fs.existsSync(npmCli)) {
+      execBin = process.execPath;
+      execArgs = [npmCli, ...execArgs];
+    }
+  } else if (bin === "npx" && process.platform === "win32") {
+    const npxCli = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npx-cli.js");
+    if (fs.existsSync(npxCli)) {
+      execBin = process.execPath;
+      execArgs = [npxCli, ...execArgs];
+    }
+  } else if (bin === "tsc" || bin === "vitest" || bin === "vite" || bin === "eslint" || bin === "prettier") {
+    const localJs = path.join(workspaceDir, "node_modules", bin === "tsc" ? "typescript" : bin, "bin", bin === "eslint" ? "eslint.js" : bin === "prettier" ? "prettier.cjs" : bin === "vite" ? "vite.js" : bin === "vitest" ? "vitest.mjs" : "tsc");
+    if (fs.existsSync(localJs)) {
+      execBin = process.execPath;
+      execArgs = [localJs, ...execArgs];
+    } else if (process.platform === "win32") {
+      const npxCli = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npx-cli.js");
+      if (fs.existsSync(npxCli)) {
+        execBin = process.execPath;
+        execArgs = [npxCli, "--no-install", bin, ...execArgs];
+      }
+    }
+  }
+
+  const res = await execStudioCmd(execBin, execArgs, workspaceDir, input.signal, 120_000);
+  const output = [res.stdout.trim(), res.stderr.trim()].filter(Boolean).join("\n") || `exitCode=${res.exitCode}`;
+  return { exitCode: res.exitCode, output: output.slice(0, 12_000) };
 }
 
 async function ensureStudioGitRepo(workspaceDir: string): Promise<void> {
@@ -1059,6 +1375,44 @@ export async function rollbackStudioSnapshot(
   };
 }
 
+export function rewritePreviewHtmlForStudio(
+  html: string,
+  options?: { relativeAssets?: boolean; basePrefix?: string; injectBridge?: boolean },
+): string {
+  let out = html;
+  if (options?.basePrefix) {
+    const prefix = options.basePrefix.endsWith("/") ? options.basePrefix : `${options.basePrefix}/`;
+    out = out
+      .replace(/(src|href)=(["'])\/(?!\/)/gi, `$1=$2${prefix}`)
+      .replace(/url\((["']?)\/(?!\/)/gi, `url($1${prefix}`);
+  } else if (options?.relativeAssets) {
+    out = out
+      .replace(/(src|href)=(["'])\/(?!\/)/gi, "$1=$2./")
+      .replace(/url\((["']?)\/(?!\/)/gi, "url($1./");
+  }
+  if (options?.injectBridge !== false && !out.includes("amb-studio-preview")) {
+    const bridgeScript = `<script data-amb-studio-preview="1">(function(){if(window.__ambStudioPreviewInstalled)return;window.__ambStudioPreviewInstalled=true;var post=function(type,payload){try{window.parent&&window.parent.postMessage({source:"amb-studio-preview",type:type,payload:payload||{},url:location.pathname+location.search+location.hash,ts:Date.now()},"*");}catch(e){}};var origErr=console.error;console.error=function(){try{var msg=[].slice.call(arguments).map(function(a){return typeof a==="string"?a:(a&&a.message)||JSON.stringify(a);}).join(" ").slice(0,800);post("console_error",{message:msg});}catch(e){}return origErr.apply(console,arguments);};window.addEventListener("error",function(ev){var target=ev&&ev.target;if(target&&target!==window&&(target.src||target.href)){post("resource_error",{url:target.src||target.href,tag:target.tagName||""});return;}post("runtime_error",{message:(ev&&ev.message)||"Script error",filename:ev&&ev.filename,lineno:ev&&ev.lineno,colno:ev&&ev.colno});},true);window.addEventListener("unhandledrejection",function(ev){var r=ev&&ev.reason;post("unhandled_rejection",{message:(r&&r.message)||String(r||"Unhandled rejection")});});if(typeof window.fetch==="function"){var origFetch=window.fetch;window.fetch=function(){var u=typeof arguments[0]==="string"?arguments[0]:(arguments[0]&&arguments[0].url)||"";return origFetch.apply(this,arguments).then(function(res){if(res&&!res.ok&&res.status>=500){post("fetch_error",{url:u,status:res.status});}return res;},function(err){post("fetch_error",{url:u,message:(err&&err.message)||String(err)});throw err;});};}var notifyRoute=function(){post("route_change",{path:location.pathname+location.search+location.hash});};var ps=history.pushState;history.pushState=function(){var r=ps.apply(this,arguments);notifyRoute();return r;};var rs=history.replaceState;history.replaceState=function(){var r=rs.apply(this,arguments);notifyRoute();return r;};window.addEventListener("popstate",notifyRoute);window.addEventListener("hashchange",notifyRoute);window.addEventListener("load",function(){notifyRoute();setTimeout(function(){var root=document.getElementById("root")||document.getElementById("app")||document.body;var text=root?String(root.innerText||"").trim():"";var children=root?root.children.length:0;if(!text&&children===0){post("blank_screen",{message:"Root container rendered empty after load"});}else{post("ready",{path:location.pathname+location.search+location.hash,title:document.title||""});}},2500);});})();</script>`;
+    if (/<\/head>/i.test(out)) {
+      out = out.replace(/<\/head>/i, `${bridgeScript}\n</head>`);
+    } else if (/<\/body>/i.test(out)) {
+      out = out.replace(/<\/body>/i, `${bridgeScript}\n</body>`);
+    } else {
+      out = `${bridgeScript}\n${out}`;
+    }
+  }
+  return out;
+}
+
+function isUnbundledViteRootHtml(workspaceDir: string, htmlPath: string): boolean {
+  if (path.relative(workspaceDir, htmlPath) !== "index.html") return false;
+  try {
+    const raw = fs.readFileSync(htmlPath, "utf8");
+    return /<script[^>]+type=["']module["'][^>]+src=["']\/?src\/main\.(t|j)sx?["']/i.test(raw);
+  } catch {
+    return false;
+  }
+}
+
 export function resolveStudioPreviewAsset(
   dataDir: string,
   project: Project,
@@ -1068,8 +1422,19 @@ export function resolveStudioPreviewAsset(
   const { workspaceDir, absPath, relPath } = resolveWorkspaceFile(dataDir, project.workspacePath, clean);
   let targetAbs = absPath;
   let targetRel = relPath;
+  const distIndexAbs = path.join(workspaceDir, "dist", "index.html");
+  if (clean === "index.html" && fs.existsSync(distIndexAbs) && (!fs.existsSync(targetAbs) || isUnbundledViteRootHtml(workspaceDir, targetAbs))) {
+    targetAbs = distIndexAbs;
+    targetRel = "dist/index.html";
+  } else if ((!fs.existsSync(targetAbs) || fs.statSync(targetAbs).isDirectory()) && clean !== "index.html") {
+    const distAsset = path.join(workspaceDir, "dist", clean);
+    if (fs.existsSync(distAsset) && !fs.statSync(distAsset).isDirectory()) {
+      targetAbs = distAsset;
+      targetRel = `dist/${clean}`;
+    }
+  }
   if ((!fs.existsSync(targetAbs) || fs.statSync(targetAbs).isDirectory()) && clean === "index.html") {
-    for (const alt of ["public/index.html", "dist/index.html"]) {
+    for (const alt of ["dist/index.html", "public/index.html"]) {
       const fallback = path.join(workspaceDir, ...alt.split("/"));
       if (fs.existsSync(fallback) && fs.statSync(fallback).isFile()) {
         targetAbs = fallback;
@@ -1343,12 +1708,16 @@ export async function runStudioAiAgent(input: {
   instruction: string;
   lot?: ProjectLot;
   maxSteps?: number;
+  temperature?: number;
+  maxTokens?: number;
   modelClient?: ModelClient;
   defaultModel?: string;
   hasLlmEndpoint?: boolean;
   agentInstructions?: string;
   agentRules?: readonly string[];
+  onStepStart?: (step: { step: number; tool: string; target: string }) => void;
   onStep?: (step: StudioAgentStep) => void;
+  onDelta?: (delta: string) => void;
   signal?: AbortSignal;
 }): Promise<{
   summary: string;
@@ -1376,7 +1745,7 @@ export async function runStudioAiAgent(input: {
   const snapshotBefore = await createStudioSnapshot(input.dataDir, input.project, "avant-agent-ia")
     .then((s) => s.commitHash)
     .catch(() => undefined);
-  const maxSteps = Math.max(1, Math.min(20, Math.round(input.maxSteps ?? 8)));
+  const maxSteps = Math.max(1, Math.min(40, Math.round(input.maxSteps ?? 16)));
   const steps: StudioAgentStep[] = [];
   const modified = new Set<string>();
 
@@ -1413,13 +1782,89 @@ export async function runStudioAiAgent(input: {
 
   for (let turn = 1; turn <= maxSteps; turn++) {
     if (input.signal?.aborted) return cancelledResult();
-    let reply: string;
+    const requestMessages = turn > 2 ? compactAgentHistory(history) : history;
+    let reply = "";
+    let finishReason: string | null = null;
+    let deltaBuffer = "";
+    let lastFlush = Date.now();
+    const emitDelta = (chunk: string) => {
+      if (!input.onDelta || !chunk) return;
+      deltaBuffer += chunk;
+      const now = Date.now();
+      if (now - lastFlush >= 120 || deltaBuffer.length >= 256) {
+        const out = deltaBuffer;
+        deltaBuffer = "";
+        lastFlush = now;
+        input.onDelta(out);
+      }
+    };
+    const flushDelta = () => {
+      if (input.onDelta && deltaBuffer) {
+        const out = deltaBuffer;
+        deltaBuffer = "";
+        input.onDelta(out);
+      }
+    };
+
     try {
-      reply = await input.modelClient.streamChat({ model, messages: history, signal: input.signal }, () => {});
+      reply = await input.modelClient.streamChat(
+        {
+          model,
+          messages: requestMessages,
+          signal: input.signal,
+          temperature: input.temperature ?? 0.15,
+          maxTokens: input.maxTokens ?? 16384,
+          onMeta: (meta) => {
+            finishReason = meta.finishReason ?? null;
+          },
+        },
+        emitDelta,
+      );
+      flushDelta();
     } catch (error) {
+      flushDelta();
       if (!input.signal?.aborted) throw error;
       return cancelledResult();
     }
+
+    // Auto-continue if response was truncated inside an unclosed <studio-write|patch|cmd> tag
+    for (let cont = 0; cont < 2; cont++) {
+      if (input.signal?.aborted) return cancelledResult();
+      const unclosed = hasTruncatedStudioTag(reply);
+      if (!unclosed && finishReason !== "length") break;
+      if (!unclosed) break;
+      const contMessages = [
+        ...requestMessages,
+        { role: "assistant" as const, content: reply },
+        {
+          role: "user" as const,
+          content: `Ta réponse a été tronquée avant </studio-${unclosed}>. Reprends exactement là où le texte s'est coupé sans répéter le début jusqu'à fermer </studio-${unclosed}>.`,
+        },
+      ];
+      finishReason = null;
+      try {
+        const tail = await input.modelClient.streamChat(
+          {
+            model,
+            messages: contMessages,
+            signal: input.signal,
+            temperature: input.temperature ?? 0.15,
+            maxTokens: input.maxTokens ?? 16384,
+            onMeta: (meta) => {
+              finishReason = meta.finishReason ?? null;
+            },
+          },
+          emitDelta,
+        );
+        flushDelta();
+        if (!tail) break;
+        reply += tail;
+      } catch {
+        flushDelta();
+        break;
+      }
+    }
+
     if (input.signal?.aborted) return cancelledResult();
     history.push({ role: "assistant", content: reply });
 
@@ -1477,9 +1922,31 @@ export async function runStudioAiAgent(input: {
         break;
       }
 
+      const preliminaryTarget =
+        action.tool === "read_file" ||
+        action.tool === "patch_file" ||
+        action.tool === "write_file" ||
+        action.tool === "delete_file"
+          ? action.path
+          : action.tool === "search_files" || action.tool === "grep_files"
+            ? action.query
+            : action.tool === "glob_files"
+              ? action.pattern
+              : action.tool === "add_dependency"
+                ? action.packages.join(", ")
+                : action.tool === "run_check"
+                  ? action.action || "npm_test"
+                  : action.tool === "run_command"
+                    ? action.command.slice(0, 80)
+                    : action.tool === "diagnostics"
+                      ? "tsc --noEmit"
+                      : "";
+      const startedAt = Date.now();
+      input.onStepStart?.({ step: stepNum, tool: action.tool, target: preliminaryTarget });
+
       let observation = "";
       let ok = true;
-      let target = "";
+      let target = preliminaryTarget;
       try {
         observation = await executeParsedAction({
           dataDir: input.dataDir,
@@ -1495,7 +1962,14 @@ export async function runStudioAiAgent(input: {
         observation = (error as Error).message || "Tool execution failed";
       }
 
-      const stepEntry: StudioAgentStep = { step: stepNum, tool: action.tool, target, ok, summary: observation.slice(0, 240) };
+      const stepEntry: StudioAgentStep = {
+        step: stepNum,
+        tool: action.tool,
+        target,
+        ok,
+        summary: observation.slice(0, 240),
+        durationMs: Math.max(0, Date.now() - startedAt),
+      };
       steps.push(stepEntry);
       input.onStep?.(stepEntry);
       if (input.signal?.aborted) return cancelledResult();
@@ -1512,8 +1986,35 @@ export async function runStudioAiAgent(input: {
   if (!finalSummary) {
     finalSummary = `Agent exécuté (${steps.length} étape(s), ${modified.size} fichier(s) modifié(s)).`;
   }
-  const criticalTools = new Set(["write_file", "patch_file", "delete_file", "add_dependency", "run_check"]);
-  const criticalFailure = steps.some((step) => !step.ok && criticalTools.has(step.tool));
+  const criticalTools = new Set(["write_file", "patch_file", "delete_file", "add_dependency", "run_check", "run_command", "diagnostics"]);
+  const unresolvedFailures = new Map<string, StudioAgentStep>();
+  for (const step of steps) {
+    const target = step.target || step.tool;
+    const key = `${step.tool}:${target}`;
+    if (step.ok) {
+      unresolvedFailures.delete(key);
+      if (step.tool === "write_file" || step.tool === "patch_file") {
+        unresolvedFailures.delete(`write_file:${target}`);
+        unresolvedFailures.delete(`patch_file:${target}`);
+        // Modifying source files may resolve prior typecheck/build/test failures; if QA fails later it stays unresolved
+        for (const existingKey of [...unresolvedFailures.keys()]) {
+          if (existingKey.startsWith("run_check:") || existingKey.startsWith("diagnostics:") || existingKey.startsWith("run_command:")) {
+            unresolvedFailures.delete(existingKey);
+          }
+        }
+      } else if (step.tool === "add_dependency") {
+        unresolvedFailures.delete("run_check:npm_install");
+        for (const existingKey of [...unresolvedFailures.keys()]) {
+          if (existingKey.startsWith("run_check:npm_typecheck") || existingKey.startsWith("run_check:npm_build") || existingKey.startsWith("diagnostics:")) {
+            unresolvedFailures.delete(existingKey);
+          }
+        }
+      }
+    } else if (criticalTools.has(step.tool)) {
+      unresolvedFailures.set(key, step);
+    }
+  }
+  const criticalFailure = unresolvedFailures.size > 0;
   const explicitlyFinished = steps.some((step) => step.tool === "finish" && step.ok);
   return {
     summary: finalSummary,
@@ -1545,10 +2046,33 @@ async function executeParsedAction(ctx: {
       const hits = searchWorkspaceFiles(ctx.dataDir, ctx.project, action.query);
       return hits.length ? hits.map((h) => `${h.path}:${h.line}: ${h.text}`).join("\n") : "(no matches)";
     }
+    case "glob_files": {
+      ctx.onTarget(action.pattern);
+      const list = globWorkspaceFiles(ctx.dataDir, ctx.project, action.pattern);
+      return list.length ? JSON.stringify(list.map((f) => ({ path: f.path, size: f.size }))) : "(no matching files)";
+    }
+    case "grep_files": {
+      ctx.onTarget(action.query);
+      const hits = grepWorkspaceFiles(ctx.dataDir, ctx.project, action.query, action.path);
+      return hits.length ? hits.map((h) => `${h.path}:${h.line}: ${h.text}`).join("\n") : "(no matches)";
+    }
     case "read_file": {
       ctx.onTarget(action.path);
-      const file = readWorkspaceFile(ctx.dataDir, ctx.project, action.path);
-      return file.content.slice(0, 8000);
+      const sliced = readWorkspaceFileSlice(ctx.dataDir, ctx.project, action.path, action.startLine, action.endLine);
+      const header = `${sliced.path} (L${sliced.startLine}-${sliced.endLine} / ${sliced.totalLines}${sliced.truncated ? ", truncated" : ""}):\n`;
+      return header + sliced.content;
+    }
+    case "diagnostics": {
+      ctx.onTarget("tsc --noEmit");
+      const diag = await runStudioDiagnostics(ctx.dataDir, ctx.project, ctx.signal);
+      ctx.onOk(diag.ok);
+      return `${diag.summary}\n${diag.output.slice(0, 6000)}`.trim();
+    }
+    case "run_command": {
+      ctx.onTarget(action.command.slice(0, 80));
+      const res = await runStudioShellCommand({ dataDir: ctx.dataDir, project: ctx.project, command: action.command, signal: ctx.signal });
+      ctx.onOk(res.exitCode === 0);
+      return `exitCode=${res.exitCode}\n${res.output.slice(0, 6000)}`;
     }
     case "patch_file": {
       ctx.onTarget(action.path);
