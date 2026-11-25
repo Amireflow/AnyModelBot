@@ -1377,6 +1377,7 @@ export function agencyRoutes(ctx: WebContext): Route {
                   "x-content-type-options":"nosniff",
                 });
                 eventStreamStarted=true;
+                emit("ready",{projectId});
                 await runStudioConversation({
                   dataDir,
                   project,
@@ -1394,7 +1395,7 @@ export function agencyRoutes(ctx: WebContext): Route {
                 });
               } catch (err) {
                 if (!eventStreamStarted) throw err;
-                if (!controller.signal.aborted) emit("error",{error:(err as Error).message || "Studio orchestrator failed"});
+                emit("error",{error:(err as Error).message || "Studio orchestrator failed"});
               } finally {
                 req.off("aborted",abortOnDisconnect);
                 res.off("close",abortOnDisconnect);

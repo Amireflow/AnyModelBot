@@ -152,6 +152,7 @@ export function ProjectStudio({
 
   const [busy, setBusy] = useState("");
   const [cancelRequested, setCancelRequested] = useState(false);
+  const [canCancel, setCanCancel] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -470,7 +471,7 @@ export function ProjectStudio({
 
   const cancelStudioTurn = async () => {
     const pid = activeStudioProjectIdRef.current || project?.id || "";
-    if (!orgId || !pid || busy !== "chat" || cancelRequested) return;
+    if (!orgId || !pid || busy !== "chat" || !canCancel || cancelRequested) return;
     setCancelRequested(true);
     setError("");
     try {
@@ -497,6 +498,7 @@ export function ProjectStudio({
 
     setBusy("chat");
     setCancelRequested(false);
+    setCanCancel(false);
     activeStudioProjectIdRef.current = project?.id || "";
     setError("");
     setNotice("");
@@ -560,7 +562,9 @@ export function ProjectStudio({
       let finalPayload = null;
       let streamError = "";
       const parser = sseParser((eventName, data) => {
-        if (eventName === "plan" && data?.plan) {
+        if (eventName === "ready") {
+          setCanCancel(true);
+        } else if (eventName === "plan" && data?.plan) {
           setPlan(data.plan);
         } else if (eventName === "subagent_start" && data) {
           setActiveSubagent(data);
@@ -572,6 +576,7 @@ export function ProjectStudio({
           setMessages((prev) => [...prev, data.message]);
         } else if (eventName === "done") {
           finalPayload = data;
+          setCanCancel(false);
         } else if (eventName === "error") {
           streamError = data?.error || "Studio execution failed";
         }
@@ -621,6 +626,7 @@ export function ProjectStudio({
     } finally {
       setBusy("");
       setCancelRequested(false);
+      setCanCancel(false);
       activeStudioProjectIdRef.current = "";
       setActiveSubagent(null);
     }
@@ -1027,7 +1033,7 @@ export function ProjectStudio({
               ${activeSubagent?.title && html`<small class="agency-truncate" title=${activeSubagent.title}>${activeSubagent.title}</small>`}
             </div>
             <span class="agency-studio-live-timer mono">${formatElapsed(elapsedSec)}</span>
-            <button type="button" class="btn sm" disabled=${cancelRequested} onClick=${cancelStudioTurn}>
+            <button type="button" class="btn sm" disabled=${!canCancel || cancelRequested} onClick=${cancelStudioTurn}>
               <${Icon} name="stop" size="xs" /><span>${cancelRequested ? t("agency.studioCancelingStatus") : t("agency.studioCancelBtn")}</span>
             </button>
           </div>
