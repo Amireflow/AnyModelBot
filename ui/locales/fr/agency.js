@@ -784,4 +784,8 @@ export default {
   "studioPreviewRestartHint": "Les dépendances ont changé. Redémarrez l’aperçu pour appliquer les modifications.",
   "studioPreviewReadyHint": "Le code est prêt. Lancez l’aperçu lorsque vous souhaitez exécuter le projet.",
   "studioUnsavedSwitchConfirm": "Ce fichier contient des modifications non enregistrées. Les abandonner ?",
+  "studioExecutionModeLabel": "Mode d’exécution de l’aperçu",
+  "studioExecutionModeContainer": "Conteneur Docker · Node 22 · réseau autorisé",
+  "studioExecutionModeHost": "Processus local · workspace de confiance",
+  "studioTrustedHostConfirm": "Ce mode exécute directement les scripts du projet sur votre ordinateur avec les droits de votre compte. Il n’est pas isolé. Continuer ?",
 };

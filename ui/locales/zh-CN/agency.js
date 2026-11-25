@@ -784,4 +784,8 @@ export default {
   "studioPreviewRestartHint": "依赖项已更改。请重启预览以应用更新。",
   "studioPreviewReadyHint": "代码已就绪。需要运行项目时再启动预览。",
   "studioUnsavedSwitchConfirm": "此文件包含未保存的更改。要放弃这些更改吗？",
+  "studioExecutionModeLabel": "预览执行模式",
+  "studioExecutionModeContainer": "Docker 容器 · Node 22 · 已启用网络",
+  "studioExecutionModeHost": "本机进程 · 受信任工作区",
+  "studioTrustedHostConfirm": "此模式会使用你的账户权限直接在电脑上运行项目脚本，并未隔离。是否继续？",
 };

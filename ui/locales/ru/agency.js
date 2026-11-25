@@ -784,4 +784,8 @@ export default {
   "studioPreviewRestartHint": "Зависимости изменились. Перезапустите предпросмотр, чтобы применить обновление.",
   "studioPreviewReadyHint": "Код готов. Запустите предпросмотр, когда захотите выполнить проект.",
   "studioUnsavedSwitchConfirm": "В этом файле есть несохранённые изменения. Отменить их?",
+  "studioExecutionModeLabel": "Режим запуска предпросмотра",
+  "studioExecutionModeContainer": "Контейнер Docker · Node 22 · сеть включена",
+  "studioExecutionModeHost": "Локальный процесс · доверенная рабочая область",
+  "studioTrustedHostConfirm": "Этот режим запускает скрипты проекта прямо на компьютере с правами вашей учётной записи. Изоляции нет. Продолжить?",
 };

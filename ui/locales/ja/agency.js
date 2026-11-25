@@ -784,4 +784,8 @@ export default {
   "studioPreviewRestartHint": "依存関係が変更されました。更新を適用するにはプレビューを再起動してください。",
   "studioPreviewReadyHint": "コードの準備ができました。プロジェクトを実行するときにプレビューを開始してください。",
   "studioUnsavedSwitchConfirm": "このファイルには未保存の変更があります。破棄しますか？",
+  "studioExecutionModeLabel": "プレビューの実行モード",
+  "studioExecutionModeContainer": "Docker コンテナ · Node 22 · ネットワーク有効",
+  "studioExecutionModeHost": "ローカルプロセス · 信頼できるワークスペース",
+  "studioTrustedHostConfirm": "このモードでは、アカウント権限を使ってプロジェクトのスクリプトをコンピューター上で直接実行します。隔離されていません。続行しますか？",
 };

@@ -784,4 +784,8 @@ export default {
   "studioPreviewRestartHint": "Han cambiado las dependencias. Reinicia la vista previa para aplicar la actualización.",
   "studioPreviewReadyHint": "El código está listo. Inicia la vista previa cuando quieras ejecutar el proyecto.",
   "studioUnsavedSwitchConfirm": "Este archivo tiene cambios sin guardar. ¿Descartarlos?",
+  "studioExecutionModeLabel": "Modo de ejecución de la vista previa",
+  "studioExecutionModeContainer": "Contenedor Docker · Node 22 · red habilitada",
+  "studioExecutionModeHost": "Proceso local · espacio de trabajo de confianza",
+  "studioTrustedHostConfirm": "Esto ejecuta los scripts del proyecto directamente en tu equipo con los permisos de tu cuenta. No está aislado. ¿Continuar?",
 };

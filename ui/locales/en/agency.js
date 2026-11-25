@@ -784,4 +784,8 @@ export default {
   "studioPreviewRestartHint": "Dependencies changed. Restart the preview to apply the update.",
   "studioPreviewReadyHint": "The code is ready. Start the preview when you want to run the project.",
   "studioUnsavedSwitchConfirm": "This file has unsaved changes. Discard them?",
+  "studioExecutionModeLabel": "Preview execution mode",
+  "studioExecutionModeContainer": "Docker container · Node 22 · network enabled",
+  "studioExecutionModeHost": "Local process · trusted workspace",
+  "studioTrustedHostConfirm": "This runs project scripts directly on your computer with your account permissions. It is not isolated. Continue?",
 };

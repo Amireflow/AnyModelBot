@@ -1516,7 +1516,8 @@ export function agencyRoutes(ctx: WebContext): Route {
             }
             if (seg.length===7 && seg[5]==="devserver" && seg[6]==="start" && method==="POST") {
               const body=await readObject(req).catch(() => ({} as Record<string,unknown>));
-              return send(res,200,await startStudioDevServer(dataDir,project,{ restart:body.restart===true }));
+              const executionMode=body.executionMode==="host" ? "host" : "container";
+              return send(res,200,await startStudioDevServer(dataDir,project,{ restart:body.restart===true, executionMode }));
             }
             if (seg.length===7 && seg[5]==="devserver" && seg[6]==="stop" && method==="POST") {
               return send(res,200,stopStudioDevServer(project.id));

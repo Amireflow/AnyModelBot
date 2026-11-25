@@ -141,6 +141,7 @@ export function ProjectStudio({
   const [previewNonce, setPreviewNonce] = useState(1);
   const [devServer, setDevServer] = useState(null);
   const [devServerBusy, setDevServerBusy] = useState(false);
+  const [executionMode, setExecutionMode] = useState("container");
 
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
@@ -261,6 +262,7 @@ export function ProjectStudio({
     try {
       const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/devserver`);
       setDevServer(res || null);
+      setExecutionMode(res?.executionMode || "container");
       return res || null;
     } catch {
       setDevServer(null);
@@ -268,14 +270,15 @@ export function ProjectStudio({
     }
   };
 
-  const startDevServer = async (pid = project?.id, { restart = false } = {}) => {
+  const startDevServer = async (pid = project?.id, { restart = false, mode = executionMode } = {}) => {
     if (!orgId || !pid || devServerBusy) return null;
     if (!window.confirm(t("agency.studioPreviewLaunchConfirm"))) return null;
+    if (mode === "host" && !window.confirm(t("agency.studioTrustedHostConfirm"))) return null;
     setDevServerBusy(true); setError(""); setNotice("");
     try {
       const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/devserver/start`, {
         method: "POST",
-        body: restart ? { restart: true } : {},
+        body: { restart, executionMode: mode },
       });
       setDevServer(res || null);
       if (res?.error) setError(res.error);
@@ -326,6 +329,7 @@ export function ProjectStudio({
       setPlan(null);
       setChangedFiles([]);
       setDevServer(null);
+      setExecutionMode("container");
       setWorkspaceTab("preview");
       return;
     }
@@ -972,6 +976,10 @@ export function ProjectStudio({
         </div>
 
         ${workspaceTab === "preview" && (hasIndex || devServer?.hasDevScript) && html`<div class="agency-studio-preview-bar">
+          ${devServer?.hasDevScript && html`<select class="field agency-studio-execution-mode" aria-label=${t("agency.studioExecutionModeLabel")} value=${executionMode} disabled=${devServerBusy || !!devServer?.running} onChange=${(e) => setExecutionMode(e.currentTarget.value)}>
+            <option value="container">${t("agency.studioExecutionModeContainer")}</option>
+            <option value="host">${t("agency.studioExecutionModeHost")}</option>
+          </select>`}
           ${devServer?.hasDevScript && html`<button
             type="button"
             class=${"btn sm" + (devServer.running ? "" : " primary")}

@@ -387,6 +387,7 @@
 .agency-studio-ws-tabs button:hover{color:var(--fg)}
 .agency-studio-ws-tabs button.active{background:color-mix(in srgb,var(--chart-1) 16%,transparent);color:var(--chart-1)}
 .agency-studio-preview-bar{display:flex;align-items:center;gap:var(--space-2);min-width:0;flex:1;justify-content:flex-end}
+.agency-studio-execution-mode{width:auto;min-width:190px;max-width:260px;height:var(--ctl-sm);font-size:var(--fs-xs)}
 .agency-studio-vp-group{display:inline-flex;align-items:center;gap:var(--space-0-5);padding:var(--space-0-5);border-radius:var(--r-ctl);background:var(--card)}
 .agency-studio-vp-group button{width:var(--ctl-sm);height:var(--ctl-sm);display:grid;place-items:center;border-radius:var(--r-ctl);color:var(--muted);transition:background var(--t-fast),color var(--t-fast)}
 .agency-studio-vp-group button:hover{color:var(--fg)}

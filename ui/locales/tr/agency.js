@@ -784,4 +784,8 @@ export default {
   "studioPreviewRestartHint": "Bağımlılıklar değişti. Güncellemeyi uygulamak için önizlemeyi yeniden başlatın.",
   "studioPreviewReadyHint": "Kod hazır. Projeyi çalıştırmak istediğinizde önizlemeyi başlatın.",
   "studioUnsavedSwitchConfirm": "Bu dosyada kaydedilmemiş değişiklikler var. Atılsın mı?",
+  "studioExecutionModeLabel": "Önizleme yürütme modu",
+  "studioExecutionModeContainer": "Docker kapsayıcısı · Node 22 · ağ açık",
+  "studioExecutionModeHost": "Yerel işlem · güvenilir çalışma alanı",
+  "studioTrustedHostConfirm": "Bu mod proje betiklerini bilgisayarınızda hesap izinlerinizle doğrudan çalıştırır. Yalıtılmış değildir. Devam edilsin mi?",
 };

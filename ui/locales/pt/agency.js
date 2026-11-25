@@ -784,4 +784,8 @@ export default {
   "studioPreviewRestartHint": "As dependências mudaram. Reinicie a pré-visualização para aplicar a atualização.",
   "studioPreviewReadyHint": "O código está pronto. Inicie a pré-visualização quando quiser executar o projeto.",
   "studioUnsavedSwitchConfirm": "Este arquivo tem alterações não salvas. Descartá-las?",
+  "studioExecutionModeLabel": "Modo de execução da pré-visualização",
+  "studioExecutionModeContainer": "Contêiner Docker · Node 22 · rede habilitada",
+  "studioExecutionModeHost": "Processo local · workspace confiável",
+  "studioTrustedHostConfirm": "Isso executa os scripts do projeto diretamente no seu computador com as permissões da sua conta. Não é isolado. Continuar?",
 };

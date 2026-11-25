@@ -784,4 +784,8 @@ export default {
   "studioPreviewRestartHint": "종속 항목이 변경되었습니다. 업데이트를 적용하려면 미리보기를 다시 시작하세요.",
   "studioPreviewReadyHint": "코드가 준비되었습니다. 프로젝트를 실행할 때 미리보기를 시작하세요.",
   "studioUnsavedSwitchConfirm": "이 파일에 저장하지 않은 변경 사항이 있습니다. 버릴까요?",
+  "studioExecutionModeLabel": "미리보기 실행 모드",
+  "studioExecutionModeContainer": "Docker 컨테이너 · Node 22 · 네트워크 허용",
+  "studioExecutionModeHost": "로컬 프로세스 · 신뢰할 수 있는 작업 공간",
+  "studioTrustedHostConfirm": "이 모드는 계정 권한으로 프로젝트 스크립트를 컴퓨터에서 직접 실행합니다. 격리되지 않습니다. 계속할까요?",
 };
