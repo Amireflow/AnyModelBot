@@ -864,6 +864,13 @@ export async function runStudioConversation(input: {
             input.onEvent?.("step", { ...step, taskId: `auto-fix-${attempt}`, subagent: "qa" });
           },
         });
+        if (!fixResult.ok) {
+          const failures = fixResult.steps
+            .filter((step) => !step.ok && ["write_file", "patch_file", "delete_file", "add_dependency", "run_check"].includes(step.tool))
+            .map((step) => `${step.tool}${step.target ? ` (${step.target})` : ""}: ${step.summary}`)
+            .join(" ; ");
+          throw new AgencyError("CONFLICT", failures || "La correction QA n'a pas confirmé la fin correcte de ses actions.");
+        }
         for (const f of fixResult.modifiedFiles) allModified.add(f);
         if (fixResult.modifiedFiles.includes("package.json")) didInstall = false;
         const fixSummary: StudioSubagentRunSummary = {
