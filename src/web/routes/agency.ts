@@ -41,6 +41,7 @@ import {
 } from "../../agency/studio-devserver.js";
 import {
   createStudioSnapshot,
+  getStudioDiff,
   deleteWorkspaceFile,
   extractReadablePdfText,
   ingestProjectDocuments,
@@ -1430,6 +1431,13 @@ export function agencyRoutes(ctx: WebContext): Route {
                 action:String(body.action || "npm_test") as StudioCommandAction,
               });
               return send(res,200,resRun);
+            }
+            if (seg.length===6 && seg[5]==="diff" && method==="GET") {
+              const base=url.searchParams.get("base") ?? "";
+              const head=url.searchParams.get("head") ?? "";
+              if (!base || !head) throw new HttpError(400,"Both base and head snapshot hashes are required");
+              const selectedFile=url.searchParams.get("path");
+              return send(res,200,await getStudioDiff(dataDir,project,base,head,selectedFile ?? undefined));
             }
             if (seg.length===6 && seg[5]==="snapshots" && method==="GET") {
               return send(res,200,{items:await listStudioSnapshots(dataDir,project,queryInteger(url,"limit",15))});

@@ -107,6 +107,7 @@ export interface StudioChatMessage {
   plan?: StudioPlan;
   subagentRuns?: StudioSubagentRunSummary[];
   modifiedFiles?: string[];
+  snapshotBeforeCommit?: string;
   snapshotCommit?: string;
 }
 
@@ -225,6 +226,9 @@ function sanitizeMessage(raw: unknown): StudioChatMessage | null {
   }
   if (Array.isArray(m.modifiedFiles)) {
     msg.modifiedFiles = m.modifiedFiles.map((f) => String(f)).filter(Boolean).slice(0, 60);
+  }
+  if (typeof m.snapshotBeforeCommit === "string" && /^[0-9a-f]{7,40}$/i.test(m.snapshotBeforeCommit)) {
+    msg.snapshotBeforeCommit = m.snapshotBeforeCommit;
   }
   if (typeof m.snapshotCommit === "string" && /^[0-9a-f]{7,40}$/i.test(m.snapshotCommit)) {
     msg.snapshotCommit = m.snapshotCommit;
@@ -599,7 +603,7 @@ export async function runStudioConversation(input: {
   }
 
   // MODE BUILD: Snapshot Git puis exécution orchestrée par les sous-agents spécialisés
-  await createStudioSnapshot(input.dataDir, input.project, "avant-studio-build").catch(() => undefined);
+  const beforeBuildSnapshot = await createStudioSnapshot(input.dataDir, input.project, "avant-studio-build").catch(() => undefined);
 
   let tasksToRun: StudioPlanTask[] = [];
   if (input.executePlan && state.plan?.tasks.length) {
@@ -919,6 +923,7 @@ export async function runStudioConversation(input: {
     at: new Date().toISOString(),
     subagentRuns: runs,
     modifiedFiles: modifiedList,
+    ...(beforeBuildSnapshot?.commitHash ? { snapshotBeforeCommit: beforeBuildSnapshot.commitHash } : {}),
     ...(snapshotCommit ? { snapshotCommit } : {}),
   };
   state.messages.push(assistantMsg);

@@ -920,6 +920,100 @@ export async function listStudioSnapshots(
     .filter((entry) => /^[0-9a-f]{7,40}$/i.test(entry.commitHash));
 }
 
+
+export interface StudioDiffFile {
+  path: string;
+  status: "added" | "modified" | "deleted" | "type-changed";
+  additions: number;
+  deletions: number;
+  binary: boolean;
+}
+
+export interface StudioDiffResult {
+  baseCommit: string;
+  headCommit: string;
+  files: StudioDiffFile[];
+  totalFiles: number;
+  truncated: boolean;
+  diff?: { path: string; status: StudioDiffFile["status"]; additions: number; deletions: number; binary: boolean; patch: string; patchTruncated: boolean };
+}
+
+const MAX_STUDIO_DIFF_FILES = 120;
+const MAX_STUDIO_DIFF_CHARS = 120_000;
+
+/** Compare two verified snapshots and optionally return one bounded, workspace-scoped patch. */
+export async function getStudioDiff(
+  dataDir: string,
+  project: Project,
+  baseCommit: string,
+  headCommit: string,
+  selectedFile?: string,
+): Promise<StudioDiffResult> {
+  const { workspaceDir } = resolveSafeWorkspacePath(dataDir, project.workspacePath);
+  if (!fs.existsSync(path.join(workspaceDir, ".git"))) {
+    throw new AgencyError("CONFLICT", "No studio snapshot history exists yet for this project");
+  }
+  const resolveCommit = async (raw: string): Promise<string> => {
+    const value = String(raw || "").trim().toLowerCase();
+    if (!/^[0-9a-f]{7,40}$/.test(value)) {
+      throw new AgencyError("VALIDATION_ERROR", "Invalid snapshot commit hash");
+    }
+    const result = await execStudioCmd("git", ["rev-parse", "--verify", value + "^{commit}"], workspaceDir);
+    if (result.exitCode !== 0) throw new AgencyError("NOT_FOUND", "Studio snapshot commit not found");
+    return result.stdout.trim();
+  };
+  const [base, head] = await Promise.all([resolveCommit(baseCommit), resolveCommit(headCommit)]);
+  if (base === head) return { baseCommit: base, headCommit: head, files: [], totalFiles: 0, truncated: false };
+  const nameResult = await execStudioCmd(
+    "git", ["diff", "--no-ext-diff", "--no-color", "--no-renames", "--name-status", "-z", base, head, "--"], workspaceDir,
+  );
+  if (nameResult.exitCode !== 0) throw new AgencyError("CONFLICT", "Unable to compare Studio snapshots: " + nameResult.stderr.slice(0, 300));
+  const statusMap = new Map<string, StudioDiffFile["status"]>();
+  const nameTokens = nameResult.stdout.split("\0").filter(Boolean);
+  for (let i = 0; i + 1 < nameTokens.length; i += 2) {
+    const code = nameTokens[i];
+    const relPath = nameTokens[i + 1].replaceAll("\\", "/");
+    if (!relPath || relPath.split("/").some((part) => part === ".git" || part === "..")) continue;
+    const status: StudioDiffFile["status"] = code === "A" ? "added" : code === "D" ? "deleted" : code === "T" ? "type-changed" : "modified";
+    statusMap.set(relPath, status);
+  }
+  const numstatResult = await execStudioCmd(
+    "git", ["diff", "--no-ext-diff", "--no-color", "--no-renames", "--numstat", "-z", base, head, "--"], workspaceDir,
+  );
+  if (numstatResult.exitCode !== 0) throw new AgencyError("CONFLICT", "Unable to read Studio diff statistics");
+  const stats = new Map<string, { additions: number; deletions: number; binary: boolean }>();
+  for (const record of numstatResult.stdout.split("\0").filter(Boolean)) {
+    const first = record.indexOf("\t");
+    const second = record.indexOf("\t", first + 1);
+    if (first < 0 || second < 0) continue;
+    const addText = record.slice(0, first);
+    const deleteText = record.slice(first + 1, second);
+    const relPath = record.slice(second + 1).replaceAll("\\", "/");
+    stats.set(relPath, {
+      additions: /^\d+$/.test(addText) ? Number(addText) : 0,
+      deletions: /^\d+$/.test(deleteText) ? Number(deleteText) : 0,
+      binary: addText === "-" || deleteText === "-",
+    });
+  }
+  const allFiles = [...statusMap.entries()].map(([relPath, status]) => {
+    const stat = stats.get(relPath) || { additions: 0, deletions: 0, binary: false };
+    return { path: relPath, status, ...stat };
+  }).sort((a, b) => a.path.localeCompare(b.path));
+  const files = allFiles.slice(0, MAX_STUDIO_DIFF_FILES);
+  const result: StudioDiffResult = { baseCommit: base, headCommit: head, files, totalFiles: allFiles.length, truncated: allFiles.length > files.length };
+  if (selectedFile !== undefined) {
+    const safePath = resolveWorkspaceFile(dataDir, project.workspacePath, selectedFile).relPath;
+    const metadata = allFiles.find((entry) => entry.path === safePath);
+    if (!metadata) throw new AgencyError("NOT_FOUND", "File is not part of this snapshot diff");
+    const patchResult = await execStudioCmd(
+      "git", ["diff", "--no-ext-diff", "--no-color", "--no-renames", "--unified=4", base, head, "--", safePath], workspaceDir,
+    );
+    if (patchResult.exitCode !== 0) throw new AgencyError("CONFLICT", "Unable to read file diff: " + patchResult.stderr.slice(0, 300));
+    const patch = patchResult.stdout.slice(0, MAX_STUDIO_DIFF_CHARS);
+    result.diff = { ...metadata, patch, patchTruncated: patchResult.stdout.length > patch.length };
+  }
+  return result;
+}
 export async function rollbackStudioSnapshot(
   dataDir: string,
   project: Project,
