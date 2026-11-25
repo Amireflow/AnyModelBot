@@ -127,7 +127,7 @@ describe("Supabase Auth service & HTTP routes", () => {
 
   it("handles signup, confirmation required, login headers, app_metadata roles, token refresh, and logout over HTTP", async () => {
     const config = loadConfig({ dataDir: tmpDir, env: {} });
-    expect(config.ui.lang).toBe("fr");
+    expect(config.ui.lang).toBe("system");
     const authService = new SupabaseAuthService({ dataDir: tmpDir, config });
     const route = authRoutes({ auth: authService } as unknown as WebContext);
 

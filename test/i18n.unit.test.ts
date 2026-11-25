@@ -179,7 +179,7 @@ describe("界面接口：语言偏好", () => {
   });
 
   it("语言偏好写进 config.json；没带请求头时报错用应用语言", async () => {
-    expect((await api("/settings")).json.lang).toBe("fr");
+    expect((await api("/settings")).json.lang).toBe("system");
     const r = await api("/settings", { method: "PUT", body: { lang: "en" } });
     expect(r.status).toBe(200);
     expect(r.json.lang).toBe("en");
