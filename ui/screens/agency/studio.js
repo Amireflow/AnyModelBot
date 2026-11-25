@@ -151,6 +151,7 @@ export function ProjectStudio({
   const [executionMode, setExecutionMode] = useState("container");
 
   const [busy, setBusy] = useState("");
+  const [cancelRequested, setCancelRequested] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -160,6 +161,7 @@ export function ProjectStudio({
   const chatUploadRef = useRef(null);
   const treeUploadRef = useRef(null);
   const justCreatedIdRef = useRef("");
+  const activeStudioProjectIdRef = useRef("");
 
   const isDirty = !!selectedPath && content !== savedContent;
   const lineCount = useMemo(() => Math.max(1, String(content || "").split("\n").length), [content]);
@@ -466,6 +468,23 @@ export function ProjectStudio({
     }
   };
 
+  const cancelStudioTurn = async () => {
+    const pid = activeStudioProjectIdRef.current || project?.id || "";
+    if (!orgId || !pid || busy !== "chat" || cancelRequested) return;
+    setCancelRequested(true);
+    setError("");
+    try {
+      const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/cancel`, { method: "POST" });
+      if (!res?.cancelled) {
+        setCancelRequested(false);
+        setNotice(t("agency.studioCancelUnavailable"));
+      }
+    } catch (err) {
+      setCancelRequested(false);
+      setError(err.message || t("agency.studioCancelUnavailable"));
+    }
+  };
+
   const sendStudioTurn = async (opts = {}) => {
     if (!orgId || busy) return;
     const text = (opts.message ?? input).trim();
@@ -477,6 +496,8 @@ export function ProjectStudio({
     if (!text && !executePlan && attached.length === 0) return;
 
     setBusy("chat");
+    setCancelRequested(false);
+    activeStudioProjectIdRef.current = project?.id || "";
     setError("");
     setNotice("");
     setLiveSteps([]);
@@ -519,6 +540,7 @@ export function ProjectStudio({
         onProjectCreated?.(created.project);
       }
 
+      activeStudioProjectIdRef.current = activeProjectId;
       const response = await fetch(`/amb/api/agency/${enc(orgId)}/projects/${enc(activeProjectId)}/studio/chat-stream`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-amb-lang": getLang() },
@@ -582,12 +604,13 @@ export function ProjectStudio({
       }
       await loadFiles(modified[0] || "", activeProjectId);
       const ds = await loadDevServer(activeProjectId);
+      if (finalPayload?.cancelled) setNotice(t("agency.studioCancelledStatus"));
       if (modified.length > 0 || runMode === "build") {
         setWorkspaceTab("preview");
         setPreviewNonce((n) => n + 1);
         if (modified.includes("package.json") && ds?.running) {
           setNotice(t("agency.studioPreviewRestartHint"));
-        } else if (ds?.hasDevScript && !ds.running) {
+        } else if (ds?.hasDevScript && !ds.running && !finalPayload?.cancelled) {
           setNotice(t("agency.studioPreviewReadyHint"));
         }
       }
@@ -596,6 +619,8 @@ export function ProjectStudio({
       setError(err.message);
     } finally {
       setBusy("");
+      setCancelRequested(false);
+      activeStudioProjectIdRef.current = "";
       setActiveSubagent(null);
     }
   };
@@ -993,12 +1018,15 @@ export function ProjectStudio({
                 <strong class="agency-truncate">
                   ${activeSubagent
                     ? (activeSubagent.displayName || t(`agency.studioSubagentNames.${activeSubagent.subagent}`))
-                    : (mode === "plan" ? t("agency.studioPlanningStatus") : t("agency.studioBuildingStatus"))}
+                    : (cancelRequested ? t("agency.studioCancelingStatus") : (mode === "plan" ? t("agency.studioPlanningStatus") : t("agency.studioBuildingStatus")))}
                 </strong>
               </div>
               ${activeSubagent?.title && html`<small class="agency-truncate" title=${activeSubagent.title}>${activeSubagent.title}</small>`}
             </div>
             <span class="agency-studio-live-timer mono">${formatElapsed(elapsedSec)}</span>
+            <button type="button" class="btn sm" disabled=${cancelRequested} onClick=${cancelStudioTurn}>
+              <${Icon} name="stop" size="xs" /><span>${cancelRequested ? t("agency.studioCancelingStatus") : t("agency.studioCancelBtn")}</span>
+            </button>
           </div>
           ${liveSteps.length > 0 && html`<div class="agency-studio-live-timeline">
             ${liveSteps.slice(-6).map((st) => {

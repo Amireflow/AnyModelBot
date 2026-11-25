@@ -71,6 +71,11 @@ import {
 } from "../../agency/workspace-runner.js";
 
 export const LOCAL_AGENCY_ACTOR = "local-owner";
+
+const STUDIO_EXECUTION_CONTROLLERS = new Map<string, AbortController>();
+function studioExecutionKey(organizationId: string, projectId: string): string {
+  return `${organizationId}:${projectId}`;
+}
 const ERROR_STATUS: Record<string, number> = {
   VALIDATION_ERROR:400, NOT_FOUND:404, FORBIDDEN:403, CONFLICT:409,
   INVALID_TRANSITION:409, CONSENT_REQUIRED:409, APPROVAL_EXPIRED:409,
@@ -1139,6 +1144,13 @@ export function agencyRoutes(ctx: WebContext): Route {
           }
           if (seg.length===6 && seg[4]==="workspace" && seg[5]==="init" && method==="POST") {
             const project=service.getProject(organizationId,actor,projectId);
+            const executionKey=studioExecutionKey(organizationId,projectId);
+            if (seg.length===6 && seg[5]==="cancel" && method==="POST") {
+              const active=STUDIO_EXECUTION_CONTROLLERS.get(executionKey);
+              if (!active || active.signal.aborted) return send(res,200,{cancelled:false});
+              active.abort(new Error("Studio generation cancelled by user"));
+              return send(res,200,{cancelled:true});
+            }
             const contract=service.getContract(organizationId,actor,project.contractId);
             const lots=service.listProjectLots(organizationId,actor,projectId);
             const workspace=initProjectWorkspace({
@@ -1322,37 +1334,49 @@ export function agencyRoutes(ctx: WebContext): Route {
             }
             if (seg.length===6 && seg[5]==="chat-stream" && method==="POST") {
               const body=await readObject(req,4_500_000);
-              const mode=body.mode==="plan" ? "plan" : "build";
-              const message=typeof body.message==="string" ? body.message : "";
-              const executePlan=body.executePlan===true;
-              const targetSubagent=typeof body.targetSubagent==="string" && ["architect","ui_ux","frontend","backend","qa"].includes(body.targetSubagent)
-                ? (body.targetSubagent as StudioSubagentId)
-                : undefined;
-              const docFiles=Array.isArray(body.files)
-                ? body.files.filter((x): x is Record<string,unknown> => !!x && typeof x==="object" && !Array.isArray(x)).map((f) => ({
-                  name:String(f.name || "document.txt"),
-                  mimeType:typeof f.mimeType==="string" ? f.mimeType : undefined,
-                  textContent:typeof f.textContent==="string" ? f.textContent : undefined,
-                  base64Content:typeof f.base64Content==="string" ? f.base64Content : undefined,
-                }))
-                : [];
-              let attachedFileNames: string[]=[];
-              if (docFiles.length>0) {
-                const contract=service.getContract(organizationId,actor,project.contractId);
-                const lots=service.listProjectLots(organizationId,actor,projectId);
-                const ingested=await ingestProjectDocuments({ dataDir, project, contract, lots, files:docFiles });
-                attachedFileNames=ingested.writtenFiles;
+              if (STUDIO_EXECUTION_CONTROLLERS.has(executionKey)) {
+                throw new HttpError(409,"A Studio generation is already running for this project");
               }
-              res.writeHead(200,{
-                "content-type":"text/event-stream; charset=utf-8",
-                "cache-control":"no-cache",
-                connection:"keep-alive",
-                "x-content-type-options":"nosniff",
-              });
-              const emit=(event: string, data: unknown) => {
-                if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+              const controller=new AbortController();
+              STUDIO_EXECUTION_CONTROLLERS.set(executionKey,controller);
+              const abortOnDisconnect=() => {
+                if (!res.writableEnded) controller.abort(new Error("Studio client disconnected"));
+              };
+              req.on("aborted",abortOnDisconnect);
+              res.on("close",abortOnDisconnect);
+              let eventStreamStarted=false;
+              const emit=(event: string,data: unknown) => {
+                if (!res.writableEnded && !res.destroyed) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
               };
               try {
+                const mode=body.mode==="plan" ? "plan" : "build";
+                const message=typeof body.message==="string" ? body.message : "";
+                const executePlan=body.executePlan===true;
+                const targetSubagent=typeof body.targetSubagent==="string" && ["architect","ui_ux","frontend","backend","qa"].includes(body.targetSubagent)
+                  ? (body.targetSubagent as StudioSubagentId)
+                  : undefined;
+                const docFiles=Array.isArray(body.files)
+                  ? body.files.filter((x): x is Record<string,unknown> => !!x && typeof x==="object" && !Array.isArray(x)).map((f) => ({
+                    name:String(f.name || "document.txt"),
+                    mimeType:typeof f.mimeType==="string" ? f.mimeType : undefined,
+                    textContent:typeof f.textContent==="string" ? f.textContent : undefined,
+                    base64Content:typeof f.base64Content==="string" ? f.base64Content : undefined,
+                  }))
+                  : [];
+                let attachedFileNames: string[]=[];
+                if (docFiles.length>0) {
+                  const contract=service.getContract(organizationId,actor,project.contractId);
+                  const lots=service.listProjectLots(organizationId,actor,projectId);
+                  const ingested=await ingestProjectDocuments({ dataDir, project, contract, lots, files:docFiles });
+                  attachedFileNames=ingested.writtenFiles;
+                }
+                res.writeHead(200,{
+                  "content-type":"text/event-stream; charset=utf-8",
+                  "cache-control":"no-cache",
+                  connection:"keep-alive",
+                  "x-content-type-options":"nosniff",
+                });
+                eventStreamStarted=true;
                 await runStudioConversation({
                   dataDir,
                   project,
@@ -1365,12 +1389,17 @@ export function agencyRoutes(ctx: WebContext): Route {
                   defaultModel:ctx.app?.config?.llm?.defaultModel,
                   hasLlmEndpoint:isLlmConfigured(ctx),
                   resolveRuntime:(role) => resolveStudioRuntimeSafe(service,organizationId,actor,role,ctx.app?.config?.llm?.defaultModel),
+                  signal:controller.signal,
                   onEvent:(ev,data) => emit(ev,data),
                 });
               } catch (err) {
-                emit("error",{error:(err as Error).message || "Studio orchestrator failed"});
+                if (!eventStreamStarted) throw err;
+                if (!controller.signal.aborted) emit("error",{error:(err as Error).message || "Studio orchestrator failed"});
               } finally {
-                if (!res.writableEnded) res.end();
+                req.off("aborted",abortOnDisconnect);
+                res.off("close",abortOnDisconnect);
+                if (STUDIO_EXECUTION_CONTROLLERS.get(executionKey)===controller) STUDIO_EXECUTION_CONTROLLERS.delete(executionKey);
+                if (eventStreamStarted && !res.writableEnded && !res.destroyed) res.end();
               }
               return;
             }
