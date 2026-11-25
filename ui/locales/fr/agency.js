@@ -525,5 +525,11 @@ export default {
   "runningPipeline": "Pipeline en cours…",
   "qaAutofixBtn": "Corriger via IA",
   "qaAutofixRunning": "Correction IA & Re-QA…",
-  "qaAutofixDone": "Corrections appliquées et QA relancée."
+  "qaAutofixDone": "Corrections appliquées et QA relancée.",
+  "copilotAttachBtn": "Fichier",
+  "copilotClearBtn": "Effacer",
+  "copilotActionsTitle": "Actions exécutées",
+  "copilotDropHint": "Glissez-déposez des fichiers (CSV, PDF, brief MD, code, capture) ou demandez une action CRM / prospection / QA.",
+  "copilotPromptProspect": "Prospecter des agences web à Dakar",
+  "copilotFileTooLarge": "Fichier trop volumineux : {name}"
 };

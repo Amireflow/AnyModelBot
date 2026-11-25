@@ -1,8 +1,10 @@
 import { useEffect, useState } from "preact/hooks";
+import { BotAvatar } from "../components/avatar.js";
 import { html, Icon, Spinner, Badge } from "../components/ui.js";
 import { Markdown } from "../components/markdown.js";
 import { api } from "../lib/api.js";
 import { fmtNum, t, useLang } from "../lib/i18n.js";
+import { agentAvatarOf } from "./agency/agent-avatars.js";
 import { AgencyCopilot } from "./agency/copilot.js";
 import { AgencyAgents } from "./agency/agents.js";
 import { ProjectStudio } from "./agency/studio.js";
@@ -2041,7 +2043,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             <div class="agency-commercial-list">
               ${!projectLots.length&&html`<p class="agency-muted">${t("agency.noLots")}</p>`}
               ${projectLots.map(lot=>html`<article class="agency-commercial-card">
-                <div class="agency-commercial-head"><strong>#${lot.lotOrder} · ${lot.title} (${lot.ownerRole})</strong><span class=${"agency-whatsapp-state "+lot.status}>${t(`agency.lotStatus.${lot.status}`)}</span></div>
+                <div class="agency-commercial-head"><span class="agency-agent-inline"><${BotAvatar} char=${agentAvatarOf(lot.ownerRole)} size=${26} state=${lot.status==="in_progress"?"working":"idle"}/><strong>#${lot.lotOrder} · ${lot.title} (${lot.ownerRole})</strong></span><span class=${"agency-whatsapp-state "+lot.status}>${t(`agency.lotStatus.${lot.status}`)}</span></div>
                 ${lot.evidenceSummary&&html`<small>${lot.evidenceSummary}</small>`}
                 <div class="agency-commercial-actions">
                   <input class="field" placeholder=${t("agency.lotVerifyEvidence")} value=${lotEvidenceById[lot.id]||""} onInput=${e=>setLotEvidenceById(p=>({...p,[lot.id]:e.currentTarget.value}))}/>
@@ -2246,7 +2248,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             <div class="agency-commercial-list">
               ${!missions.length&&html`<p class="agency-muted">${t("agency.noMissions")}</p>`}
               ${missions.map(m=>html`<article class="agency-commercial-card">
-                <div class="agency-commercial-head"><strong>${m.title} · ${m.agentRole}</strong><span class=${"agency-whatsapp-state "+m.status}>${t(`agency.missionStatus.${m.status}`)}</span></div>
+                <div class="agency-commercial-head"><span class="agency-agent-inline"><${BotAvatar} char=${agentAvatarOf(m.agentRole)} size=${28} state=${m.status==="running"?"working":"idle"}/><strong>${m.title} · ${m.agentRole}</strong></span><span class=${"agency-whatsapp-state "+m.status}>${t(`agency.missionStatus.${m.status}`)}</span></div>
                 <small>${m.preferredTool||"—"}${m.projectId?` · ${projects.find(p=>p.id===m.projectId)?.title||m.projectId}`:""}</small>
                 ${m.outputSummary&&html`<small><strong>${t("agency.missionOutputLabel")}:</strong> ${m.outputSummary}</small>`}
                 ${m.evidencePaths?.length>0&&html`<small><strong>${t("agency.missionEvidenceLabel")}:</strong> ${m.evidencePaths.join(", ")}</small>`}
@@ -2267,7 +2269,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         </div>
       </div>`}
       ${tab==="agents"&&html`<${AgencyAgents} orgId=${orgId} agents=${agentProfiles} onSaved=${()=>setRevision(v=>v+1)}/>`}
-      ${tab==="copilot"&&html`<${AgencyCopilot} orgId=${orgId} activeTab=${tab} companyId=${selected} leadId=${selectedLeadId} projectId=${selectedProjectId}/>`}
+      ${tab==="copilot"&&html`<${AgencyCopilot} orgId=${orgId} activeTab=${tab} companyId=${selected} leadId=${selectedLeadId} projectId=${selectedProjectId} onDataChanged=${()=>setRevision(v=>v+1)}/>`}
     `}
   </section>`;
 

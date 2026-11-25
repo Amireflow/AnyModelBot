@@ -326,4 +326,69 @@ describe("AnyModelBot Audit Upgrades (P0 / P1 / P2)", () => {
     expect(pipeRes.json.qaResult.checks).toHaveLength(4);
     expect(["in_qa", "in_progress"]).toContain(pipeRes.json.lot.status);
   });
+
+  it("Copilot reads attached CSV/brief files and executes governed CRM & prospecting tools", async () => {
+    let turn = 0;
+    const invoke = makeInvoker({
+      app: {
+        dataDir: tmpDir,
+        config: { dataDir: tmpDir, workspace: tmpDir, ui: { lang: "fr" }, llm: { defaultModel: "GLM-5.3" } },
+        search: {
+          async search() {
+            return {
+              backend: "exa-mcp",
+              sources: [{ title: "Teranga Immo | Dakar", url: "https://teranga-immo.example", snippet: "Immobilier" }],
+            };
+          },
+        },
+        models: {
+          async listModels() { return ["GLM-5.3"]; },
+          async streamChat(req: any) {
+            turn += 1;
+            if (turn === 1) {
+              const userPrompt = req.messages.map((m: any) => m.content).join("\n");
+              expect(userPrompt).toContain("prospects.csv");
+              expect(userPrompt).toContain("Senegal Logistics");
+              return JSON.stringify({
+                tool: "import_companies",
+                args: {
+                  companies: [{ name: "Senegal Logistics", website: "https://senegal-logistics.example", industry: "Transport", city: "Dakar" }],
+                },
+              });
+            }
+            if (turn === 2) {
+              return JSON.stringify({ tool: "prospect_web", args: { query: "immobilier", city: "Dakar" } });
+            }
+            return "## Actions terminées\n- Importé **Senegal Logistics** depuis `prospects.csv`.\n- Trouvé **Teranga Immo** sur le web.";
+          },
+        },
+      } as any,
+    });
+
+    const copRes = await invoke("POST", `/agency/${orgId}/copilot`, {
+      tab: "copilot",
+      question: "Importe les entreprises du CSV et cherche un prospect immobilier à Dakar",
+      attachments: [
+        {
+          name: "prospects.csv",
+          mimeType: "text/csv",
+          size: 84,
+          textContent: "name,website,city\nSenegal Logistics,https://senegal-logistics.example,Dakar\n",
+        },
+      ],
+      history: [{ role: "user", text: "Bonjour Copilote" }],
+    });
+
+    expect(copRes.status).toBe(200);
+    expect(copRes.json.mode).toBe("llm");
+    expect(copRes.json.actions).toHaveLength(2);
+    expect(copRes.json.actions[0].tool).toBe("import_companies");
+    expect(copRes.json.actions[0].ok).toBe(true);
+    expect(copRes.json.actions[1].tool).toBe("prospect_web");
+    expect(copRes.json.actions[1].ok).toBe(true);
+    expect(copRes.json.answer).toContain("Senegal Logistics");
+
+    const companies = service.listCompanies(orgId, "local-owner");
+    expect(companies.some((c) => c.name === "Senegal Logistics")).toBe(true);
+  });
 });

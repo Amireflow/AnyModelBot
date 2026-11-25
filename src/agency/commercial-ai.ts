@@ -343,6 +343,46 @@ export async function estimateQuoteFromNeeds(input: {
   }
 }
 
+export interface CopilotAttachment {
+  name: string;
+  mimeType: string;
+  size: number;
+  textContent?: string;
+}
+
+export interface CopilotActionLog {
+  step: number;
+  tool: string;
+  summary: string;
+  ok: boolean;
+  data?: unknown;
+}
+
+export type CopilotToolExecutor = (
+  tool: string,
+  args: Record<string, unknown>,
+) => Promise<{ ok: boolean; summary: string; data?: unknown }>;
+
+function parseCopilotToolCall(raw: string): { tool: string; args: Record<string, unknown> } | null {
+  const trimmed = raw.trim();
+  const unwrapped = trimmed.startsWith("```")
+    ? trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim()
+    : trimmed;
+  if (!unwrapped.startsWith("{") || !unwrapped.endsWith("}")) return null;
+  try {
+    const parsed = JSON.parse(unwrapped) as Record<string, unknown>;
+    if (typeof parsed.tool === "string" && parsed.tool.trim()) {
+      const args = parsed.args && typeof parsed.args === "object" && !Array.isArray(parsed.args)
+        ? (parsed.args as Record<string, unknown>)
+        : {};
+      return { tool: parsed.tool.trim(), args };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export async function runAgencyCopilot(input: {
   organization: Organization;
   dashboard: AgencyDashboard;
@@ -356,12 +396,21 @@ export async function runAgencyCopilot(input: {
   project?: Project;
   lots?: readonly ProjectLot[];
   qaChecks?: readonly QaCheck[];
+  attachments?: readonly CopilotAttachment[];
+  history?: ReadonlyArray<{ role: "user" | "assistant"; text: string }>;
+  executeTool?: CopilotToolExecutor;
+  maxSteps?: number;
   modelClient?: ModelClient;
   defaultModel?: string;
   hasLlmEndpoint?: boolean;
-}): Promise<{ answer: string; mode: "llm" | "deterministic"; model?: string }> {
+}): Promise<{ answer: string; mode: "llm" | "deterministic"; model?: string; actions: CopilotActionLog[] }> {
   const q = input.question.trim();
-  if (!q) throw new AgencyError("VALIDATION_ERROR", "Copilot question is required");
+  const attachments = (input.attachments ?? []).slice(0, 5);
+  if (!q && attachments.length === 0) {
+    throw new AgencyError("VALIDATION_ERROR", "Copilot question or attachment is required");
+  }
+  const effectiveQuestion = q || `Analyse les ${attachments.length} fichier(s) joint(s) et propose les actions concrètes adaptées.`;
+  const actions: CopilotActionLog[] = [];
 
   const contextLines = [
     `Organisation: ${input.organization.name} (${input.organization.currency})`,
@@ -369,34 +418,98 @@ export async function runAgencyCopilot(input: {
     `Pipeline: ${input.dashboard.companyCount} entreprises, ${input.dashboard.leadCount} prospects (${input.dashboard.openLeadCount} ouverts, ${input.dashboard.wonLeadCount} gagnés)`,
     `KPIs: CA signé=${input.metrics.signedRevenue}, Pipeline=${input.metrics.pipelineValue}, Acomptes=${input.metrics.collectedDeposits}, Approbations en attente=${input.metrics.pendingApprovalsCount}, Projets livrés=${input.metrics.projectsDelivered}`,
   ];
-  if (input.company) contextLines.push(`Entreprise sélectionnée: ${input.company.name} (${input.company.industry || "—"}, ${input.company.website || "sans site"})`);
+  if (input.company) contextLines.push(`Entreprise sélectionnée: ${input.company.name} (id=${input.company.id}, secteur=${input.company.industry || "—"}, site=${input.company.website || "sans site"})`);
   if (input.lead) contextLines.push(`Prospect sélectionné: ${input.lead.id} (stage=${input.lead.stage})`);
   if (input.needs) contextLines.push(`Besoins: ${input.needs.solutionType} — ${input.needs.problemStatement}`);
-  if (input.quotes?.length) contextLines.push(`Devis: ${input.quotes.map((x) => `v${x.version} ${x.status} ${x.netTotal}`).join(" | ")}`);
-  if (input.project) contextLines.push(`Projet actif: ${input.project.title} (${input.project.status}), lots=${input.lots?.length ?? 0}, QA=${input.qaChecks?.length ?? 0}`);
+  if (input.quotes?.length) contextLines.push(`Devis: ${input.quotes.map((x) => `${x.id} v${x.version} ${x.status} ${x.netTotal}`).join(" | ")}`);
+  if (input.project) contextLines.push(`Projet actif: ${input.project.title} (id=${input.project.id}, statut=${input.project.status}), lots=${input.lots?.length ?? 0}, QA=${input.qaChecks?.length ?? 0}`);
+
+  const attachmentBlock = attachments.length
+    ? "\n\nPièces jointes fournies par l'utilisateur :\n" +
+      attachments.map((att, idx) => {
+        const body = (att.textContent || "").trim().slice(0, 24_000);
+        return `### Fichier ${idx + 1}: ${att.name} (${att.mimeType}, ${att.size} octets)\n${body || "(Contenu binaire sans texte extrait)"}`;
+      }).join("\n\n")
+    : "";
 
   if (input.hasLlmEndpoint && input.modelClient) {
     let model = input.defaultModel?.trim() || "";
     if (!model) model = (await input.modelClient.listModels().catch(() => []))[0] ?? "";
     if (model) {
+      const toolGuide = input.executeTool
+        ? [
+            "",
+            "Capacités d'action gouvernées :",
+            "Quand l'utilisateur demande d'agir sur le CRM, la prospection, la qualification, les devis brouillons, les missions, la QA ou le Studio d'un projet, tu PEUX exécuter des outils en répondant UNIQUEMENT avec un objet JSON strict :",
+            `{"tool":"<nom>","args":{...}}`,
+            "Outils disponibles :",
+            `- list_crm_summary: {"scope":"companies"|"leads"|"quotes"|"contracts"|"projects"|"catalog"}`,
+            `- prospect_web: {"query":string,"industry"?:string,"city"?:string,"countryCode"?:string,"maxResults"?:number}`,
+            `- import_companies: {"companies":[{"name":string,"website"?:string,"industry"?:string,"city"?:string,"countryCode"?:string}]}`,
+            `- audit_website: {"companyId"?:string,"url"?:string}`,
+            `- create_contact: {"companyId":string,"displayName":string,"role"?:string,"email"?:string,"phone"?:string}`,
+            `- create_lead: {"companyId":string,"contactId"?:string,"source"?:string,"notes"?:string}`,
+            `- qualify_needs: {"leadId":string,"problemStatement":string,"solutionType":"vitrine"|"ecommerce"|"web_app"|"mobile_app"|"business_platform"|"internal_tool"|"automation"|"maintenance","mustHaveFeatures"?:string[],"desiredTimeline"?:string,"budgetMin"?:number,"budgetMax"?:number}`,
+            `- create_quote_draft: {"leadId":string,"title":string,"tier"?:"essential"|"standard"|"advanced"|"custom","discountPct"?:number,"lines":[{"label":string,"quantity":number,"unitPrice":number,"unitCost":number,"estimatedDays":number}]}`,
+            `- create_mission: {"title":string,"agentRole":"prospecting"|"qualification"|"commercial"|"estimator"|"project_manager"|"architect"|"developer"|"ui_ux"|"qa_functional"|"qa_technical"|"qa_ui_ux"|"qa_security"|"retention","objective"?:string,"projectId"?:string,"leadId"?:string}`,
+            `- run_qa_audit: {"projectId":string}`,
+            `- write_studio_file: {"projectId":string,"path":string,"content":string}`,
+            "Règles : n'envoie jamais d'e-mail/WhatsApp ni ne signe/déploie sans approbation humaine. Dès que tu as assez d'informations ou terminé les actions, réponds en Markdown français clair et structuré (tableaux GFM, listes, gras).",
+          ].join("\n")
+        : "";
+
+      const systemPrompt = [
+        "Tu es le Copilote IA ultra-compétent d'AnyModelBot Agence.",
+        "Réponds en français de façon concise, factuelle, professionnelle et orientée action à partir du contexte réel et des fichiers joints.",
+        "Ne fabrique jamais de chiffres, de résultats d'audit ni d'approbations.",
+        toolGuide,
+      ].filter(Boolean).join("\n");
+
+      const priorHistory = (input.history ?? [])
+        .slice(-10)
+        .filter((h) => h && (h.role === "user" || h.role === "assistant") && typeof h.text === "string" && h.text.trim())
+        .map((h) => ({ role: h.role, content: h.text.slice(0, 4000) }));
+
+      const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+        { role: "system", content: systemPrompt },
+        ...priorHistory,
+        {
+          role: "user",
+          content: `Contexte:\n${contextLines.join("\n")}${attachmentBlock}\n\nDemande utilisateur:\n${effectiveQuestion}`,
+        },
+      ];
+
+      const executeTool = input.executeTool;
+      const maxSteps = Math.max(1, Math.min(10, Math.round(input.maxSteps ?? 6)));
       try {
-        const answer = await input.modelClient.streamChat(
-          {
-            model,
-            messages: [
-              {
-                role: "system",
-                content: "Tu es le Copilote IA d'AnyModelBot Agence. Réponds en français de façon concise, factuelle et orientée action à partir du contexte réel ci-dessous. Ne fabrique jamais de chiffres ni d'approbations.",
-              },
-              {
-                role: "user",
-                content: `Contexte:\n${contextLines.join("\n")}\n\nQuestion:\n${q}`,
-              },
-            ],
-          },
-          () => {},
-        );
-        if (answer.trim()) return { answer: answer.trim(), mode: "llm", model };
+        for (let step = 1; step <= maxSteps; step++) {
+          const reply = await input.modelClient.streamChat({ model, messages }, () => {});
+          const toolCall = executeTool ? parseCopilotToolCall(reply) : null;
+          if (!toolCall || !executeTool) {
+            if (reply.trim()) {
+              return { answer: reply.trim(), mode: "llm", model, actions };
+            }
+            break;
+          }
+          messages.push({ role: "assistant", content: reply });
+          const exec = await executeTool(toolCall.tool, toolCall.args);
+          actions.push({ step, tool: toolCall.tool, summary: exec.summary, ok: exec.ok, data: exec.data });
+          messages.push({
+            role: "user",
+            content: `Résultat outil "${toolCall.tool}" (ok=${exec.ok}) : ${exec.summary}\n${exec.data ? JSON.stringify(exec.data).slice(0, 6000) : ""}`,
+          });
+        }
+
+        if (actions.length > 0) {
+          messages.push({
+            role: "user",
+            content: "Résume maintenant en français (Markdown propre avec tableaux/puces) les actions exécutées et les résultats constatés.",
+          });
+          const summaryReply = await input.modelClient.streamChat({ model, messages }, () => {});
+          if (summaryReply.trim()) {
+            return { answer: summaryReply.trim(), mode: "llm", model, actions };
+          }
+        }
       } catch {
         /* fallback cleanly below */
       }
@@ -404,6 +517,11 @@ export async function runAgencyCopilot(input: {
   }
 
   const nextSteps: string[] = [];
+  if (attachments.length > 0) {
+    nextSteps.push(
+      `Fichiers reçus (${attachments.length}) : ${attachments.map((a) => `${a.name} (${Math.round(a.size / 1024)} Ko)`).join(", ")}. Activez un modèle IA dans Paramètres pour analyser leur contenu et déclencher les actions automatiques.`,
+    );
+  }
   if (input.metrics.pendingApprovalsCount > 0) {
     nextSteps.push(`Valider ${input.metrics.pendingApprovalsCount} approbation(s) en attente dans Opérations.`);
   }
@@ -423,5 +541,6 @@ export async function runAgencyCopilot(input: {
   return {
     answer: `${contextLines.join("\n")}\n\nRecommandations immédiates :\n- ${nextSteps.join("\n- ")}`,
     mode: "deterministic",
+    actions,
   };
 }

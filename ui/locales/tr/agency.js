@@ -670,5 +670,11 @@ export default {
   "runningPipeline": "Running pipeline…",
   "qaAutofixBtn": "Auto-fix with AI",
   "qaAutofixRunning": "AI fixing & Re-QA…",
-  "qaAutofixDone": "Fixes applied and QA re-run."
+  "qaAutofixDone": "Fixes applied and QA re-run.",
+  "copilotAttachBtn": "Attach file",
+  "copilotClearBtn": "Clear",
+  "copilotActionsTitle": "Executed actions",
+  "copilotDropHint": "Drag & drop files (CSV, PDF, MD brief, code, screenshot) or ask for CRM, prospecting, or QA actions.",
+  "copilotPromptProspect": "Prospect web agencies in Dakar",
+  "copilotFileTooLarge": "File exceeds size limit: {name}"
 };

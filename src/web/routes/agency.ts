@@ -19,6 +19,7 @@ import {
   extractNeedsFromConversation,
   runAgencyCopilot,
   suggestCommercialReply,
+  type CopilotAttachment,
 } from "../../agency/commercial-ai.js";
 import { buildProjectZipArchive } from "../../agency/delivery-package.js";
 import { bootstrapAgencyDefaults } from "../../agency/presets.js";
@@ -117,15 +118,46 @@ function decodeSegment(value: string | undefined, field: string): string {
     return decoded;
   } catch { throw new HttpError(400,`Invalid ${field}`); }
 }
-async function readObject(req: Parameters<Route>[0]): Promise<Record<string,unknown>> {
+async function readObject(req: Parameters<Route>[0], maxBytes = 1_000_000): Promise<Record<string,unknown>> {
   try {
-    const body=await readJson(req);
+    const body=await readJson(req,maxBytes);
     if (!body || typeof body!=="object" || Array.isArray(body)) throw new HttpError(400,"JSON body must be an object");
     return body as Record<string,unknown>;
   } catch (error) {
     if (error instanceof SyntaxError) throw new HttpError(400,"Malformed JSON body");
     throw error;
   }
+}
+
+function extractCopilotAttachmentText(raw: Record<string, unknown>): CopilotAttachment | null {
+  const name = typeof raw.name === "string" ? raw.name.trim().slice(0, 180) : "";
+  if (!name) return null;
+  const mimeType = typeof raw.mimeType === "string" ? raw.mimeType.trim().slice(0, 120) : "application/octet-stream";
+  const size = Math.max(0, Number(raw.size) || 0);
+  if (typeof raw.textContent === "string" && raw.textContent.trim()) {
+    return { name, mimeType, size: size || Buffer.byteLength(raw.textContent, "utf8"), textContent: raw.textContent.slice(0, 24_000) };
+  }
+  const b64 = typeof raw.base64Content === "string" ? raw.base64Content.trim() : "";
+  if (!b64) return { name, mimeType, size };
+  const buf = Buffer.from(b64, "base64");
+  const isPdf = mimeType.toLowerCase().includes("pdf") || name.toLowerCase().endsWith(".pdf");
+  const isImage = mimeType.toLowerCase().startsWith("image/") && !mimeType.toLowerCase().includes("svg");
+  if (isImage) {
+    return { name, mimeType, size: buf.length, textContent: `[Image jointe: ${name} (${mimeType}, ${buf.length} octets)]` };
+  }
+  if (isPdf) {
+    // Lightweight pure-Node extraction of readable text runs inside PDF objects
+    const latin = buf.toString("latin1");
+    const runs = latin.match(/[\x20-\x7e\u00c0-\u00ff]{4,}/g) ?? [];
+    const filtered = runs
+      .filter((r) => !/^(%PDF-|endobj|endstream|stream|xref|trailer|startxref|\/Type|\/Filter|\/Length)/.test(r))
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 18_000);
+    return { name, mimeType, size: buf.length, textContent: filtered || `[PDF joint: ${name}, ${buf.length} octets]` };
+  }
+  return { name, mimeType, size: buf.length, textContent: buf.toString("utf8").slice(0, 24_000) };
 }
 function queryInteger(url: URL,name: string,fallback: number): number {
   const value=url.searchParams.get(name);
@@ -1508,7 +1540,7 @@ export function agencyRoutes(ctx: WebContext): Route {
 
       if (seg[2]==="copilot" && seg.length===3 && method==="POST") {
         const org=service.getOrganization(organizationId,actor);
-        const body=await readObject(req);
+        const body=await readObject(req,4_500_000);
         const tab=typeof body.tab==="string" ? body.tab : "operations";
         const question=typeof body.question==="string" ? body.question : "";
         const companyId=typeof body.companyId==="string" ? body.companyId.trim() : "";
@@ -1521,6 +1553,189 @@ export function agencyRoutes(ctx: WebContext): Route {
         const project=projectId ? service.getProject(organizationId,actor,projectId) : undefined;
         const lots=project ? service.listProjectLots(organizationId,actor,project.id) : undefined;
         const qaChecks=project ? service.listQaChecks(organizationId,actor,project.id) : undefined;
+        const attachments=Array.isArray(body.attachments)
+          ? body.attachments
+            .slice(0,5)
+            .filter((x): x is Record<string,unknown> => !!x && typeof x==="object" && !Array.isArray(x))
+            .map(extractCopilotAttachmentText)
+            .filter((x): x is CopilotAttachment => x!==null)
+          : [];
+        const history=Array.isArray(body.history)
+          ? body.history
+            .slice(-10)
+            .filter((x): x is { role:"user"|"assistant"; text:string } =>
+              !!x && typeof x==="object" && (x.role==="user" || x.role==="assistant") && typeof x.text==="string")
+          : [];
+        const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
+
+        const executeTool=async (tool: string, args: Record<string, unknown>) => {
+          try {
+            if (tool==="list_crm_summary") {
+              const scope=String(args.scope || "companies");
+              if (scope==="companies") {
+                const items=service.searchCompanies(organizationId,actor,{ limit:20, offset:0 }).items;
+                return { ok:true, summary:`${items.length} entreprise(s) chargée(s)`, data:items.map((c) => ({ id:c.id, name:c.name, industry:c.industry, city:c.city, website:c.website })) };
+              }
+              if (scope==="leads") {
+                const items=service.searchLeads(organizationId,actor,{ limit:20, offset:0 }).items;
+                return { ok:true, summary:`${items.length} prospect(s) chargé(s)`, data:items.map((l) => ({ id:l.id, companyId:l.companyId, stage:l.stage, source:l.source, notes:l.notes })) };
+              }
+              if (scope==="quotes") {
+                const items=service.listQuotes(organizationId,actor).slice(0,20);
+                return { ok:true, summary:`${items.length} devis chargé(s)`, data:items.map((q) => ({ id:q.id, title:q.title, status:q.status, netTotal:q.netTotal, currency:q.currency })) };
+              }
+              if (scope==="contracts") {
+                const items=service.listContracts(organizationId,actor).slice(0,20);
+                return { ok:true, summary:`${items.length} contrat(s) chargé(s)`, data:items.map((c) => ({ id:c.id, title:c.title, status:c.status, totalAmount:c.totalAmount, depositStatus:c.depositStatus })) };
+              }
+              if (scope==="projects") {
+                const items=service.listProjects(organizationId,actor).slice(0,20);
+                return { ok:true, summary:`${items.length} projet(s) chargé(s)`, data:items.map((p) => ({ id:p.id, title:p.title, status:p.status, budgetAmount:p.budgetAmount })) };
+              }
+              if (scope==="catalog") {
+                const items=service.listCatalogItems(organizationId,actor);
+                return { ok:true, summary:`${items.length} offre(s) au catalogue`, data:items.map((i) => ({ id:i.id, code:i.code, name:i.name, category:i.category, priceBase:i.priceBase, estimatedDays:i.estimatedDays })) };
+              }
+              return { ok:false, summary:`Scope inconnu: ${scope}` };
+            }
+            if (tool==="prospect_web") {
+              const qStr=String(args.query || "").trim();
+              if (!qStr) return { ok:false, summary:"query est requis pour prospect_web" };
+              const resWeb=await prospectWebCompanies({
+                search:ctx.app?.search,
+                query:qStr,
+                industry:typeof args.industry==="string" ? args.industry : undefined,
+                city:typeof args.city==="string" ? args.city : undefined,
+                countryCode:typeof args.countryCode==="string" ? args.countryCode : undefined,
+                maxResults:args.maxResults==null ? 8 : Number(args.maxResults),
+                findDuplicate:(name,website) => service.findDuplicateCompanies(organizationId,actor,name,website)[0]?.id,
+              });
+              return { ok:true, summary:`${resWeb.candidates.length} entreprise(s) trouvée(s) via ${resWeb.backend}`, data:resWeb.candidates };
+            }
+            if (tool==="import_companies") {
+              const rawList=Array.isArray(args.companies) ? args.companies.slice(0,20) : [];
+              const created: Array<{ id:string; name:string }>=[];
+              const skipped: string[]=[];
+              for (const item of rawList) {
+                if (!item || typeof item!=="object") continue;
+                const rec=item as Record<string,unknown>;
+                const name=String(rec.name || "").trim();
+                if (!name) continue;
+                const website=typeof rec.website==="string" ? rec.website.trim() : "";
+                const dup=service.findDuplicateCompanies(organizationId,actor,name,website);
+                if (dup.length>0) { skipped.push(name); continue; }
+                const co=service.createCompany(organizationId,actor,{
+                  name,
+                  website:website || undefined,
+                  industry:typeof rec.industry==="string" ? rec.industry : undefined,
+                  city:typeof rec.city==="string" ? rec.city : undefined,
+                  countryCode:typeof rec.countryCode==="string" ? rec.countryCode : org.countryCode,
+                });
+                created.push({ id:co.id, name:co.name });
+              }
+              return { ok:true, summary:`${created.length} entreprise(s) importée(s), ${skipped.length} doublon(s) ignoré(s)`, data:{ created, skipped } };
+            }
+            if (tool==="audit_website") {
+              const cid=typeof args.companyId==="string" ? args.companyId.trim() : "";
+              const targetCo=cid ? service.getCompany(organizationId,actor,cid) : undefined;
+              const targetUrl=typeof args.url==="string" && args.url.trim() ? args.url.trim() : (targetCo?.website || "");
+              if (!targetUrl) return { ok:false, summary:"URL ou entreprise avec site web requis(e)" };
+              const audited=await auditWebsiteSafely({ url:targetUrl });
+              if (targetCo) {
+                service.addEvidence(organizationId,actor,{
+                  companyId:targetCo.id,
+                  evidenceType:"company",
+                  sourceUrl:audited.audit.finalUrl || targetUrl,
+                  summary:audited.evidenceSummary,
+                  confidence:0.85,
+                });
+              }
+              return { ok:true, summary:audited.evidenceSummary, data:audited.audit };
+            }
+            if (tool==="create_contact") {
+              const created=service.createContact(organizationId,actor,{
+                companyId:String(args.companyId || ""),
+                displayName:String(args.displayName || ""),
+                role:typeof args.role==="string" ? args.role : undefined,
+                email:typeof args.email==="string" ? args.email : undefined,
+                phone:typeof args.phone==="string" ? args.phone : undefined,
+              });
+              return { ok:true, summary:`Contact "${created.displayName}" créé (${created.id})`, data:created };
+            }
+            if (tool==="create_lead") {
+              const created=service.createLead(organizationId,actor,{
+                companyId:String(args.companyId || ""),
+                contactId:typeof args.contactId==="string" ? args.contactId : undefined,
+                source:typeof args.source==="string" ? args.source : "copilot",
+                notes:typeof args.notes==="string" ? args.notes : undefined,
+              });
+              return { ok:true, summary:`Prospect créé (${created.id})`, data:created };
+            }
+            if (tool==="qualify_needs") {
+              const saved=service.upsertNeedsQualification(organizationId,actor,String(args.leadId || ""),{
+                problemStatement:String(args.problemStatement || ""),
+                solutionType:(args.solutionType as SolutionType) || "web_app",
+                mustHaveFeatures:Array.isArray(args.mustHaveFeatures) ? args.mustHaveFeatures.map(String) : undefined,
+                desiredTimeline:typeof args.desiredTimeline==="string" ? args.desiredTimeline : undefined,
+                budgetMin:args.budgetMin==null ? undefined : Number(args.budgetMin),
+                budgetMax:args.budgetMax==null ? undefined : Number(args.budgetMax),
+              });
+              return { ok:true, summary:`Besoins qualifiés (${saved.solutionType}) pour le prospect ${saved.leadId}`, data:saved };
+            }
+            if (tool==="create_quote_draft") {
+              const rawLines=Array.isArray(args.lines) ? args.lines : [];
+              const lines: QuoteLineItem[]=rawLines.map((l: any) => ({
+                label:String(l?.label || "Prestation"),
+                quantity:Math.max(1,Number(l?.quantity) || 1),
+                unitPrice:Math.max(0,Number(l?.unitPrice) || 0),
+                unitCost:Math.max(0,Number(l?.unitCost) || 0),
+                estimatedDays:Math.max(1,Number(l?.estimatedDays) || 5),
+              }));
+              const resQuote=service.createQuote(organizationId,actor,{
+                leadId:String(args.leadId || ""),
+                title:String(args.title || "Proposition Copilote"),
+                tier:(args.tier as QuoteTier) || "standard",
+                discountPct:args.discountPct==null ? 0 : Number(args.discountPct),
+                lines,
+              });
+              return { ok:true, summary:`Devis brouillon v${resQuote.quote.version} créé (${resQuote.quote.netTotal} ${resQuote.quote.currency})`, data:resQuote.quote };
+            }
+            if (tool==="create_mission") {
+              const created=service.createMission(organizationId,actor,{
+                title:String(args.title || "Mission Copilote"),
+                agentRole:(args.agentRole as AgencyAgentRole) || "developer",
+                objective:typeof args.objective==="string" ? args.objective : undefined,
+                projectId:typeof args.projectId==="string" ? args.projectId : undefined,
+                leadId:typeof args.leadId==="string" ? args.leadId : undefined,
+              });
+              return { ok:true, summary:`Mission "${created.title}" (${created.agentRole}) planifiée`, data:created };
+            }
+            if (tool==="run_qa_audit") {
+              const pid=String(args.projectId || projectId || "").trim();
+              if (!pid) return { ok:false, summary:"projectId requis pour run_qa_audit" };
+              const proj=service.getProject(organizationId,actor,pid);
+              const contract=service.getContract(organizationId,actor,proj.contractId);
+              const projLots=service.listProjectLots(organizationId,actor,proj.id);
+              const audit=await runFourAxisQaAudit({ dataDir, project:proj, contract, lots:projLots });
+              const checks=audit.items.map((item) => service.recordQaCheck(organizationId,actor,proj.id,{
+                category:item.category, title:item.title, status:item.status, evidence:item.evidence, findings:item.findings,
+              }));
+              return { ok:true, summary:audit.summary, data:{ reportPath:audit.reportPath, checks } };
+            }
+            if (tool==="write_studio_file") {
+              const pid=String(args.projectId || projectId || "").trim();
+              if (!pid) return { ok:false, summary:"projectId requis pour write_studio_file" };
+              const proj=service.getProject(organizationId,actor,pid);
+              await createStudioSnapshot(dataDir,proj,"avant-copilote").catch(() => undefined);
+              const saved=writeWorkspaceFile(dataDir,proj,String(args.path || ""),String(args.content ?? ""));
+              return { ok:true, summary:`Fichier ${saved.path} écrit (${saved.size} octets)`, data:saved };
+            }
+            return { ok:false, summary:`Outil non autorisé ou inconnu: ${tool}` };
+          } catch (err) {
+            return { ok:false, summary:(err as Error).message || `Échec outil ${tool}` };
+          }
+        };
+
         const result=await runAgencyCopilot({
           organization:org,
           dashboard:service.dashboard(organizationId,actor),
@@ -1534,6 +1749,9 @@ export function agencyRoutes(ctx: WebContext): Route {
           project,
           lots,
           qaChecks,
+          attachments,
+          history,
+          executeTool,
           modelClient:ctx.app?.models,
           defaultModel:ctx.app?.config?.llm?.defaultModel,
           hasLlmEndpoint:isLlmConfigured(ctx),

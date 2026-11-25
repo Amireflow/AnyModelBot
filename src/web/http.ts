@@ -23,13 +23,13 @@ export class HttpError extends Error {
   }
 }
 
-export async function readJson(req: http.IncomingMessage): Promise<any> {
+export async function readJson(req: http.IncomingMessage, maxBytes = 1_000_000): Promise<any> {
   const ct = String(req.headers["content-type"] || "");
   if (!ct.includes("application/json")) throw new HttpError(415, t("web.needJson"));
   let body = "";
   for await (const c of req) {
     body += c;
-    if (body.length > 1_000_000) throw new HttpError(413, t("web.bodyTooLarge"));
+    if (body.length > maxBytes) throw new HttpError(413, t("web.bodyTooLarge"));
   }
   return body ? JSON.parse(body) : {};
 }

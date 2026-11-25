@@ -57,7 +57,7 @@ export const DEFAULT_AGENT_PRESETS: Record<AgencyAgentRole, AgentRolePreset> = {
   commercial: {
     enabled: true,
     displayName: "Agent Commercial B2B",
-    model: "deepseek-ai/DeepSeek-V4.1-Flash",
+    model: "moonshotai/Kimi-K3.1-Pro",
     autonomyMode: "supervised",
     maxSteps: 6,
     systemPrompt:
@@ -74,7 +74,7 @@ export const DEFAULT_AGENT_PRESETS: Record<AgencyAgentRole, AgentRolePreset> = {
   estimator: {
     enabled: true,
     displayName: "Agent Estimateur & Devis",
-    model: "GLM-5.3",
+    model: "moonshotai/Kimi-K3.1-Pro",
     autonomyMode: "supervised",
     maxSteps: 8,
     systemPrompt:
@@ -91,7 +91,7 @@ export const DEFAULT_AGENT_PRESETS: Record<AgencyAgentRole, AgentRolePreset> = {
   project_manager: {
     enabled: true,
     displayName: "Chef de Projet IA",
-    model: "deepseek-ai/DeepSeek-V4.1-Flash",
+    model: "GLM-5.3",
     autonomyMode: "autonomous_internal",
     maxSteps: 8,
     systemPrompt:
@@ -108,7 +108,7 @@ export const DEFAULT_AGENT_PRESETS: Record<AgencyAgentRole, AgentRolePreset> = {
   architect: {
     enabled: true,
     displayName: "Architecte Logiciel Senior",
-    model: "GLM-5.3",
+    model: "moonshotai/Kimi-K3.1-Pro",
     autonomyMode: "autonomous_internal",
     maxSteps: 10,
     systemPrompt:
@@ -125,7 +125,7 @@ export const DEFAULT_AGENT_PRESETS: Record<AgencyAgentRole, AgentRolePreset> = {
   developer: {
     enabled: true,
     displayName: "Développeur Full-Stack Studio",
-    model: "GLM-5.3",
+    model: "moonshotai/Kimi-K3.1-Pro",
     autonomyMode: "autonomous_internal",
     maxSteps: 12,
     systemPrompt:
@@ -142,7 +142,7 @@ export const DEFAULT_AGENT_PRESETS: Record<AgencyAgentRole, AgentRolePreset> = {
   ui_ux: {
     enabled: true,
     displayName: "Designer UI/UX & Frontend",
-    model: "GLM-5.3",
+    model: "moonshotai/Kimi-K3.1-Pro",
     autonomyMode: "autonomous_internal",
     maxSteps: 10,
     systemPrompt:
@@ -175,7 +175,7 @@ export const DEFAULT_AGENT_PRESETS: Record<AgencyAgentRole, AgentRolePreset> = {
   qa_technical: {
     enabled: true,
     displayName: "Auditeur QA Technique",
-    model: "GLM-5.3",
+    model: "deepseek-ai/DeepSeek-V4.1-Flash",
     autonomyMode: "supervised",
     maxSteps: 8,
     systemPrompt:
@@ -191,7 +191,7 @@ export const DEFAULT_AGENT_PRESETS: Record<AgencyAgentRole, AgentRolePreset> = {
   qa_ui_ux: {
     enabled: true,
     displayName: "Auditeur QA UI/UX",
-    model: "deepseek-ai/DeepSeek-V4.1-Flash",
+    model: "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
     autonomyMode: "supervised",
     maxSteps: 6,
     systemPrompt:
@@ -223,7 +223,7 @@ export const DEFAULT_AGENT_PRESETS: Record<AgencyAgentRole, AgentRolePreset> = {
   retention: {
     enabled: true,
     displayName: "Agent Rétention & Upsell",
-    model: "deepseek-ai/DeepSeek-V4.1-Flash",
+    model: "moonshotai/Kimi-K3",
     autonomyMode: "supervised",
     maxSteps: 6,
     systemPrompt:

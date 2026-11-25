@@ -165,6 +165,12 @@
 .agency-agent-row:hover{background:var(--well-hover)}
 .agency-agent-row.selected{background:var(--side-active)}
 .agency-agent-row-main{display:flex;align-items:center;gap:var(--space-2-5);min-width:0}
+.agency-agent-avatar-wrap{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.agency-agent-status-dot{position:absolute;right:0;bottom:0;width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.agency-agent-status-dot.ok{background:var(--green)}
+.agency-agent-status-dot.off{background:var(--red)}
+.agency-agent-hero{display:flex;align-items:center;gap:var(--space-3);min-width:0}
+.agency-agent-inline{display:inline-flex;align-items:center;gap:var(--space-2);min-width:0}
 .agency-agent-editor{position:sticky;top:var(--space-4)}
 .agency-skills-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--space-2)}
 .agency-skill-check{display:flex;align-items:flex-start;gap:var(--space-2);padding:var(--space-2-5);border-radius:var(--r-item-sm);background:var(--card);cursor:pointer;font-size:var(--fs-xs)}
@@ -223,6 +229,12 @@
 .agency-copilot-msg .md tr:last-child td,.agency-brief-md .md tr:last-child td{border-bottom:0}
 .agency-copilot-form{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;padding:var(--space-2);border-radius:var(--r-item);background:var(--card)}
 .agency-copilot-form .field{flex:1;min-width:220px}
+.agency-copilot.dragging{background:var(--well-hover)}
+.agency-copilot-attachments{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
+.agency-copilot-chip{display:inline-flex;align-items:center;gap:var(--space-1-5);padding:var(--space-1) var(--space-2-5);border-radius:var(--r-ctl);background:var(--card);color:var(--fg-2);font-size:var(--fs-xs)}
+.agency-copilot-actions-list{display:grid;gap:var(--space-1-5);padding:var(--space-2-5) var(--space-3);border-radius:var(--r-item-sm);background:var(--well)}
+.agency-copilot-action-row{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);font-size:var(--fs-xs);color:var(--fg-2)}
+.agency-copilot-file-input{display:none}
 
 /* Studio IDE intégré */
 .agency-studio{display:grid;gap:var(--space-3)}

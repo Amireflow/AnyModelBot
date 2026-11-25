@@ -1,7 +1,9 @@
 import { useEffect, useState } from "preact/hooks";
+import { BotAvatar } from "../../components/avatar.js";
 import { html, Icon, Spinner } from "../../components/ui.js";
 import { api, sseParser } from "../../lib/api.js";
 import { getLang, t } from "../../lib/i18n.js";
+import { agentAvatarOf } from "./agent-avatars.js";
 
 const enc = encodeURIComponent;
 const TEMPLATES = [
@@ -234,6 +236,7 @@ export function ProjectStudio({ orgId, project, onChanged }) {
       </div>
     </div>
     <form class="agency-copilot-form" onSubmit=${runAiBuilder}>
+      <${BotAvatar} key=${agentRole} char=${agentAvatarOf(agentRole)} size=${30} state=${busy === "ai" ? "working" : "idle"} />
       <select class="field" aria-label=${t("agency.missionRoleLabel")} value=${agentRole} onChange=${(e) => setAgentRole(e.currentTarget.value)}>
         ${STUDIO_ROLES.map((r) => html`<option value=${r}>${t(`agency.agentRoleNames.${r}`)}</option>`)}
       </select>

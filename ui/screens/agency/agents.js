@@ -1,7 +1,9 @@
 import { useEffect, useState } from "preact/hooks";
+import { BotAvatar } from "../../components/avatar.js";
 import { html, Icon, Spinner } from "../../components/ui.js";
 import { api } from "../../lib/api.js";
 import { t } from "../../lib/i18n.js";
+import { agentAvatarOf } from "./agent-avatars.js";
 
 const enc = encodeURIComponent;
 const AUTONOMY_MODES = ["draft_only", "supervised", "autonomous_internal"];
@@ -14,6 +16,7 @@ export function AgencyAgents({ orgId, agents = [], onSaved }) {
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [avatarCue, setAvatarCue] = useState(null);
 
   useEffect(() => {
     let live = true;
@@ -98,9 +101,11 @@ export function AgencyAgents({ orgId, agents = [], onSaved }) {
         },
       });
       setNotice(t("agency.agentSavedNotice"));
+      setAvatarCue({ kind: "done", at: Date.now() });
       onSaved?.();
     } catch (err) {
       setError(err.message);
+      setAvatarCue({ kind: "error", at: Date.now() });
     } finally {
       setBusy("");
     }
@@ -114,9 +119,11 @@ export function AgencyAgents({ orgId, agents = [], onSaved }) {
     try {
       await api(`/agency/${enc(orgId)}/agents/${enc(active.role)}`, { method: "DELETE" });
       setNotice(t("agency.agentSavedNotice"));
+      setAvatarCue({ kind: "done", at: Date.now() });
       onSaved?.();
     } catch (err) {
       setError(err.message);
+      setAvatarCue({ kind: "error", at: Date.now() });
     } finally {
       setBusy("");
     }
@@ -132,9 +139,12 @@ export function AgencyAgents({ orgId, agents = [], onSaved }) {
         ${agents.map((ag) => {
           const enabled = ag.config?.enabled !== false;
           const isSelected = active?.role === ag.role;
-          return html`<button type="button" class=${"agency-agent-row" + (isSelected ? " selected" : "")} onClick=${() => setSelectedRole(ag.role)}>
+          return html`<button type="button" class=${"agency-agent-row bot-hover" + (isSelected ? " selected" : "")} onClick=${() => setSelectedRole(ag.role)}>
             <div class="agency-agent-row-main">
-              <span class=${"agency-dot " + (enabled ? "ok" : "off")}></span>
+              <span class="agency-agent-avatar-wrap">
+                <${BotAvatar} char=${agentAvatarOf(ag.role)} size=${36} state=${enabled ? (isSelected ? "listening" : "idle") : "sleep"} />
+                <span class=${"agency-agent-status-dot " + (enabled ? "ok" : "off")} aria-hidden="true"></span>
+              </span>
               <span class="agency-company-meta">
                 <strong>${t(`agency.agentRoleNames.${ag.role}`)}</strong>
                 <small>${ag.config?.model || t("agency.agentModelDefault")}</small>
@@ -151,9 +161,12 @@ export function AgencyAgents({ orgId, agents = [], onSaved }) {
 
     ${active && draft && html`<section class="agency-detail agency-agent-editor">
       <div class="agency-detail-head">
-        <div>
-          <span class="agency-eyebrow">${active.role}</span>
-          <h2>${t(`agency.agentRoleNames.${active.role}`)}</h2>
+        <div class="agency-agent-hero">
+          <${BotAvatar} key=${active.role} char=${agentAvatarOf(active.role)} size=${60} state=${draft.enabled ? (busy ? "working" : "listening") : "sleep"} cue=${avatarCue} lively pokeable greet />
+          <div>
+            <span class="agency-eyebrow">${active.role}</span>
+            <h2>${t(`agency.agentRoleNames.${active.role}`)}</h2>
+          </div>
         </div>
         <span class=${"agency-whatsapp-state " + (draft.enabled ? "accepted" : "blocked")}>
           ${draft.enabled ? t("agency.agentEnabled") : t("agency.agentDisabled")}
