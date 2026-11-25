@@ -772,5 +772,7 @@ export default {
     "frontend": "Frontend Dev",
     "backend": "Backend Dev",
     "qa": "QA Auditor"
-  }
+  },
+  "studioNewProjectTitle": "New Studio Project",
+  "studioNewChatOption": "+ New project (start a chat)"
 };

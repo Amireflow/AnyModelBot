@@ -26,7 +26,25 @@ const SUBAGENT_DEFAULT_ROLES = {
 
 const MAX_ATTACH = 8;
 
-export function ProjectStudio({ orgId, project, onChanged }) {
+function deriveProjectTitle(text, files) {
+  const cleaned = String(text || "")
+    .split(/\r?\n/)
+    .map((l) => l.replace(/^#+\s*|^\s*[-*]\s*/, "").trim())
+    .find(Boolean) || "";
+  if (cleaned) {
+    if (cleaned.length <= 60) return cleaned;
+    const cut = cleaned.slice(0, 60);
+    const space = cut.lastIndexOf(" ");
+    return (space > 24 ? cut.slice(0, space) : cut).trim();
+  }
+  const firstFile = files?.[0]?.name || "";
+  if (firstFile) {
+    return firstFile.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim().slice(0, 60) || t("agency.studioNewProjectTitle");
+  }
+  return t("agency.studioNewProjectTitle");
+}
+
+export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
   const [files, setFiles] = useState([]);
   const [selectedPath, setSelectedPath] = useState("");
   const [content, setContent] = useState("");
@@ -62,22 +80,23 @@ export function ProjectStudio({ orgId, project, onChanged }) {
   const threadRef = useRef(null);
   const chatUploadRef = useRef(null);
   const treeUploadRef = useRef(null);
+  const justCreatedIdRef = useRef("");
 
-  const openFile = async (relPath) => {
-    if (!relPath) return;
+  const openFile = async (relPath, pid = project?.id) => {
+    if (!relPath || !pid) return;
     setSelectedPath(relPath);
     try {
-      const res = await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/file?path=${enc(relPath)}`);
+      const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/file?path=${enc(relPath)}`);
       setContent(res.content || "");
     } catch (err) {
       setError(err.message);
     }
   };
 
-  const loadSnapshots = async () => {
-    if (!orgId || !project?.id) return;
+  const loadSnapshots = async (pid = project?.id) => {
+    if (!orgId || !pid) { setSnapshots([]); return; }
     try {
-      const res = await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/snapshots`);
+      const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/snapshots`);
       const items = res.items || [];
       setSnapshots(items);
       if (items.length && !items.some((s) => s.commitHash === selectedSnapshot)) {
@@ -88,25 +107,35 @@ export function ProjectStudio({ orgId, project, onChanged }) {
     }
   };
 
-  const loadFiles = async (preferPath = "") => {
-    if (!orgId || !project?.id) return;
+  const loadFiles = async (preferPath = "", pid = project?.id) => {
+    if (!orgId || !pid) {
+      setFiles([]);
+      setSelectedPath("");
+      setContent("");
+      setSnapshots([]);
+      return;
+    }
     try {
-      const res = await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/files`);
+      const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/files`);
       const list = res.items || [];
       setFiles(list);
       const next = preferPath || (list.some((f) => f.path === selectedPath) ? selectedPath : (list[0]?.path || ""));
-      if (next) await openFile(next);
+      if (next) await openFile(next, pid);
       else { setSelectedPath(""); setContent(""); }
-      void loadSnapshots();
+      void loadSnapshots(pid);
     } catch (err) {
       setError(err.message);
     }
   };
 
-  const loadStudioState = async () => {
-    if (!orgId || !project?.id) return;
+  const loadStudioState = async (pid = project?.id) => {
+    if (!orgId || !pid) {
+      setMessages([]);
+      setPlan(null);
+      return;
+    }
     try {
-      const res = await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/state`);
+      const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/state`);
       setMessages(Array.isArray(res.messages) ? res.messages : []);
       setPlan(res.plan || null);
       setSubagents(Array.isArray(res.subagents) ? res.subagents : []);
@@ -117,13 +146,28 @@ export function ProjectStudio({ orgId, project, onChanged }) {
   };
 
   useEffect(() => {
+    const pid = project?.id || "";
+    if (justCreatedIdRef.current && justCreatedIdRef.current === pid) {
+      justCreatedIdRef.current = "";
+      return;
+    }
     setNotice("");
     setError("");
     setLiveSteps([]);
     setActiveSubagent(null);
     setTerminalOut("");
-    void loadFiles();
-    void loadStudioState();
+    if (!pid) {
+      setFiles([]);
+      setSelectedPath("");
+      setContent("");
+      setSnapshots([]);
+      setMessages([]);
+      setPlan(null);
+      setWorkspaceTab("preview");
+      return;
+    }
+    void loadFiles("", pid);
+    void loadStudioState(pid);
   }, [orgId, project?.id]);
 
   useEffect(() => {
@@ -144,7 +188,7 @@ export function ProjectStudio({ orgId, project, onChanged }) {
   };
 
   const sendStudioTurn = async (opts = {}) => {
-    if (!orgId || !project?.id || busy) return;
+    if (!orgId || busy) return;
     const text = (opts.message ?? input).trim();
     const runMode = opts.mode ?? mode;
     const executePlan = opts.executePlan === true;
@@ -176,7 +220,28 @@ export function ProjectStudio({ orgId, project, onChanged }) {
     if (!opts.skipAttachments) setAttachments([]);
 
     try {
-      const response = await fetch(`/amb/api/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/chat-stream`, {
+      let activeProjectId = project?.id || "";
+      let streamFiles = attached;
+
+      // Création automatique du projet dès le premier message / cahier des charges dans le chat
+      if (!activeProjectId) {
+        const created = await api(`/agency/${enc(orgId)}/projects/direct`, {
+          method: "POST",
+          body: {
+            title: deriveProjectTitle(text, attached),
+            template: "",
+            technicalSpecs: text,
+            cahierDesCharges: text,
+            files: attached,
+          },
+        });
+        activeProjectId = created.project.id;
+        justCreatedIdRef.current = activeProjectId;
+        streamFiles = [];
+        onProjectCreated?.(created.project);
+      }
+
+      const response = await fetch(`/amb/api/agency/${enc(orgId)}/projects/${enc(activeProjectId)}/studio/chat-stream`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-amb-lang": getLang() },
         body: JSON.stringify({
@@ -184,7 +249,7 @@ export function ProjectStudio({ orgId, project, onChanged }) {
           mode: runMode,
           executePlan,
           targetSubagent: focusSubagent,
-          files: attached,
+          files: streamFiles,
         }),
       });
       if (!response.ok || !response.body) {
@@ -230,7 +295,7 @@ export function ProjectStudio({ orgId, project, onChanged }) {
       }
 
       const modified = Array.isArray(finalPayload?.modifiedFiles) ? finalPayload.modifiedFiles : [];
-      await loadFiles(modified[0] || "");
+      await loadFiles(modified[0] || "", activeProjectId);
       if (modified.length > 0 || runMode === "build") {
         setPreviewNonce((n) => n + 1);
         if (modified.some((p) => p === "index.html" || p === "public/index.html" || p.endsWith(".css") || p.endsWith(".js"))) {
@@ -262,7 +327,7 @@ export function ProjectStudio({ orgId, project, onChanged }) {
   const createFile = async (e) => {
     e.preventDefault();
     const rel = newFilePath.trim();
-    if (!rel) return;
+    if (!rel || !project?.id) return;
     setBusy("create"); setError(""); setNotice("");
     try {
       await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/file`, {
@@ -275,7 +340,7 @@ export function ProjectStudio({ orgId, project, onChanged }) {
   };
 
   const saveFile = async () => {
-    if (!selectedPath) return;
+    if (!selectedPath || !project?.id) return;
     setBusy("save"); setError(""); setNotice("");
     try {
       await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/file`, {
@@ -289,7 +354,7 @@ export function ProjectStudio({ orgId, project, onChanged }) {
   };
 
   const deleteFile = async () => {
-    if (!selectedPath) return;
+    if (!selectedPath || !project?.id) return;
     setBusy("del"); setError("");
     try {
       await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/file?path=${enc(selectedPath)}`, { method: "DELETE" });
@@ -299,6 +364,7 @@ export function ProjectStudio({ orgId, project, onChanged }) {
   };
 
   const runCheck = async () => {
+    if (!project?.id) return;
     setBusy("run"); setError(""); setNotice("");
     try {
       const res = await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/run`, {
@@ -311,6 +377,7 @@ export function ProjectStudio({ orgId, project, onChanged }) {
   };
 
   const rollbackSnapshot = async (commitHash) => {
+    if (!project?.id) return;
     setBusy("rollback"); setError(""); setNotice("");
     try {
       const res = await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/rollback`, {
@@ -326,6 +393,10 @@ export function ProjectStudio({ orgId, project, onChanged }) {
 
   const uploadStudioDocs = async (fileList) => {
     if (!fileList?.length) return;
+    if (!project?.id) {
+      await handleChatFiles(fileList);
+      return;
+    }
     setBusy("upload"); setError(""); setNotice("");
     try {
       const docs = await Promise.all(Array.from(fileList).slice(0, 10).map(readFilePayload));
@@ -345,9 +416,11 @@ export function ProjectStudio({ orgId, project, onChanged }) {
     void openFile(relPath);
   };
 
-  const hasIndex = files.some((f) => f.path === "index.html" || f.path === "public/index.html");
+  const hasIndex = !!project?.id && files.some((f) => f.path === "index.html" || f.path === "public/index.html");
   const previewPath = files.some((f) => f.path === "public/index.html") ? "public/index.html" : "index.html";
-  const previewUrl = `/amb/api/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/preview/${previewPath}?v=${previewNonce}`;
+  const previewUrl = project?.id
+    ? `/amb/api/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/preview/${previewPath}?v=${previewNonce}`
+    : "";
 
   const renderPlanCard = (pl, compact = false) => {
     if (!pl) return null;
@@ -404,7 +477,7 @@ export function ProjectStudio({ orgId, project, onChanged }) {
             <option value="backend">${t("agency.studioSubagentNames.backend")}</option>
             <option value="qa">${t("agency.studioSubagentNames.qa")}</option>
           </select>
-          ${messages.length > 0 && html`<button class="text" type="button" disabled=${!!busy} onClick=${clearHistory}>${t("agency.copilotClearBtn")}</button>`}
+          ${messages.length > 0 && project?.id && html`<button class="text" type="button" disabled=${!!busy} onClick=${clearHistory}>${t("agency.copilotClearBtn")}</button>`}
         </div>
       </div>
 
@@ -415,7 +488,7 @@ export function ProjectStudio({ orgId, project, onChanged }) {
         ${!messages.length && html`<div class="agency-studio-welcome">
           <span class="agency-quick-icon tone-purple"><${Icon} name="code" size="lg" /></span>
           <div>
-            <h2>${project.title}</h2>
+            <h2>${project?.title || t("agency.studioNewProjectTitle")}</h2>
             <p>${t("agency.studioWelcomeDesc")}</p>
           </div>
           <div class="agency-studio-starters">
@@ -560,7 +633,7 @@ export function ProjectStudio({ orgId, project, onChanged }) {
           </div>
           <form class="agency-studio-new-file" onSubmit=${createFile}>
             <input class="field" value=${newFilePath} placeholder=${t("agency.studioNewFilePlaceholder")} onInput=${(e) => setNewFilePath(e.currentTarget.value)} />
-            <button class="btn" type="submit" disabled=${!!busy || !newFilePath.trim()}>${t("agency.studioNewFileBtn")}</button>
+            <button class="btn" type="submit" disabled=${!!busy || !project?.id || !newFilePath.trim()}>${t("agency.studioNewFileBtn")}</button>
           </form>
           <div class="agency-studio-file-list">
             ${files.map((f) => html`<button type="button" class=${"agency-studio-file" + (f.path === selectedPath ? " active" : "")} title=${f.path} onClick=${() => openFile(f.path)}>${f.path}</button>`)}
@@ -617,7 +690,7 @@ export function ProjectStudio({ orgId, project, onChanged }) {
             <select class="field" aria-label=${t("agency.cliActionLabel")} value=${command} onChange=${(e) => setCommand(e.currentTarget.value)}>
               ${COMMANDS.map(([id, label]) => html`<option value=${id}>${label}</option>`)}
             </select>
-            <button class="btn primary" type="button" disabled=${!!busy} onClick=${runCheck}>${t("agency.studioRunCheckBtn")}</button>
+            <button class="btn primary" type="button" disabled=${!!busy || !project?.id} onClick=${runCheck}>${t("agency.studioRunCheckBtn")}</button>
           </div>
           ${snapshots.length > 0 && html`<div class="agency-commercial-actions">
             <select class="field" aria-label=${t("agency.studioSnapshotLabel")} value=${selectedSnapshot} onChange=${(e) => setSelectedSnapshot(e.currentTarget.value)}>

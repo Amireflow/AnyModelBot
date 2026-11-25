@@ -5,7 +5,7 @@ import { Markdown } from "../components/markdown.js";
 import { api } from "../lib/api.js";
 import { fmtNum, t, useLang } from "../lib/i18n.js";
 import { agentAvatarOf } from "./agency/agent-avatars.js";
-import { AgencyCopilot, readFilePayload } from "./agency/copilot.js";
+import { AgencyCopilot } from "./agency/copilot.js";
 import { AgencyAgents } from "./agency/agents.js";
 import { ProjectStudio } from "./agency/studio.js";
 import { SecureDeleteModal } from "./agency/delete-modal.js";
@@ -220,9 +220,6 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const [convFormOpen,setConvFormOpen]=useState(false);
   const [quoteFormOpen,setQuoteFormOpen]=useState(false);
   const [projectFormOpen,setProjectFormOpen]=useState(false);
-  const [directProjectFormOpen,setDirectProjectFormOpen]=useState(false);
-  const [directProjectDraft,setDirectProjectDraft]=useState({title:"",clientName:"",companyId:"",targetStack:"typescript, web",budgetAmount:"0",estimatedDays:"14",technicalSpecs:""});
-  const [directProjectFiles,setDirectProjectFiles]=useState([]);
   const [lotFormOpen,setLotFormOpen]=useState(false);
   const [scopeFormOpen,setScopeFormOpen]=useState(false);
   const [qaFormOpen,setQaFormOpen]=useState(false);
@@ -355,7 +352,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         setProjectDraft(cur=>cur.contractId?cur:({...cur,contractId:signedPaid?.id||""}));
         const projList=projectData.items||[];
         setProjects(projList);
-        setSelectedProjectId(cur=>projList.some(p=>p.id===cur)?cur:(projList[0]?.id||""));
+        setSelectedProjectId(cur=>cur==="__new__"?"__new__":(projList.some(p=>p.id===cur)?cur:(projList[0]?.id||"")));
         setApprovals(appData.items||[]);
         setFollowUps(fuData.items||[]);
         setMissions(missionData.items||[]);
@@ -1182,39 +1179,6 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
-  const addDirectProjectFiles=async(fileList)=>{
-    if(!fileList?.length)return;
-    setError("");
-    try{
-      const parsed=await Promise.all(Array.from(fileList).slice(0,Math.max(0,10-directProjectFiles.length)).map(readFilePayload));
-      setDirectProjectFiles(prev=>[...prev,...parsed].slice(0,10));
-    }catch(err){setError(err.message);}
-  };
-  const createDirectProject=async(e)=>{
-    e.preventDefault();if(!directProjectDraft.title.trim())return;
-    setBusy("proj-direct");setError("");setWorkspaceNotice("");
-    try{
-      const d=await api(`/agency/${enc(orgId)}/projects/direct`,{method:"POST",body:{
-        title:directProjectDraft.title.trim(),
-        clientName:directProjectDraft.clientName.trim()||undefined,
-        companyId:directProjectDraft.companyId||undefined,
-        template:"",
-        targetStack:splitValues(directProjectDraft.targetStack),
-        budgetAmount:Number(directProjectDraft.budgetAmount||0),
-        estimatedDays:Number(directProjectDraft.estimatedDays||14),
-        technicalSpecs:directProjectDraft.technicalSpecs,
-        cahierDesCharges:directProjectDraft.technicalSpecs,
-        files:directProjectFiles
-      }});
-      setDirectProjectDraft({title:"",clientName:"",companyId:"",targetStack:"typescript, web",budgetAmount:"0",estimatedDays:"14",technicalSpecs:""});
-      setDirectProjectFiles([]);
-      setDirectProjectFormOpen(false);
-      setSelectedProjectId(d.project.id);
-      setProjectSubTab("studio");
-      setWorkspaceNotice(t("agency.directProjectCreated",{count:(d.writtenFiles||[]).length}));
-      setRevision(v=>v+1);
-    }catch(err){setError(err.message);}finally{setBusy("");}
-  };
   const updateProjectStatus=async(projectId,status)=>{
     if(!projectId||!status)return;
     setBusy("proj-status");setError("");
@@ -1394,26 +1358,6 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const selectedCompany=(tab==="companies"?(rows.items||[]).find(x=>x.id===selected):null);
   const selectedProject=((tab==="projects"||tab==="studio")?projects.find(p=>p.id===selectedProjectId):null);
   const totalPages=Math.max(1,Math.ceil((rows.total||0)/SIZE));
-  const directProjectFormEl=html`<form class="agency-form agency-form-grid" onSubmit=${createDirectProject}>
-    <div class="agency-form-head"><strong>${t("agency.newStudioProjectBtn")}</strong><button type="button" class="text" onClick=${()=>setDirectProjectFormOpen(false)}>${t("agency.cancel")}</button></div>
-    <${Field} label=${t("agency.directProjectTitleLabel")} value=${directProjectDraft.title} required placeholder="Portail client Dakar…" onInput=${v=>update(setDirectProjectDraft,"title",v)}/>
-    <${Field} label=${t("agency.directProjectClientLabel")} value=${directProjectDraft.clientName} placeholder="Nom client (optionnel)" onInput=${v=>update(setDirectProjectDraft,"clientName",v)}/>
-    <label class="agency-field"><span>${t("agency.company")}</span><select class="field" value=${directProjectDraft.companyId} onChange=${e=>update(setDirectProjectDraft,"companyId",e.currentTarget.value)}>
-      <option value="">${t("agency.directProjectAutoCompany")}</option>
-      ${companyOptions.map(c=>html`<option value=${c.id}>${c.name}</option>`)}
-    </select></label>
-    <${Field} label=${t("agency.targetStack")} value=${directProjectDraft.targetStack} onInput=${v=>update(setDirectProjectDraft,"targetStack",v)}/>
-    <${Field} label=${t("agency.directProjectBudgetLabel")} value=${directProjectDraft.budgetAmount} type="number" onInput=${v=>update(setDirectProjectDraft,"budgetAmount",v)}/>
-    <${Field} label=${t("agency.catalogDays")} value=${directProjectDraft.estimatedDays} type="number" onInput=${v=>update(setDirectProjectDraft,"estimatedDays",v)}/>
-    <label class="agency-field agency-form-wide"><span>${t("agency.directProjectSpecsLabel")}</span><textarea class="field" rows="5" value=${directProjectDraft.technicalSpecs} placeholder=${t("agency.directProjectSpecsPlaceholder")} onInput=${e=>update(setDirectProjectDraft,"technicalSpecs",e.currentTarget.value)}></textarea></label>
-    <label class="agency-field agency-form-wide"><span>${t("agency.directProjectFilesLabel")}</span>
-      <input class="field" type="file" multiple accept=".txt,.md,.markdown,.csv,.json,.js,.mjs,.ts,.tsx,.jsx,.html,.css,.xml,.yaml,.yml,.sql,.pdf,.png,.jpg,.jpeg,.webp,.svg" onChange=${e=>{void addDirectProjectFiles(e.currentTarget.files);e.currentTarget.value="";}}/>
-    </label>
-    ${directProjectFiles.length>0&&html`<div class="agency-copilot-attachments agency-form-wide">
-      ${directProjectFiles.map((f,idx)=>html`<span class="agency-copilot-chip"><${Icon} name="doc" size="sm"/><span>${f.name}</span><button class="text" type="button" onClick=${()=>setDirectProjectFiles(p=>p.filter((_,i)=>i!==idx))}><${Icon} name="close" size="sm"/></button></span>`)}
-    </div>`}
-    <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!directProjectDraft.title.trim()}>${busy==="proj-direct"?t("agency.creating"):t("agency.createDirectProjectBtn")}</button></div>
-  </form>`;
 
   return html`<section class=${"agency-screen view"+(tab==="copilot"?" is-copilot":"")} data-screen="agency">
     <header class="agency-header">
@@ -2108,8 +2052,8 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             ${selectedProject&&html`<span class=${"agency-whatsapp-state "+selectedProject.status}>${t(`agency.projectStatus.${selectedProject.status}`)}</span>`}
           </div>
           <div class="agency-commercial-actions">
-            <button class="btn primary" type="button" onClick=${()=>{setDirectProjectFormOpen(v=>!v);setProjectFormOpen(false);}}><${Icon} name=${directProjectFormOpen?"close":"plus"} size="sm"/>${directProjectFormOpen?t("agency.cancel"):t("agency.newStudioProjectBtn")}</button>
-            <button class="btn" type="button" onClick=${()=>{setProjectFormOpen(v=>!v);setDirectProjectFormOpen(false);}}><${Icon} name=${projectFormOpen?"close":"plus"} size="sm"/>${projectFormOpen?t("agency.cancel"):t("agency.handoffProjectTitle")}</button>
+            <button class="btn primary" type="button" onClick=${()=>{setSelectedProjectId("__new__");setProjectFormOpen(false);switchTab("studio");}}><${Icon} name="plus" size="sm"/>${t("agency.newStudioProjectBtn")}</button>
+            <button class="btn" type="button" onClick=${()=>setProjectFormOpen(v=>!v)}><${Icon} name=${projectFormOpen?"close":"plus"} size="sm"/>${projectFormOpen?t("agency.cancel"):t("agency.handoffProjectTitle")}</button>
             ${selectedProject&&html`
               <button class="btn" type="button" disabled=${!!busy} onClick=${()=>initWorkspace(selectedProject.id)}>${t("agency.initWorkspaceBtn")}</button>
               <button class="btn" type="button" disabled=${!!busy} onClick=${()=>runAutoQa(selectedProject.id)}>${busy==="qa-run"?t("agency.runningAutoQa"):t("agency.runAutoQaBtn")}</button>
@@ -2122,7 +2066,6 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             `}
           </div>
         </div>
-        ${directProjectFormOpen&&directProjectFormEl}
         ${projectFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${createProjectHandoff}>
           <div class="agency-form-head"><strong>${t("agency.handoffProjectTitle")}</strong><button type="button" class="text" onClick=${()=>setProjectFormOpen(false)}>${t("agency.cancel")}</button></div>
           <label class="agency-field"><span>${t("agency.selectContract")}</span><select class="field" value=${projectDraft.contractId} required onChange=${e=>update(setProjectDraft,"contractId",e.currentTarget.value)}>
@@ -2134,7 +2077,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           <${Field} label=${t("agency.technicalSpecs")} value=${projectDraft.technicalSpecs} onInput=${v=>update(setProjectDraft,"technicalSpecs",v)}/>
           <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!projectDraft.contractId}>${t("agency.createProjectBtn")}</button></div>
         </form>`}
-        ${!selectedProject&&!projectFormOpen&&!directProjectFormOpen&&html`<${Empty} title=${t("agency.noProjects")} detail=${t("agency.newStudioProjectBtn")}/>`}
+        ${!selectedProject&&!projectFormOpen&&html`<${Empty} title=${t("agency.noProjects")} detail=${t("agency.newStudioProjectBtn")}/>`}
         ${selectedProject&&html`<div class="agency-ops-stack">
           ${workspaceNotice&&html`<p class="agency-research-feedback" role="status">${workspaceNotice}</p>`}
           <div class="agency-subtabs" role="tablist">
@@ -2396,18 +2339,18 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       ${tab==="studio"&&html`<div class="agency-ops-stack agency-studio-page">
         <div class="agency-project-bar">
           <div class="agency-project-bar-left">
-            ${projects.length>0&&html`<select class="field" aria-label=${t("agency.projectsTitle")} value=${selectedProjectId} onChange=${e=>setSelectedProjectId(e.currentTarget.value)}>
+            <select class="field" aria-label=${t("agency.projectsTitle")} value=${selectedProjectId||"__new__"} onChange=${e=>setSelectedProjectId(e.currentTarget.value)}>
+              <option value="__new__">${t("agency.studioNewChatOption")}</option>
               ${projects.map(p=>html`<option value=${p.id}>${p.title} (${fmtNum(p.budgetAmount)} ${p.currency})</option>`)}
-            </select>`}
+            </select>
             ${selectedProject&&html`<span class=${"agency-whatsapp-state "+selectedProject.status}>${t(`agency.projectStatus.${selectedProject.status}`)}</span>`}
           </div>
           <div class="agency-commercial-actions">
-            <button class="btn primary" type="button" onClick=${()=>setDirectProjectFormOpen(v=>!v)}><${Icon} name=${directProjectFormOpen?"close":"plus"} size="sm"/>${directProjectFormOpen?t("agency.cancel"):t("agency.newStudioProjectBtn")}</button>
+            <button class="btn primary" type="button" onClick=${()=>setSelectedProjectId("__new__")}><${Icon} name="plus" size="sm"/>${t("agency.newStudioProjectBtn")}</button>
           </div>
         </div>
         ${workspaceNotice&&html`<p class="agency-research-feedback" role="status">${workspaceNotice}</p>`}
-        ${(directProjectFormOpen||!selectedProject)&&directProjectFormEl}
-        ${selectedProject&&html`<${ProjectStudio} orgId=${orgId} project=${selectedProject} onChanged=${()=>setRevision(v=>v+1)}/>`}
+        <${ProjectStudio} orgId=${orgId} project=${selectedProject||null} onProjectCreated=${proj=>{setSelectedProjectId(proj.id);setRevision(v=>v+1);}} onChanged=${()=>setRevision(v=>v+1)}/>
       </div>`}
       ${tab==="agents"&&html`<${AgencyAgents} orgId=${orgId} agents=${agentProfiles} onSaved=${()=>setRevision(v=>v+1)}/>`}
       ${tab==="copilot"&&html`<${AgencyCopilot} orgId=${orgId} activeTab=${tab} companyId=${selected} leadId=${selectedLeadId} projectId=${selectedProjectId} onDataChanged=${()=>setRevision(v=>v+1)}/>`}

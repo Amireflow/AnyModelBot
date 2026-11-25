@@ -772,5 +772,7 @@ export default {
     "frontend": "前端开发",
     "backend": "后端开发",
     "qa": "QA 审计"
-  }
+  },
+  "studioNewProjectTitle": "新建 Studio 项目",
+  "studioNewChatOption": "+ 新建项目（直接对话）"
 };
