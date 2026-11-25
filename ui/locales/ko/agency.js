@@ -774,7 +774,7 @@ export default {
     "qa": "QA Auditor"
   },
   "studioNewProjectTitle": "New Studio Project",
-  "studioNewChatOption": "+ New project (start a chat)"
+  "studioNewChatOption": "+ New project (start a chat)",
   "studioTabChanges": "변경 사항",
   "studioChangesTitle": "변경된 파일",
   "studioNoChanges": "생성 또는 수동 편집으로 변경된 파일이 여기에 표시됩니다.",

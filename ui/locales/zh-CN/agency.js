@@ -774,7 +774,7 @@ export default {
     "qa": "QA 审计"
   },
   "studioNewProjectTitle": "新建 Studio 项目",
-  "studioNewChatOption": "+ 新建项目（直接对话）"
+  "studioNewChatOption": "+ 新建项目（直接对话）",
   "studioTabChanges": "更改",
   "studioChangesTitle": "已修改的文件",
   "studioNoChanges": "生成或手动编辑后更改的文件会显示在这里。",

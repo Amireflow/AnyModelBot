@@ -528,14 +528,14 @@
 .agency-inline-edit{display:grid;gap:var(--space-2-5);padding:var(--space-3);border-radius:var(--r-item);background:var(--well)}
 
 .agency-studio-changes-pane{flex:1;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr);gap:var(--space-3);padding:var(--space-4);overflow:auto;background:var(--bg)}
-.agency-studio-changes-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3);padding:var(--space-3-5);border:1px solid var(--line-2);border-radius:var(--r-card);background:var(--well)}
+.agency-studio-changes-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3);padding:var(--space-3-5);border-radius:var(--r-card);background:var(--well)}
 .agency-studio-changes-head strong{display:block;font-size:var(--fs-md);color:var(--fg)}
 .agency-studio-changes-head p{margin:var(--space-1) 0 0;color:var(--muted);font-size:var(--fs-xs);line-height:var(--lh-relaxed)}
 .agency-studio-changes-list{display:grid;align-content:start;gap:var(--space-1-5);min-width:0}
-.agency-studio-change-row{display:flex;align-items:center;gap:var(--space-2-5);min-width:0;padding:var(--space-3);border:1px solid var(--line-2);border-radius:var(--r-item);background:var(--well);color:var(--fg-2);text-align:start;transition:background var(--t-fast),border-color var(--t-fast)}
-.agency-studio-change-row:hover:not(:disabled){background:var(--well-hover);border-color:var(--line)}
+.agency-studio-change-row{display:flex;align-items:center;gap:var(--space-2-5);min-width:0;padding:var(--space-3);border-radius:var(--r-item);background:var(--well);color:var(--fg-2);text-align:start;transition:background var(--t-fast),color var(--t-fast)}
+.agency-studio-change-row:hover:not(:disabled){background:var(--well-hover);color:var(--fg)}
 .agency-studio-change-row:disabled{opacity:.62;cursor:default}
-.agency-studio-change-row>.agency-truncate{flex:1;font-family:var(--font-mono);font-size:var(--fs-xs)}
+.agency-studio-change-row>.agency-truncate{flex:1;font-family:monospace;font-size:var(--fs-xs)}
 .agency-studio-change-row small{flex:none;color:var(--muted);font-size:var(--fs-2xs)}
 
 @media(min-width:761px){.agency-tabs{display:none}}

@@ -774,7 +774,7 @@ export default {
     "qa": "QA Auditor"
   },
   "studioNewProjectTitle": "New Studio Project",
-  "studioNewChatOption": "+ New project (start a chat)"
+  "studioNewChatOption": "+ New project (start a chat)",
   "studioTabChanges": "Changes",
   "studioChangesTitle": "Changed files",
   "studioNoChanges": "Files changed by generation or manual edits appear here.",

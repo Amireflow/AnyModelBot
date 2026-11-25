@@ -774,7 +774,7 @@ export default {
     "qa": "Audit QA"
   },
   "studioNewProjectTitle": "Nouveau projet Studio",
-  "studioNewChatOption": "+ Nouveau projet (démarrer un chat)"
+  "studioNewChatOption": "+ Nouveau projet (démarrer un chat)",
   "studioTabChanges": "Modifications",
   "studioChangesTitle": "Fichiers modifiés",
   "studioNoChanges": "Les fichiers modifiés par la génération ou l’édition manuelle apparaîtront ici.",
