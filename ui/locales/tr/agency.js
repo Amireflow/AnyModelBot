@@ -457,5 +457,25 @@ export default {
   "studioAgentRunBtn": "Geliştir (YZ)",
   "studioPreviewTitle": "Canlı Önizleme",
   "studioPreviewRefresh": "Yenile",
-  "studioRunCheckBtn": "Çalıştır"
+  "studioRunCheckBtn": "Çalıştır",
+  "agents": "YZ Ajanları",
+  "agentEnabled": "Etkin",
+  "agentDisabled": "Devre dışı",
+  "agentCustomized": "Özel",
+  "agentModelLabel": "YZ Modeli",
+  "agentModelDefault": "Varsayılan model",
+  "agentAutonomyLabel": "Otonomi modu",
+  "agentAutonomy": {
+    "draft_only": "Yalnızca taslak",
+    "supervised": "Denetimli",
+    "autonomous_internal": "Otonom (dahili)"
+  },
+  "agentMaxStepsLabel": "Maks. adım",
+  "agentPromptLabel": "Sistem talimatları",
+  "agentRulesLabel": "İş kuralları (satır başına 1)",
+  "agentToolsLabel": "İzin verilen araçlar",
+  "agentSaveBtn": "Kaydet",
+  "agentResetBtn": "Sıfırla",
+  "agentSavedNotice": "Ayarlar kaydedildi.",
+  "agentGuardrailsNote": "Güvenlik kilidi: dış onaylar her zaman sahip onayı gerektirir."
 };

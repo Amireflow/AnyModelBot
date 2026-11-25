@@ -14,9 +14,11 @@ import {
 } from "./orchestrator.js";
 import type {
   AddConversationMessageInput, AddEvidenceInput, AgencyAgentRole, AgencyDashboard,
-  AgencyMetrics, AgencyMission, AgencyMissionStatus, AgentProfile, Approval, ApprovalAction,
+  AgencyMetrics, AgencyMission, AgencyMissionStatus, AgentAutonomyMode, AgentConfig, AgentProfile,
+  Approval, ApprovalAction,
   AuditEvent, ClientFollowUp, CommercialChannel, CommercialConversation, CommercialRules,
-  Company, CompanySearchFilters, Contact, ContactSearchFilters, Contract, ConversationMessage,
+  Company, CompanySearchFilters, ConfiguredAgentProfile,
+  Contact, ContactSearchFilters, Contract, ConversationMessage,
   CreateCatalogItemInput, CreateCompanyInput, CreateContactInput, CreateContractInput,
   CreateConversationInput, CreateLeadInput, CreateMissionInput, CreateOrganizationInput,
   CreateProjectInput, CreateProjectLotInput, CreateQuoteInput, DepositStatus, DetectedDevTool,
@@ -27,7 +29,7 @@ import type {
   QuoteTier, RecordConsentInput, RecordQaCheckInput, RequestApprovalInput, AgencyRole,
   ResearchAssessment, CompanyQualificationAssessment, QualificationProfile, ResearchDomain,
   ScheduleFollowUpInput, ScopeChange, ServiceCatalogItem, SolutionType, TieredProposalOption,
-  UpdateCatalogItemInput, UpdateCommercialRulesInput, UpdateCompanyInput, UpdateContactInput,
+  UpdateAgentConfigInput, UpdateCatalogItemInput, UpdateCommercialRulesInput, UpdateCompanyInput, UpdateContactInput,
   UpdateLeadInput, UpdateProjectLotInput, UpdateQualificationProfileInput, UpdateQuoteInput,
   UpsertNeedsQualificationInput, QueueWhatsAppTemplateInput,
   WhatsAppOutboxMessage, WhatsAppWebhookProcessResult,
@@ -2631,9 +2633,102 @@ export class AgencyService {
     });
   }
 
-  listAgentProfiles(organizationId: string, actorId: string): AgentProfile[] {
+  private mergeAgentProfile(organizationId: string, profile: AgentProfile, saved?: AgentConfig): ConfiguredAgentProfile {
+    const config: AgentConfig = saved ?? {
+      organizationId,
+      role: profile.role,
+      enabled: true,
+      displayName: profile.name,
+      model: "",
+      autonomyMode: "supervised",
+      systemPrompt: profile.mission,
+      rules: [],
+      allowedTools: [...profile.defaultTools],
+      maxSteps: 8,
+      updatedAt: 0,
+    };
+    return { ...profile, config, customized: !!saved };
+  }
+
+  listAgentProfiles(organizationId: string, actorId: string): ConfiguredAgentProfile[] {
     this.requireMember(organizationId, actorId, ["owner", "admin", "member", "auditor"]);
-    return [...AGENCY_AGENT_PROFILES];
+    const byRole = new Map(this.store.listAgentConfigs(organizationId).map((c) => [c.role, c]));
+    return AGENCY_AGENT_PROFILES.map((profile) => this.mergeAgentProfile(organizationId, profile, byRole.get(profile.role)));
+  }
+
+  getConfiguredAgent(organizationId: string, actorId: string, role: AgencyAgentRole): ConfiguredAgentProfile {
+    this.requireMember(organizationId, actorId, ["owner", "admin", "member", "auditor"]);
+    const profile = getAgentProfile(role);
+    const saved = this.store.getAgentConfig(organizationId, profile.role);
+    return this.mergeAgentProfile(organizationId, profile, saved);
+  }
+
+  updateAgentConfig(
+    organizationId: string,
+    actorId: string,
+    role: AgencyAgentRole,
+    input: UpdateAgentConfigInput,
+  ): ConfiguredAgentProfile {
+    this.requireMember(organizationId, actorId, ["owner", "admin"]);
+    const profile = getAgentProfile(role);
+    const current = this.mergeAgentProfile(
+      organizationId,
+      profile,
+      this.store.getAgentConfig(organizationId, profile.role),
+    ).config;
+
+    const allowedModes: AgentAutonomyMode[] = ["draft_only", "supervised", "autonomous_internal"];
+    const autonomyMode = input.autonomyMode ?? current.autonomyMode;
+    if (!allowedModes.includes(autonomyMode)) {
+      throw new AgencyError("VALIDATION_ERROR", "Invalid agent autonomy mode");
+    }
+
+    const maxStepsRaw = input.maxSteps ?? current.maxSteps;
+    if (!Number.isFinite(maxStepsRaw) || maxStepsRaw < 1 || maxStepsRaw > 20) {
+      throw new AgencyError("VALIDATION_ERROR", "maxSteps must be between 1 and 20");
+    }
+
+    const next: AgentConfig = {
+      organizationId,
+      role: profile.role,
+      enabled: input.enabled ?? current.enabled,
+      displayName: input.displayName !== undefined
+        ? (optionalText(input.displayName, "displayName", 160) || profile.name)
+        : current.displayName,
+      model: input.model !== undefined ? optionalText(input.model, "model", 160) : current.model,
+      autonomyMode,
+      systemPrompt: input.systemPrompt !== undefined
+        ? optionalText(input.systemPrompt, "systemPrompt", 4000)
+        : current.systemPrompt,
+      rules: input.rules !== undefined ? stringList(input.rules, "rules", 30, 400) : current.rules,
+      allowedTools: input.allowedTools !== undefined
+        ? stringList(input.allowedTools, "allowedTools", 30, 100)
+        : current.allowedTools,
+      maxSteps: Math.round(maxStepsRaw),
+      updatedAt: this.now(),
+    };
+
+    return this.store.transaction(() => {
+      const saved = this.store.upsertAgentConfig(next);
+      this.audit(organizationId, actorId, "agent.config.updated", "agent", profile.role, {
+        enabled: saved.enabled,
+        model: saved.model,
+        autonomyMode: saved.autonomyMode,
+        maxSteps: saved.maxSteps,
+        rulesCount: saved.rules.length,
+      });
+      return this.mergeAgentProfile(organizationId, profile, saved);
+    });
+  }
+
+  resetAgentConfig(organizationId: string, actorId: string, role: AgencyAgentRole): ConfiguredAgentProfile {
+    this.requireMember(organizationId, actorId, ["owner", "admin"]);
+    const profile = getAgentProfile(role);
+    return this.store.transaction(() => {
+      this.store.deleteAgentConfig(organizationId, profile.role);
+      this.audit(organizationId, actorId, "agent.config.reset", "agent", profile.role, {});
+      return this.mergeAgentProfile(organizationId, profile, undefined);
+    });
   }
 
   detectDevTools(organizationId: string, actorId: string): DetectedDevTool[] {

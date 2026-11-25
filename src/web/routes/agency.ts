@@ -5,7 +5,7 @@
 import { AgencyError } from "../../agency/errors.js";
 import type { AgencyService } from "../../agency/service.js";
 import type {
-  AddEvidenceInput, AgencyAgentRole, AgencyMissionStatus, CommercialChannel,
+  AddEvidenceInput, AgencyAgentRole, AgencyMissionStatus, AgentAutonomyMode, CommercialChannel,
   CompanySearchFilters, ContactSearchFilters, ContractStatus, DepositStatus, FollowUpStatus,
   FollowUpType, LeadSearchFilters, LeadStage, MessageDirection, ProjectLotStatus, ProjectStatus,
   QaCategory, QaCheckStatus, QuoteLineItem, QuoteTier, ServiceCatalogItem, SolutionType,
@@ -63,6 +63,25 @@ function isLlmConfigured(ctx: WebContext): boolean {
   if (ext) return true;
   if (ctx.app.magpie?.modelflareInfo?.().connected) return true;
   return !ctx.app.magpie && !ctx.app.config?.magpie;
+}
+
+function resolveAgentRuntime(
+  service: AgencyService,
+  organizationId: string,
+  actor: string,
+  role: AgencyAgentRole,
+  fallbackModel?: string,
+) {
+  const configured = service.getConfiguredAgent(organizationId, actor, role);
+  if (!configured.config.enabled) {
+    throw new AgencyError("CONFLICT", `Agent "${configured.config.displayName}" (${role}) is currently disabled`);
+  }
+  return {
+    model: configured.config.model || fallbackModel,
+    maxSteps: configured.config.maxSteps,
+    agentInstructions: configured.config.systemPrompt,
+    agentRules: configured.config.rules,
+  };
 }
 function sendHtmlDocument(
   res: Parameters<Route>[1],
@@ -616,6 +635,7 @@ export function agencyRoutes(ctx: WebContext): Route {
           const needs=service.getNeedsQualification(organizationId,actor,lead.id);
           const quotes=service.listQuotes(organizationId,actor,lead.id);
           const rules=service.getCommercialRules(organizationId,actor);
+          const runtime=resolveAgentRuntime(service,organizationId,actor,"commercial",ctx.app?.config?.llm?.defaultModel);
           const suggestion=await suggestCommercialReply({
             organization:org,
             company,
@@ -626,9 +646,11 @@ export function agencyRoutes(ctx: WebContext): Route {
             quotes,
             rules,
             modelClient:ctx.app?.models,
-            defaultModel:ctx.app?.config?.llm?.defaultModel,
+            defaultModel:runtime.model,
             hasLlmEndpoint:isLlmConfigured(ctx),
             lang:ctx.app?.config?.ui?.lang || "fr",
+            agentInstructions:runtime.agentInstructions,
+            agentRules:runtime.agentRules,
           });
           return send(res,200,suggestion);
         }
@@ -639,6 +661,7 @@ export function agencyRoutes(ctx: WebContext): Route {
           const lead=service.getLead(organizationId,actor,conversation.leadId);
           const company=service.getCompany(organizationId,actor,lead.companyId);
           const messages=service.listConversationMessages(organizationId,actor,convId,50);
+          const runtime=resolveAgentRuntime(service,organizationId,actor,"commercial",ctx.app?.config?.llm?.defaultModel);
           const result=await extractNeedsFromConversation({
             organization:org,
             company,
@@ -646,8 +669,10 @@ export function agencyRoutes(ctx: WebContext): Route {
             conversation,
             messages,
             modelClient:ctx.app?.models,
-            defaultModel:ctx.app?.config?.llm?.defaultModel,
+            defaultModel:runtime.model,
             hasLlmEndpoint:isLlmConfigured(ctx),
+            agentInstructions:runtime.agentInstructions,
+            agentRules:runtime.agentRules,
           });
           return send(res,200,result);
         }
@@ -716,6 +741,7 @@ export function agencyRoutes(ctx: WebContext): Route {
           const needs=service.getNeedsQualification(organizationId,actor,leadId);
           const catalog=service.listCatalogItems(organizationId,actor,true);
           const rules=service.getCommercialRules(organizationId,actor);
+          const runtime=resolveAgentRuntime(service,organizationId,actor,"estimator",ctx.app?.config?.llm?.defaultModel);
           const estimate=await estimateQuoteFromNeeds({
             organization:org,
             company,
@@ -724,8 +750,10 @@ export function agencyRoutes(ctx: WebContext): Route {
             catalog,
             rules,
             modelClient:ctx.app?.models,
-            defaultModel:ctx.app?.config?.llm?.defaultModel,
+            defaultModel:runtime.model,
             hasLlmEndpoint:isLlmConfigured(ctx),
+            agentInstructions:runtime.agentInstructions,
+            agentRules:runtime.agentRules,
           });
           return send(res,200,estimate);
         }
@@ -833,8 +861,32 @@ export function agencyRoutes(ctx: WebContext): Route {
         return send(res,200,{metrics:service.getMetrics(organizationId,actor)});
       }
 
-      if (seg[2]==="agents" && seg.length===3 && method==="GET") {
-        return send(res,200,{items:service.listAgentProfiles(organizationId,actor)});
+      if (seg[2]==="agents") {
+        if (seg.length===3 && method==="GET") {
+          return send(res,200,{items:service.listAgentProfiles(organizationId,actor)});
+        }
+        if (seg.length===4) {
+          const role=decodeSegment(seg[3],"agent role") as AgencyAgentRole;
+          if (method==="GET") {
+            return send(res,200,{agent:service.getConfiguredAgent(organizationId,actor,role)});
+          }
+          if (method==="PUT") {
+            const body=await readObject(req);
+            return send(res,200,{agent:service.updateAgentConfig(organizationId,actor,role,{
+              enabled:typeof body.enabled==="boolean" ? body.enabled : undefined,
+              displayName:typeof body.displayName==="string" ? body.displayName : undefined,
+              model:typeof body.model==="string" ? body.model : undefined,
+              autonomyMode:typeof body.autonomyMode==="string" ? (body.autonomyMode as AgentAutonomyMode) : undefined,
+              systemPrompt:typeof body.systemPrompt==="string" ? body.systemPrompt : undefined,
+              rules:Array.isArray(body.rules) ? body.rules.map(String) : undefined,
+              allowedTools:Array.isArray(body.allowedTools) ? body.allowedTools.map(String) : undefined,
+              maxSteps:body.maxSteps == null ? undefined : Number(body.maxSteps),
+            })});
+          }
+          if (method==="DELETE") {
+            return send(res,200,{agent:service.resetAgentConfig(organizationId,actor,role)});
+          }
+        }
       }
 
       if (seg[2]==="dev-tools" && seg.length===3 && method==="GET") {
@@ -901,12 +953,15 @@ export function agencyRoutes(ctx: WebContext): Route {
             const project=service.getProject(organizationId,actor,projectId);
             const contract=service.getContract(organizationId,actor,project.contractId);
             const body=await readObject(req);
+            const runtime=resolveAgentRuntime(service,organizationId,actor,"project_manager",ctx.app?.config?.llm?.defaultModel);
             const planned=await planProjectLotsWithAi({
               project,
               contract,
               modelClient:ctx.app?.models,
-              defaultModel:ctx.app?.config?.llm?.defaultModel,
+              defaultModel:runtime.model,
               hasLlmEndpoint:isLlmConfigured(ctx),
+              agentInstructions:runtime.agentInstructions,
+              agentRules:runtime.agentRules,
             });
             const createdLots=[];
             if (body.apply!==false) {
@@ -1029,6 +1084,7 @@ export function agencyRoutes(ctx: WebContext): Route {
             }
             if (seg.length===6 && seg[5]==="ai-agent" && method==="POST") {
               const body=await readObject(req);
+              const runtime=resolveAgentRuntime(service,organizationId,actor,"developer",ctx.app?.config?.llm?.defaultModel);
               const lot=typeof body.lotId==="string" && body.lotId.trim()
                 ? service.listProjectLots(organizationId,actor,projectId).find((l) => l.id===body.lotId)
                 : undefined;
@@ -1037,10 +1093,12 @@ export function agencyRoutes(ctx: WebContext): Route {
                 project,
                 instruction:String(body.instruction ?? ""),
                 lot,
-                maxSteps:body.maxSteps==null ? undefined : Number(body.maxSteps),
+                maxSteps:body.maxSteps==null ? runtime.maxSteps : Number(body.maxSteps),
                 modelClient:ctx.app?.models,
-                defaultModel:ctx.app?.config?.llm?.defaultModel,
+                defaultModel:runtime.model,
                 hasLlmEndpoint:isLlmConfigured(ctx),
+                agentInstructions:runtime.agentInstructions,
+                agentRules:runtime.agentRules,
               });
               return send(res,200,agentRes);
             }
@@ -1257,6 +1315,7 @@ export function agencyRoutes(ctx: WebContext): Route {
           const cliAction=body.cliAction as AgencyCliAction|undefined;
           const mission=service.getMission(organizationId,actor,missionId);
           const project=mission.projectId ? service.getProject(organizationId,actor,mission.projectId) : undefined;
+          const runtime=resolveAgentRuntime(service,organizationId,actor,mission.agentRole,ctx.app?.config?.llm?.defaultModel);
           service.updateMissionStatus(organizationId,actor,mission.id,"running");
           try {
             const execution=await executeAgencyMission({
@@ -1266,8 +1325,10 @@ export function agencyRoutes(ctx: WebContext): Route {
               mode,
               cliAction,
               modelClient:ctx.app?.models,
-              defaultModel:ctx.app?.config?.llm?.defaultModel,
+              defaultModel:runtime.model,
               hasLlmEndpoint:isLlmConfigured(ctx),
+              agentInstructions:runtime.agentInstructions,
+              agentRules:runtime.agentRules,
             });
             const updated=service.updateMissionStatus(
               organizationId,

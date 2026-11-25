@@ -25,6 +25,13 @@ const SOLUTION_TYPES: readonly SolutionType[] = [
   "business_platform", "internal_tool", "automation", "maintenance",
 ];
 
+function formatAgentDirective(instructions?: string, rules?: readonly string[]): string {
+  const parts: string[] = [];
+  if (instructions?.trim()) parts.push(`Configured instructions: ${instructions.trim()}`);
+  if (rules?.length) parts.push(`Configured rules:\n${rules.map((r) => `- ${r}`).join("\n")}`);
+  return parts.length ? `\n${parts.join("\n")}` : "";
+}
+
 export async function suggestCommercialReply(input: {
   organization: Organization;
   company?: Company;
@@ -38,6 +45,8 @@ export async function suggestCommercialReply(input: {
   defaultModel?: string;
   hasLlmEndpoint?: boolean;
   lang?: string;
+  agentInstructions?: string;
+  agentRules?: readonly string[];
 }): Promise<{ draft: string; model: string; guardrailsNote: string }> {
   if (input.conversation.status === "opted_out") {
     throw new AgencyError("CONFLICT", "This conversation has opted out; commercial drafting is blocked");
@@ -61,9 +70,10 @@ export async function suggestCommercialReply(input: {
     .map((q) => `- v${q.version} "${q.title}" (${q.status}): ${q.netTotal} ${q.currency}, ${q.deliveryDays}d`)
     .join("\n");
 
-  const systemPrompt = en
+  const baseSystemPrompt = en
     ? `You are a commercial advisor for ${input.organization.name}. Draft one concise, polite client reply that respects agency guardrails: never invent unapproved prices or timelines, never claim a draft quote or contract is already approved/signed, max autonomous discount is ${input.rules.maxAutonomousDiscountPct}%, minimum margin is ${input.rules.minMarginPct}%.`
     : `Tu es conseiller commercial pour ${input.organization.name}. Rédige une proposition de réponse client concise et professionnelle en français en respectant strictement les garde-fous : n'invente aucun tarif ou délai non validé, ne prétends jamais qu'un devis ou contrat en brouillon est approuvé/signé, remise autonome max ${input.rules.maxAutonomousDiscountPct} %, marge minimale ${input.rules.minMarginPct} %.`;
+  const systemPrompt = baseSystemPrompt + formatAgentDirective(input.agentInstructions, input.agentRules);
 
   const userPrompt = [
     `Client: ${input.company?.name || input.lead.companyId} (stage=${input.lead.stage})`,
@@ -155,6 +165,8 @@ export async function extractNeedsFromConversation(input: {
   modelClient?: ModelClient;
   defaultModel?: string;
   hasLlmEndpoint?: boolean;
+  agentInstructions?: string;
+  agentRules?: readonly string[];
 }): Promise<{
   extracted: ReturnType<typeof heuristicNeedsFromMessages>;
   mode: "llm" | "heuristic";
@@ -177,7 +189,7 @@ export async function extractNeedsFromConversation(input: {
         messages: [
           {
             role: "system",
-            content: `Extract structured client needs from the commercial conversation for ${input.organization.name}. Return ONLY valid JSON with keys: problemStatement (string), targetUsers (string), solutionType (${SOLUTION_TYPES.join("|")}), mustHaveFeatures (string[]), desiredTimeline (string), budgetMin (number), budgetMax (number), unknowns (string[]). Never invent confirmed facts; put missing details in unknowns.`,
+            content: `Extract structured client needs from the commercial conversation for ${input.organization.name}. Return ONLY valid JSON with keys: problemStatement (string), targetUsers (string), solutionType (${SOLUTION_TYPES.join("|")}), mustHaveFeatures (string[]), desiredTimeline (string), budgetMin (number), budgetMax (number), unknowns (string[]). Never invent confirmed facts; put missing details in unknowns.${formatAgentDirective(input.agentInstructions, input.agentRules)}`,
           },
           {
             role: "user",
@@ -227,6 +239,8 @@ export async function estimateQuoteFromNeeds(input: {
   modelClient?: ModelClient;
   defaultModel?: string;
   hasLlmEndpoint?: boolean;
+  agentInstructions?: string;
+  agentRules?: readonly string[];
 }): Promise<{
   title: string;
   tier: "essential" | "standard" | "advanced";
@@ -285,7 +299,7 @@ export async function estimateQuoteFromNeeds(input: {
         messages: [
           {
             role: "system",
-            content: `You are an agency estimator for ${input.organization.name} (currency=${input.organization.currency}, minMarginPct=${input.rules.minMarginPct}%). Return ONLY valid JSON: {title:string, tier:"essential"|"standard"|"advanced", lines:[{label:string,description?:string,quantity:number,unitPrice:number,unitCost:number,estimatedDays:number}], exclusions:string[], rationale:string}. Ensure every line yields margin >= ${input.rules.minMarginPct}%.`,
+            content: `You are an agency estimator for ${input.organization.name} (currency=${input.organization.currency}, minMarginPct=${input.rules.minMarginPct}%). Return ONLY valid JSON: {title:string, tier:"essential"|"standard"|"advanced", lines:[{label:string,description?:string,quantity:number,unitPrice:number,unitCost:number,estimatedDays:number}], exclusions:string[], rationale:string}. Ensure every line yields margin >= ${input.rules.minMarginPct}%.${formatAgentDirective(input.agentInstructions, input.agentRules)}`,
           },
           {
             role: "user",

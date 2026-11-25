@@ -477,6 +477,8 @@ export async function planProjectLotsWithAi(input: {
   modelClient?: ModelClient;
   defaultModel?: string;
   hasLlmEndpoint?: boolean;
+  agentInstructions?: string;
+  agentRules?: readonly string[];
 }): Promise<{ lots: CreateProjectLotInput[]; mode: "llm" | "deterministic" }> {
   const deliverables = input.contract?.deliverables?.length
     ? input.contract.deliverables
@@ -495,11 +497,20 @@ export async function planProjectLotsWithAi(input: {
         `Return ONLY a JSON array of 3 to 6 project lots with fields: title, description, acceptanceCriteria (string[]), ownerRole (one of architect, developer, ui_ux, qa_functional, qa_technical, qa_security), estimatedHours (number).`,
       ].join("\n");
       try {
+        const agentDirective = [
+          input.agentInstructions?.trim() ? `Agent instructions: ${input.agentInstructions.trim()}` : "",
+          input.agentRules?.length ? `Agent rules:\n${input.agentRules.map((r) => `- ${r}`).join("\n")}` : "",
+        ].filter(Boolean).join("\n");
         const raw = await input.modelClient.streamChat(
           {
             model,
             messages: [
-              { role: "system", content: "You are an agency Project Manager. Return strictly valid JSON array, no markdown." },
+              {
+                role: "system",
+                content: ["You are an agency Project Manager. Return strictly valid JSON array, no markdown.", agentDirective]
+                  .filter(Boolean)
+                  .join("\n"),
+              },
               { role: "user", content: prompt },
             ],
           },
@@ -566,6 +577,8 @@ export async function runStudioAiAgent(input: {
   modelClient?: ModelClient;
   defaultModel?: string;
   hasLlmEndpoint?: boolean;
+  agentInstructions?: string;
+  agentRules?: readonly string[];
 }): Promise<{
   summary: string;
   modifiedFiles: string[];
@@ -586,7 +599,7 @@ export async function runStudioAiAgent(input: {
   }
 
   initProjectWorkspace({ dataDir: input.dataDir, project: input.project, lots: input.lot ? [input.lot] : [] });
-  const maxSteps = Math.max(1, Math.min(8, Math.round(input.maxSteps ?? 6)));
+  const maxSteps = Math.max(1, Math.min(20, Math.round(input.maxSteps ?? 8)));
   const steps: StudioAgentStep[] = [];
   const modified = new Set<string>();
 
@@ -594,6 +607,8 @@ export async function runStudioAiAgent(input: {
     `You are an autonomous software developer working strictly inside the confined workspace of project "${input.project.title}".`,
     `Target stack: ${input.project.targetStack.join(", ") || "web / node"}.`,
     input.lot ? `Active lot: #${input.lot.lotOrder} ${input.lot.title} — ${input.lot.description}` : "",
+    input.agentInstructions?.trim() ? `Configured developer instructions: ${input.agentInstructions.trim()}` : "",
+    input.agentRules?.length ? `Configured agency rules:\n${input.agentRules.map((r) => `- ${r}`).join("\n")}` : "",
     `You MUST respond with a single JSON object representing your next tool action:`,
     `1) {"tool":"list_files"}`,
     `2) {"tool":"read_file","path":"relative/path"}`,

@@ -457,5 +457,25 @@ export default {
   "studioAgentRunBtn": "AI 実装",
   "studioPreviewTitle": "ライブプレビュー",
   "studioPreviewRefresh": "更新",
-  "studioRunCheckBtn": "実行"
+  "studioRunCheckBtn": "実行",
+  "agents": "AIエージェント",
+  "agentEnabled": "有効",
+  "agentDisabled": "無効",
+  "agentCustomized": "カスタム",
+  "agentModelLabel": "AIモデル",
+  "agentModelDefault": "デフォルトモデル",
+  "agentAutonomyLabel": "自律モード",
+  "agentAutonomy": {
+    "draft_only": "下書きのみ",
+    "supervised": "承認付き（推奨）",
+    "autonomous_internal": "社内処理自律"
+  },
+  "agentMaxStepsLabel": "最大ステップ数",
+  "agentPromptLabel": "システム指示",
+  "agentRulesLabel": "業務ルール（1行に1つ）",
+  "agentToolsLabel": "許可ツール（カンマ区切り）",
+  "agentSaveBtn": "設定を保存",
+  "agentResetBtn": "リセット",
+  "agentSavedNotice": "設定を保存しました。",
+  "agentGuardrailsNote": "安全制御ロック中：外部送信は常に承認が必要です。"
 };

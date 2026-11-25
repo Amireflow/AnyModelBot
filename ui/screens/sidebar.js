@@ -455,6 +455,7 @@ export function Sidebar({ bots, botsError, reloadBots, selectedId, view, agencyT
         ["commercial", "agency.commercial", "wallet"],
         ["catalog", "agency.catalog", "clipboardCheck"],
         ["projects", "agency.projects", "spark"],
+        ["agents", "agency.agents", "chip"],
         ["copilot", "agency.copilot", "chat"],
       ].map(([id, key, icon]) => {
         const active = agencyOn && (agencyTab || "operations") === id;

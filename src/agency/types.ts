@@ -1010,3 +1010,36 @@ export interface CreateMissionInput {
   preferredTool?: string;
 }
 
+export type AgentAutonomyMode = "draft_only" | "supervised" | "autonomous_internal";
+
+export interface AgentConfig {
+  organizationId: string;
+  role: AgencyAgentRole;
+  enabled: boolean;
+  displayName: string;
+  model: string;
+  autonomyMode: AgentAutonomyMode;
+  systemPrompt: string;
+  rules: string[];
+  allowedTools: string[];
+  maxSteps: number;
+  updatedAt: number;
+}
+
+export interface UpdateAgentConfigInput {
+  enabled?: boolean;
+  displayName?: string;
+  model?: string;
+  autonomyMode?: AgentAutonomyMode;
+  systemPrompt?: string;
+  rules?: string[];
+  allowedTools?: string[];
+  maxSteps?: number;
+}
+
+export interface ConfiguredAgentProfile extends AgentProfile {
+  config: AgentConfig;
+  customized: boolean;
+}
+
+

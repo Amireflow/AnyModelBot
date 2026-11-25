@@ -458,5 +458,25 @@ export default {
   "studioAgentRunBtn": "Construire (IA)",
   "studioPreviewTitle": "Aperçu direct",
   "studioPreviewRefresh": "Recharger",
-  "studioRunCheckBtn": "Exécuter"
+  "studioRunCheckBtn": "Exécuter",
+  "agents": "Agents IA",
+  "agentEnabled": "Actif",
+  "agentDisabled": "Désactivé",
+  "agentCustomized": "Personnalisé",
+  "agentModelLabel": "Modèle IA",
+  "agentModelDefault": "Modèle par défaut",
+  "agentAutonomyLabel": "Mode d'autonomie",
+  "agentAutonomy": {
+    "draft_only": "Brouillon uniquement",
+    "supervised": "Supervisé (recommandé)",
+    "autonomous_internal": "Autonome (actions internes)"
+  },
+  "agentMaxStepsLabel": "Étapes max (Studio / boucle)",
+  "agentPromptLabel": "Instructions système",
+  "agentRulesLabel": "Règles métier (1 par ligne)",
+  "agentToolsLabel": "Outils autorisés (séparés par virgule)",
+  "agentSaveBtn": "Enregistrer l'agent",
+  "agentResetBtn": "Réinitialiser",
+  "agentSavedNotice": "Configuration enregistrée.",
+  "agentGuardrailsNote": "Sécurité verrouillée : aucune approbation externe sans votre validation."
 };

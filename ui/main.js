@@ -66,7 +66,7 @@ function parseHash() {
   if (kind === "new") return { view: "new", query };
   if (kind === "templates") return { view: a ? "template-preview" : "templates", catalogId: a };
   if (kind === "needs") return { view: "needs" };
-  if (kind === "agency") return { view: "agency", tab: ["operations", "companies", "leads", "commercial", "catalog", "projects", "copilot"].includes(a) ? a : "operations" };
+  if (kind === "agency") return { view: "agency", tab: ["operations", "companies", "leads", "commercial", "catalog", "projects", "agents", "copilot"].includes(a) ? a : "operations" };
   if (kind === "discover" || kind === "scheduled" || kind === "apps" || kind === "skills") return { view: "agency", tab: "operations" };
   if (kind === "app" && a) return { view: "app", botId: a };
   if (kind === "preview" && a) return { view: "preview", catalogId: a };
@@ -686,7 +686,7 @@ function App() {
   // keys：搜索用的关键词（不显示），两种语言的词典各有一份
   const setLang = (l) => changeLang(l).then(() => toast(t("common.saved"))).catch(failed);
   const commands = [
-    ...(["operations", "companies", "leads", "commercial", "catalog", "projects", "copilot"].map((tab) => ({
+    ...(["operations", "companies", "leads", "commercial", "catalog", "projects", "agents", "copilot"].map((tab) => ({
       label: t(`agency.${tab}`),
       keys: `agency ${tab}`,
       run: () => openAgency(tab),

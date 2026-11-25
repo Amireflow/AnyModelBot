@@ -457,5 +457,25 @@ export default {
   "studioAgentRunBtn": "Собрать (ИИ)",
   "studioPreviewTitle": "Предпросмотр",
   "studioPreviewRefresh": "Обновить",
-  "studioRunCheckBtn": "Запустить"
+  "studioRunCheckBtn": "Запустить",
+  "agents": "ИИ-агенты",
+  "agentEnabled": "Активен",
+  "agentDisabled": "Отключен",
+  "agentCustomized": "Настроен",
+  "agentModelLabel": "Модель ИИ",
+  "agentModelDefault": "Модель по умолчанию",
+  "agentAutonomyLabel": "Режим автономности",
+  "agentAutonomy": {
+    "draft_only": "Только черновик",
+    "supervised": "Под контролем",
+    "autonomous_internal": "Автономный (внутри)"
+  },
+  "agentMaxStepsLabel": "Макс. шагов",
+  "agentPromptLabel": "Системные инструкции",
+  "agentRulesLabel": "Бизнес-правила (по 1 на строке)",
+  "agentToolsLabel": "Разрешённые инструменты",
+  "agentSaveBtn": "Сохранить",
+  "agentResetBtn": "Сбросить",
+  "agentSavedNotice": "Настройки сохранены.",
+  "agentGuardrailsNote": "Защита: внешние одобрения всегда требуют подтверждения владельца."
 };

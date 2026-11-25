@@ -518,5 +518,36 @@ describe("AnyModelBot Full Agency Platform (Phases 1-6)", () => {
     const emailStatus = await invoke("GET", `/agency/${orgId}/email/status`);
     expect(emailStatus.status).toBe(200);
     expect(emailStatus.json.configured).toBe(true);
+
+    // Per-agent configuration: list, customize, disable blocks Studio AI execution (409), reset restores default
+    const agentsList = await invoke("GET", `/agency/${orgId}/agents`);
+    expect(agentsList.status).toBe(200);
+    expect(agentsList.json.items).toHaveLength(13);
+
+    const updatedDev = await invoke("PUT", `/agency/${orgId}/agents/developer`, {
+      enabled: false,
+      model: "GLM-5.3",
+      autonomyMode: "autonomous_internal",
+      maxSteps: 12,
+      systemPrompt: "Respect strict TypeScript and modular architecture.",
+      rules: ["Never hardcode secrets", "Keep helpers concise"],
+      allowedTools: ["node", "npm"],
+    });
+    expect(updatedDev.status).toBe(200);
+    expect(updatedDev.json.agent.customized).toBe(true);
+    expect(updatedDev.json.agent.config.enabled).toBe(false);
+    expect(updatedDev.json.agent.config.model).toBe("GLM-5.3");
+    expect(updatedDev.json.agent.config.maxSteps).toBe(12);
+    expect(updatedDev.json.agent.config.rules).toEqual(["Never hardcode secrets", "Keep helpers concise"]);
+
+    const blockedStudio = await invoke("POST", `/agency/${orgId}/projects/${projectId}/studio/ai-agent`, {
+      instruction: "Should be blocked while developer agent is disabled",
+    });
+    expect(blockedStudio.status).toBe(409);
+
+    const resetDev = await invoke("DELETE", `/agency/${orgId}/agents/developer`);
+    expect(resetDev.status).toBe(200);
+    expect(resetDev.json.agent.customized).toBe(false);
+    expect(resetDev.json.agent.config.enabled).toBe(true);
   });
 });

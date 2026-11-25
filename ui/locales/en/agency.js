@@ -457,5 +457,25 @@ export default {
   "studioAgentRunBtn": "Build (AI)",
   "studioPreviewTitle": "Live Preview",
   "studioPreviewRefresh": "Refresh",
-  "studioRunCheckBtn": "Run"
+  "studioRunCheckBtn": "Run",
+  "agents": "AI Agents",
+  "agentEnabled": "Enabled",
+  "agentDisabled": "Disabled",
+  "agentCustomized": "Custom",
+  "agentModelLabel": "AI Model",
+  "agentModelDefault": "Default model",
+  "agentAutonomyLabel": "Autonomy mode",
+  "agentAutonomy": {
+    "draft_only": "Draft only",
+    "supervised": "Supervised (recommended)",
+    "autonomous_internal": "Autonomous (internal actions)"
+  },
+  "agentMaxStepsLabel": "Max steps",
+  "agentPromptLabel": "System instructions",
+  "agentRulesLabel": "Business rules (1 per line)",
+  "agentToolsLabel": "Allowed tools (comma-separated)",
+  "agentSaveBtn": "Save agent",
+  "agentResetBtn": "Reset",
+  "agentSavedNotice": "Configuration saved.",
+  "agentGuardrailsNote": "Locked guardrails: external approvals always require owner consent."
 };

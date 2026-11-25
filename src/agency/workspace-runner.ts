@@ -215,6 +215,8 @@ export async function executeAgencyMission(input: {
   modelClient?: ModelClient;
   defaultModel?: string;
   hasLlmEndpoint?: boolean;
+  agentInstructions?: string;
+  agentRules?: readonly string[];
 }): Promise<{
   status: "completed" | "failed";
   outputSummary: string;
@@ -255,13 +257,19 @@ export async function executeAgencyMission(input: {
     }
 
     const profile = getAgentProfile(input.mission.agentRole);
+    const rulesLine = input.agentRules?.length
+      ? `\nAgent rules:\n${input.agentRules.map((r) => `- ${r}`).join("\n")}`
+      : "";
+    const extraPrompt = input.agentInstructions?.trim()
+      ? `\nConfigured instructions: ${input.agentInstructions.trim()}`
+      : "";
     const responseText = await input.modelClient.streamChat(
       {
         model,
         messages: [
           {
             role: "system",
-            content: `You are ${profile.name} (${profile.role}). Mission: ${profile.mission}. Stay strictly factual, concrete, and concise. Never invent verified test results or fake approvals.`,
+            content: `You are ${profile.name} (${profile.role}). Mission: ${profile.mission}.${extraPrompt}${rulesLine}\nStay strictly factual, concrete, and concise. Never invent verified test results or fake approvals.`,
           },
           {
             role: "user",

@@ -4,6 +4,7 @@ import { Markdown } from "../components/markdown.js";
 import { api } from "../lib/api.js";
 import { fmtNum, t, useLang } from "../lib/i18n.js";
 import { AgencyCopilot } from "./agency/copilot.js";
+import { AgencyAgents } from "./agency/agents.js";
 import { ProjectStudio } from "./agency/studio.js";
 
 const SIZE=25;
@@ -291,6 +292,13 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       return ()=>{live=false;};
     }
     if(tab==="copilot"){setBusy("");return ()=>{live=false;};}
+    if(tab==="agents"){
+      api(`/agency/${enc(orgId)}/agents`)
+        .then(d=>{if(live)setAgentProfiles(d.items||[]);})
+        .catch(e=>live&&setError(e.message))
+        .finally(()=>live&&setBusy(""));
+      return ()=>{live=false;};
+    }
     if(tab==="projects"||tab==="operations"){
       Promise.all([
         api(`/agency/${enc(orgId)}/dashboard`),
@@ -1242,6 +1250,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           <button role="tab" aria-selected=${tab==="commercial"} class=${tab==="commercial"?"active":""} onClick=${()=>switchTab("commercial")}>${t("agency.commercial")}</button>
           <button role="tab" aria-selected=${tab==="catalog"} class=${tab==="catalog"?"active":""} onClick=${()=>switchTab("catalog")}>${t("agency.catalog")}</button>
           <button role="tab" aria-selected=${tab==="projects"} class=${tab==="projects"?"active":""} onClick=${()=>switchTab("projects")}>${t("agency.projects")}</button>
+          <button role="tab" aria-selected=${tab==="agents"} class=${tab==="agents"?"active":""} onClick=${()=>switchTab("agents")}>${t("agency.agents")}</button>
           <button role="tab" aria-selected=${tab==="copilot"} class=${tab==="copilot"?"active":""} onClick=${()=>switchTab("copilot")}>${t("agency.copilot")}</button>
         </div>
         ${(tab==="companies"||tab==="leads")&&html`<label class="agency-search"><${Icon} name="search" size="sm"/><input type="search" value=${query} placeholder=${t("agency.search")} onInput=${e=>{setQuery(e.currentTarget.value);setPage(0);}}/></label>`}
@@ -1884,7 +1893,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                 ${devTools.map(tool=>html`<div class="agency-tool-chip"><span class=${"agency-dot "+(tool.available?"ok":"off")}></span><strong>${tool.name}</strong><span>${tool.available?(tool.version||t("agency.toolAvailable")):t("agency.toolMissing")}</span></div>`)}
               </div>
               <div class="agency-role-grid">
-                ${agentProfiles.map(ag=>html`<div class="agency-tool-chip"><strong>${t(`agency.agentRoleNames.${ag.role}`)}</strong></div>`)}
+                ${agentProfiles.map(ag=>html`<button type="button" class="agency-tool-chip" onClick=${()=>switchTab("agents")}><span class=${"agency-dot "+(ag.config?.enabled===false?"off":"ok")}></span><strong>${t(`agency.agentRoleNames.${ag.role}`)}</strong></button>`)}
               </div>
             </section>
           </div>
@@ -1924,6 +1933,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           </section>
         </div>
       </div>`}
+      ${tab==="agents"&&html`<${AgencyAgents} orgId=${orgId} agents=${agentProfiles} onSaved=${()=>setRevision(v=>v+1)}/>`}
       ${tab==="copilot"&&html`<${AgencyCopilot} orgId=${orgId} activeTab=${tab} companyId=${selected} leadId=${selectedLeadId} projectId=${selectedProjectId}/>`}
     `}
   </section>`;

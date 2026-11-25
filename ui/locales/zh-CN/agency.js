@@ -457,5 +457,25 @@ export default {
   "studioAgentRunBtn": "AI 构建",
   "studioPreviewTitle": "实时预览",
   "studioPreviewRefresh": "刷新",
-  "studioRunCheckBtn": "运行"
+  "studioRunCheckBtn": "运行",
+  "agents": "AI 智能体",
+  "agentEnabled": "已启用",
+  "agentDisabled": "已禁用",
+  "agentCustomized": "已自定义",
+  "agentModelLabel": "AI 模型",
+  "agentModelDefault": "默认模型",
+  "agentAutonomyLabel": "自主模式",
+  "agentAutonomy": {
+    "draft_only": "仅草稿",
+    "supervised": "监督模式（推荐）",
+    "autonomous_internal": "内部自主"
+  },
+  "agentMaxStepsLabel": "最大步数",
+  "agentPromptLabel": "系统指令",
+  "agentRulesLabel": "业务规则（每行一条）",
+  "agentToolsLabel": "允许工具（逗号分隔）",
+  "agentSaveBtn": "保存配置",
+  "agentResetBtn": "恢复默认",
+  "agentSavedNotice": "配置已保存。",
+  "agentGuardrailsNote": "安全护栏已锁定：外部审批始终需要人工确认。"
 };

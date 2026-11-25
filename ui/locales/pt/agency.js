@@ -457,5 +457,25 @@ export default {
   "studioAgentRunBtn": "Construir (IA)",
   "studioPreviewTitle": "Pré-visualização",
   "studioPreviewRefresh": "Atualizar",
-  "studioRunCheckBtn": "Executar"
+  "studioRunCheckBtn": "Executar",
+  "agents": "Agentes IA",
+  "agentEnabled": "Ativo",
+  "agentDisabled": "Desativado",
+  "agentCustomized": "Personalizado",
+  "agentModelLabel": "Modelo IA",
+  "agentModelDefault": "Modelo padrão",
+  "agentAutonomyLabel": "Modo de autonomia",
+  "agentAutonomy": {
+    "draft_only": "Apenas rascunho",
+    "supervised": "Supervisionado",
+    "autonomous_internal": "Autônomo (interno)"
+  },
+  "agentMaxStepsLabel": "Passos máx.",
+  "agentPromptLabel": "Instruções do sistema",
+  "agentRulesLabel": "Regras de negócio (1 por linha)",
+  "agentToolsLabel": "Ferramentas permitidas",
+  "agentSaveBtn": "Salvar agente",
+  "agentResetBtn": "Redefinir",
+  "agentSavedNotice": "Configuração salva.",
+  "agentGuardrailsNote": "Segurança bloqueada: aprovações externas exigem sua confirmação."
 };

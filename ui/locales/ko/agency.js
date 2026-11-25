@@ -457,5 +457,25 @@ export default {
   "studioAgentRunBtn": "AI 빌드",
   "studioPreviewTitle": "실시간 미리보기",
   "studioPreviewRefresh": "새로고침",
-  "studioRunCheckBtn": "실행"
+  "studioRunCheckBtn": "실행",
+  "agents": "AI 에이전트",
+  "agentEnabled": "활성",
+  "agentDisabled": "비활성",
+  "agentCustomized": "사용자 지정",
+  "agentModelLabel": "AI 모델",
+  "agentModelDefault": "기본 모델",
+  "agentAutonomyLabel": "자율 모드",
+  "agentAutonomy": {
+    "draft_only": "초안 전용",
+    "supervised": "승인 감독(권장)",
+    "autonomous_internal": "내부 작업 자율"
+  },
+  "agentMaxStepsLabel": "최대 단계 수",
+  "agentPromptLabel": "시스템 지침",
+  "agentRulesLabel": "비즈니스 규칙 (줄당 1개)",
+  "agentToolsLabel": "허용 도구 (쉼표 구분)",
+  "agentSaveBtn": "저장",
+  "agentResetBtn": "초기화",
+  "agentSavedNotice": "설정이 저장되었습니다.",
+  "agentGuardrailsNote": "보안 잠금: 외부 승인은 항상 소유자 확인이 필요합니다."
 };
