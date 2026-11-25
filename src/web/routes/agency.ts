@@ -28,6 +28,13 @@ import { runFourAxisQaAudit } from "../../agency/qa-auditor.js";
 import { listAgencySkills, resolveSkillsPromptBlock } from "../../agency/skills.js";
 import { appendCopilotHistory, clearCopilotHistory, loadCopilotHistory } from "../../agency/copilot-history.js";
 import {
+  clearStudioState,
+  loadStudioState,
+  runStudioConversation,
+  STUDIO_SUBAGENTS,
+  type StudioSubagentId,
+} from "../../agency/studio-orchestrator.js";
+import {
   createStudioSnapshot,
   deleteWorkspaceFile,
   extractReadablePdfText,
@@ -93,7 +100,33 @@ function resolveAgentRuntime(
     maxSteps: configured.config.maxSteps,
     agentInstructions: combinedInstructions,
     agentRules: configured.config.rules,
+    skills: configured.config.skills,
+    displayName: configured.config.displayName,
   };
+}
+
+function resolveStudioRuntimeSafe(
+  service: AgencyService,
+  organizationId: string,
+  actor: string,
+  role: AgencyAgentRole,
+  fallbackModel?: string,
+) {
+  try {
+    return resolveAgentRuntime(service, organizationId, actor, role, fallbackModel);
+  } catch {
+    const configured = service.getConfiguredAgent(organizationId, actor, role);
+    const skillsPrompt = resolveSkillsPromptBlock(configured.config.skills);
+    const combinedInstructions = [configured.config.systemPrompt.trim(), skillsPrompt].filter(Boolean).join("\n\n");
+    return {
+      model: configured.config.model || fallbackModel,
+      maxSteps: configured.config.maxSteps,
+      agentInstructions: combinedInstructions,
+      agentRules: configured.config.rules,
+      skills: configured.config.skills,
+      displayName: configured.config.displayName,
+    };
+  }
 }
 function sendHtmlDocument(
   res: Parameters<Route>[1],
@@ -199,14 +232,16 @@ export function agencyRoutes(ctx: WebContext): Route {
       if (seg.length<2) throw new HttpError(404,"not found");
       const organizationId=decodeSegment(seg[1],"organization id");
       const handleDelete=async (entityType: AgencyDeletableEntityType, entityId: string) => {
-        const body=await readObject(req);
-        const deleted=service.deleteEntity(organizationId,actor,entityType,entityId,{
-          confirm:body.confirm===true,
-          confirmName:typeof body.confirmName==="string" ? body.confirmName : undefined,
-          cascade:body.cascade===true,
-          reason:typeof body.reason==="string" ? body.reason : undefined,
-        });
-        return send(res,200,{deleted});
+        try {
+          const body=await readObject(req);
+          const deleted=service.deleteEntity(organizationId,actor,entityType,entityId,{
+            confirm:body.confirm===true,
+            confirmName:typeof body.confirmName==="string" ? body.confirmName : undefined,
+            cascade:body.cascade===true,
+            reason:typeof body.reason==="string" ? body.reason : undefined,
+          });
+          return send(res,200,{deleted});
+        } catch (error) { routeError(error); }
       };
 
       if (seg.length===3 && seg[2]==="dashboard" && method==="GET") return send(res,200,service.dashboard(organizationId,actor));
@@ -1269,6 +1304,79 @@ export function agencyRoutes(ctx: WebContext): Route {
           if (seg.length>=6 && seg[4]==="studio") {
             const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
             const project=service.getProject(organizationId,actor,projectId);
+            if (seg.length===6 && seg[5]==="state" && method==="GET") {
+              const st=await loadStudioState(dataDir,projectId);
+              const subagents=STUDIO_SUBAGENTS.map((spec) => {
+                const rt=resolveStudioRuntimeSafe(service,organizationId,actor,spec.agencyRole,ctx.app?.config?.llm?.defaultModel);
+                return {
+                  id:spec.id,
+                  agencyRole:spec.agencyRole,
+                  focus:spec.focus,
+                  displayName:rt.displayName,
+                  skills:rt.skills,
+                  model:rt.model || "",
+                };
+              });
+              return send(res,200,{ messages:st.messages, plan:st.plan, subagents });
+            }
+            if (seg.length===6 && seg[5]==="history" && method==="DELETE") {
+              await clearStudioState(dataDir,projectId);
+              return send(res,200,{ok:true});
+            }
+            if (seg.length===6 && seg[5]==="chat-stream" && method==="POST") {
+              const body=await readObject(req,4_500_000);
+              const mode=body.mode==="plan" ? "plan" : "build";
+              const message=typeof body.message==="string" ? body.message : "";
+              const executePlan=body.executePlan===true;
+              const targetSubagent=typeof body.targetSubagent==="string" && ["architect","ui_ux","frontend","backend","qa"].includes(body.targetSubagent)
+                ? (body.targetSubagent as StudioSubagentId)
+                : undefined;
+              const docFiles=Array.isArray(body.files)
+                ? body.files.filter((x): x is Record<string,unknown> => !!x && typeof x==="object" && !Array.isArray(x)).map((f) => ({
+                  name:String(f.name || "document.txt"),
+                  mimeType:typeof f.mimeType==="string" ? f.mimeType : undefined,
+                  textContent:typeof f.textContent==="string" ? f.textContent : undefined,
+                  base64Content:typeof f.base64Content==="string" ? f.base64Content : undefined,
+                }))
+                : [];
+              let attachedFileNames: string[]=[];
+              if (docFiles.length>0) {
+                const contract=service.getContract(organizationId,actor,project.contractId);
+                const lots=service.listProjectLots(organizationId,actor,projectId);
+                const ingested=await ingestProjectDocuments({ dataDir, project, contract, lots, files:docFiles });
+                attachedFileNames=ingested.writtenFiles;
+              }
+              res.writeHead(200,{
+                "content-type":"text/event-stream; charset=utf-8",
+                "cache-control":"no-cache",
+                connection:"keep-alive",
+                "x-content-type-options":"nosniff",
+              });
+              const emit=(event: string, data: unknown) => {
+                if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+              };
+              try {
+                await runStudioConversation({
+                  dataDir,
+                  project,
+                  message,
+                  mode,
+                  executePlan,
+                  targetSubagent,
+                  attachedFileNames,
+                  modelClient:ctx.app?.models,
+                  defaultModel:ctx.app?.config?.llm?.defaultModel,
+                  hasLlmEndpoint:isLlmConfigured(ctx),
+                  resolveRuntime:(role) => resolveStudioRuntimeSafe(service,organizationId,actor,role,ctx.app?.config?.llm?.defaultModel),
+                  onEvent:(ev,data) => emit(ev,data),
+                });
+              } catch (err) {
+                emit("error",{error:(err as Error).message || "Studio orchestrator failed"});
+              } finally {
+                if (!res.writableEnded) res.end();
+              }
+              return;
+            }
             if (seg.length===6 && seg[5]==="files" && method==="GET") {
               return send(res,200,{items:listWorkspaceFiles(dataDir,project)});
             }

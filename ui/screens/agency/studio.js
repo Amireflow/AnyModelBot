@@ -1,19 +1,13 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { BotAvatar } from "../../components/avatar.js";
-import { html, Icon, Spinner } from "../../components/ui.js";
+import { Markdown } from "../../components/markdown.js";
+import { CopyButton, html, Icon, Spinner } from "../../components/ui.js";
 import { api, sseParser } from "../../lib/api.js";
 import { getLang, t } from "../../lib/i18n.js";
 import { agentAvatarOf } from "./agent-avatars.js";
 import { readFilePayload } from "./copilot.js";
 
 const enc = encodeURIComponent;
-const TEMPLATES = [
-  ["vitrine-html", "Site vitrine (HTML/CSS/JS)"],
-  ["webapp-node-preact", "Application Web (Node + Tests)"],
-  ["api-node-ts", "API Service (Node + TypeScript)"],
-  ["saas-dashboard-app", "Dashboard SaaS (KPIs + Filtres)"],
-  ["ecommerce-storefront", "Boutique E-commerce (Catalogue + Panier)"],
-];
 const COMMANDS = [
   ["npm_test", "npm test"],
   ["npm_typecheck", "typecheck"],
@@ -21,26 +15,53 @@ const COMMANDS = [
   ["git_status", "git status"],
   ["npm_install", "npm install"],
 ];
-const STUDIO_ROLES = ["developer", "ui_ux", "architect"];
+
+const SUBAGENT_DEFAULT_ROLES = {
+  architect: "architect",
+  ui_ux: "ui_ux",
+  frontend: "developer",
+  backend: "developer",
+  qa: "qa_technical",
+};
+
+const MAX_ATTACH = 8;
 
 export function ProjectStudio({ orgId, project, onChanged }) {
   const [files, setFiles] = useState([]);
   const [selectedPath, setSelectedPath] = useState("");
   const [content, setContent] = useState("");
   const [newFilePath, setNewFilePath] = useState("");
-  const [template, setTemplate] = useState("vitrine-html");
   const [command, setCommand] = useState("npm_test");
-  const [agentRole, setAgentRole] = useState("developer");
-  const [instruction, setInstruction] = useState("");
-  const [lastSteps, setLastSteps] = useState([]);
+  const [terminalOut, setTerminalOut] = useState("");
   const [snapshots, setSnapshots] = useState([]);
   const [selectedSnapshot, setSelectedSnapshot] = useState("");
-  const uploadInputRef = useRef(null);
+
+  // Conversational Lovable/Bolt workbench state
+  const [mode, setMode] = useState("plan");
+  const [targetSubagent, setTargetSubagent] = useState("");
+  const [messages, setMessages] = useState([]);
+  const [plan, setPlan] = useState(null);
+  const [subagents, setSubagents] = useState([]);
+  const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState([]);
+  const [dragging, setDragging] = useState(false);
+
+  // Live SSE streaming feedback
+  const [activeSubagent, setActiveSubagent] = useState(null);
+  const [liveSteps, setLiveSteps] = useState([]);
+
+  // Right pane tabs & preview viewport
+  const [workspaceTab, setWorkspaceTab] = useState("preview");
+  const [viewport, setViewport] = useState("desktop"); // desktop | tablet | mobile
+  const [previewNonce, setPreviewNonce] = useState(1);
+
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const [previewNonce, setPreviewNonce] = useState(1);
-  const [mobilePreview, setMobilePreview] = useState(false);
+
+  const threadRef = useRef(null);
+  const chatUploadRef = useRef(null);
+  const treeUploadRef = useRef(null);
 
   const openFile = async (relPath) => {
     if (!relPath) return;
@@ -82,24 +103,160 @@ export function ProjectStudio({ orgId, project, onChanged }) {
     }
   };
 
+  const loadStudioState = async () => {
+    if (!orgId || !project?.id) return;
+    try {
+      const res = await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/state`);
+      setMessages(Array.isArray(res.messages) ? res.messages : []);
+      setPlan(res.plan || null);
+      setSubagents(Array.isArray(res.subagents) ? res.subagents : []);
+    } catch {
+      setMessages([]);
+      setPlan(null);
+    }
+  };
+
   useEffect(() => {
     setNotice("");
     setError("");
-    setLastSteps([]);
+    setLiveSteps([]);
+    setActiveSubagent(null);
+    setTerminalOut("");
     void loadFiles();
+    void loadStudioState();
   }, [orgId, project?.id]);
 
-  const scaffold = async () => {
-    setBusy("scaffold"); setError(""); setNotice("");
+  useEffect(() => {
+    const el = threadRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages.length, liveSteps.length, busy]);
+
+  const handleChatFiles = async (fileList) => {
+    if (!fileList?.length) return;
+    setError("");
+    const incoming = Array.from(fileList).slice(0, Math.max(0, MAX_ATTACH - attachments.length));
     try {
-      const res = await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/scaffold`, {
+      const parsed = await Promise.all(incoming.map(readFilePayload));
+      setAttachments((prev) => [...prev, ...parsed].slice(0, MAX_ATTACH));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const sendStudioTurn = async (opts = {}) => {
+    if (!orgId || !project?.id || busy) return;
+    const text = (opts.message ?? input).trim();
+    const runMode = opts.mode ?? mode;
+    const executePlan = opts.executePlan === true;
+    const focusSubagent = opts.targetSubagent ?? (targetSubagent || undefined);
+    const attached = opts.skipAttachments ? [] : [...attachments];
+
+    if (!text && !executePlan && attached.length === 0) return;
+
+    setBusy("chat");
+    setError("");
+    setNotice("");
+    setLiveSteps([]);
+    setActiveSubagent(null);
+
+    const optimisticText = text || (executePlan ? t("agency.studioApprovePlanBtn") : attached.map((f) => f.name).join(", "));
+    const optimisticId = `opt-${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: optimisticId,
+        role: "user",
+        mode: runMode,
+        text: optimisticText,
+        at: new Date().toISOString(),
+        files: attached.map((f) => f.name),
+      },
+    ]);
+    if (opts.message == null) setInput("");
+    if (!opts.skipAttachments) setAttachments([]);
+
+    try {
+      const response = await fetch(`/amb/api/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/chat-stream`, {
         method: "POST",
-        body: { template },
+        headers: { "content-type": "application/json", "x-amb-lang": getLang() },
+        body: JSON.stringify({
+          message: text,
+          mode: runMode,
+          executePlan,
+          targetSubagent: focusSubagent,
+          files: attached,
+        }),
       });
-      await loadFiles(res.files?.[0] || res.created?.[0] || "index.html");
-      setPreviewNonce((n) => n + 1);
+      if (!response.ok || !response.body) {
+        const errPayload = await response.json().catch(() => ({}));
+        throw new Error(errPayload.error || `HTTP ${response.status}`);
+      }
+
+      let finalPayload = null;
+      let streamError = "";
+      const parser = sseParser((eventName, data) => {
+        if (eventName === "plan" && data?.plan) {
+          setPlan(data.plan);
+        } else if (eventName === "subagent_start" && data) {
+          setActiveSubagent(data);
+        } else if (eventName === "step" && data) {
+          setLiveSteps((prev) => [...prev.slice(-40), data]);
+        } else if (eventName === "subagent_done") {
+          setActiveSubagent(null);
+        } else if (eventName === "message" && data?.message) {
+          setMessages((prev) => [...prev, data.message]);
+        } else if (eventName === "done") {
+          finalPayload = data;
+        } else if (eventName === "error") {
+          streamError = data?.error || "Studio execution failed";
+        }
+      });
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        parser.push(decoder.decode(value, { stream: true }));
+      }
+      parser.push("\n\n");
+      if (streamError) throw new Error(streamError);
+
+      if (finalPayload?.state?.messages) {
+        setMessages(finalPayload.state.messages);
+      }
+      if (finalPayload?.plan) {
+        setPlan(finalPayload.plan);
+      }
+
+      const modified = Array.isArray(finalPayload?.modifiedFiles) ? finalPayload.modifiedFiles : [];
+      await loadFiles(modified[0] || "");
+      if (modified.length > 0 || runMode === "build") {
+        setPreviewNonce((n) => n + 1);
+        if (modified.some((p) => p === "index.html" || p === "public/index.html" || p.endsWith(".css") || p.endsWith(".js"))) {
+          setWorkspaceTab("preview");
+        }
+      }
       onChanged?.();
-    } catch (err) { setError(err.message); } finally { setBusy(""); }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy("");
+      setActiveSubagent(null);
+    }
+  };
+
+  const clearHistory = async () => {
+    if (!orgId || !project?.id || busy) return;
+    if (!window.confirm(t("agency.studioClearConfirm"))) return;
+    try {
+      await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/history`, { method: "DELETE" });
+      setMessages([]);
+      setPlan(null);
+      setLiveSteps([]);
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   const createFile = async (e) => {
@@ -148,51 +305,8 @@ export function ProjectStudio({ orgId, project, onChanged }) {
         method: "POST",
         body: { action: command },
       });
-      setNotice(`exit=${res.exitCode}: ${(res.output || "").slice(0, 220)}`);
-    } catch (err) { setError(err.message); } finally { setBusy(""); }
-  };
-
-  const runAiBuilder = async (e) => {
-    e.preventDefault();
-    if (!instruction.trim()) return;
-    setBusy("ai"); setError(""); setNotice(""); setLastSteps([]);
-    try {
-      const response = await fetch(`/amb/api/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/ai-agent-stream`, {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-amb-lang": getLang() },
-        body: JSON.stringify({ instruction, agentRole }),
-      });
-      if (!response.ok || !response.body) {
-        const errPayload = await response.json().catch(() => ({}));
-        throw new Error(errPayload.error || `HTTP ${response.status}`);
-      }
-      let finalPayload = null;
-      let streamError = "";
-      const parser = sseParser((eventName, data) => {
-        if (eventName === "step" && data) {
-          setLastSteps((prev) => [...prev, data]);
-        } else if (eventName === "done") {
-          finalPayload = data;
-        } else if (eventName === "error") {
-          streamError = data?.error || "Agent studio failed";
-        }
-      });
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        parser.push(decoder.decode(value, { stream: true }));
-      }
-      parser.push("\n\n");
-      if (streamError) throw new Error(streamError);
-      const res = finalPayload || {};
-      setNotice(res.summary || "");
-      if (Array.isArray(res.steps) && res.steps.length) setLastSteps(res.steps);
-      setInstruction("");
-      await loadFiles(res.modifiedFiles?.[0] || "");
-      setPreviewNonce((n) => n + 1);
-      onChanged?.();
+      setTerminalOut(`$ ${command} (exit=${res.exitCode})\n${res.output || ""}`);
+      setWorkspaceTab("ops");
     } catch (err) { setError(err.message); } finally { setBusy(""); }
   };
 
@@ -226,92 +340,300 @@ export function ProjectStudio({ orgId, project, onChanged }) {
     } catch (err) { setError(err.message); } finally { setBusy(""); }
   };
 
+  const openFileInCode = (relPath) => {
+    setWorkspaceTab("code");
+    void openFile(relPath);
+  };
+
   const hasIndex = files.some((f) => f.path === "index.html" || f.path === "public/index.html");
   const previewPath = files.some((f) => f.path === "public/index.html") ? "public/index.html" : "index.html";
   const previewUrl = `/amb/api/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/preview/${previewPath}?v=${previewNonce}`;
 
-  return html`<section class="agency-project-section agency-studio">
-    <div class="agency-studio-toolbar">
-      <div class="agency-commercial-actions">
-        <label class="agency-stage-select"><span>${t("agency.studioScaffoldLabel")}</span>
-          <select class="field" value=${template} onChange=${(e) => setTemplate(e.currentTarget.value)}>
-            ${TEMPLATES.map(([id, label]) => html`<option value=${id}>${label}</option>`)}
-          </select>
-        </label>
-        <button class="btn" type="button" disabled=${!!busy} onClick=${scaffold}>${t("agency.studioScaffoldBtn")}</button>
+  const renderPlanCard = (pl, compact = false) => {
+    if (!pl) return null;
+    const canApprove = pl.status !== "running" && pl.tasks?.length > 0;
+    return html`<div class="agency-studio-plan-card">
+      <div class="agency-studio-plan-head">
+        <div>
+          <strong>${t("agency.studioPlanTitle")}</strong>
+          ${pl.summary && html`<p>${pl.summary}</p>`}
+        </div>
+        <span class=${"agency-whatsapp-state " + pl.status}>${t(`agency.studioPlanStatus.${pl.status}`)}</span>
       </div>
-      <div class="agency-commercial-actions">
-        <select class="field" aria-label=${t("agency.cliActionLabel")} value=${command} onChange=${(e) => setCommand(e.currentTarget.value)}>
-          ${COMMANDS.map(([id, label]) => html`<option value=${id}>${label}</option>`)}
-        </select>
-        <button class="btn" type="button" disabled=${!!busy} onClick=${runCheck}>${t("agency.studioRunCheckBtn")}</button>
-        ${snapshots.length > 0 && html`
-          <select class="field" aria-label=${t("agency.studioSnapshotLabel")} value=${selectedSnapshot} onChange=${(e) => setSelectedSnapshot(e.currentTarget.value)}>
-            ${snapshots.map((s) => html`<option value=${s.commitHash}>${s.commitHash.slice(0, 7)} · ${s.message.replace(/^studio:\s*/i, "").slice(0, 28)}</option>`)}
-          </select>
-          <button class="btn" type="button" disabled=${!!busy} onClick=${() => rollbackSnapshot(selectedSnapshot)}>${t("agency.studioRollbackBtn")}</button>
-        `}
-      </div>
-    </div>
-    <form class="agency-copilot-form" onSubmit=${runAiBuilder}>
-      <${BotAvatar} key=${agentRole} char=${agentAvatarOf(agentRole)} size=${30} state=${busy === "ai" ? "working" : "idle"} />
-      <select class="field" aria-label=${t("agency.missionRoleLabel")} value=${agentRole} onChange=${(e) => setAgentRole(e.currentTarget.value)}>
-        ${STUDIO_ROLES.map((r) => html`<option value=${r}>${t(`agency.agentRoleNames.${r}`)}</option>`)}
-      </select>
-      <input class="field" value=${instruction} placeholder=${t("agency.studioAgentPlaceholder")} onInput=${(e) => setInstruction(e.currentTarget.value)} />
-      <button class="btn primary" type="submit" disabled=${!!busy || !instruction.trim()}>
-        ${busy === "ai" ? html`<${Spinner} />` : html`<${Icon} name="spark" size="sm" />`}${t("agency.studioAgentRunBtn")}
-      </button>
-    </form>
-    ${error && html`<div class="agency-alert" role="alert">${error}</div>`}
-    ${notice && html`<p class="agency-research-feedback" role="status">${notice}</p>`}
-    ${lastSteps.length > 0 && html`<details class="agency-brief-details">
-      <summary>${t("agency.studioStepsTitle")} (${lastSteps.length})</summary>
-      <div class="agency-studio-steps">
-        ${lastSteps.map((st) => html`<div class="agency-audit-row">
-          <strong>#${st.step} · ${st.tool}${st.target ? ` (${st.target})` : ""}</strong>
-          <span class=${"agency-whatsapp-state " + (st.ok ? "accepted" : "blocked")}>${st.ok ? "OK" : "ERR"}</span>
+      ${pl.designDirection && !compact && html`<small class="agency-muted"><strong>${t("agency.studioDesignLabel")}:</strong> ${pl.designDirection}</small>`}
+      ${pl.architecture && !compact && html`<small class="agency-muted"><strong>${t("agency.studioArchLabel")}:</strong> ${pl.architecture}</small>`}
+      ${pl.stack?.length > 0 && html`<div class="agency-copilot-attachments">
+        ${pl.stack.map((s) => html`<span class="agency-studio-stack-pill">${s}</span>`)}
+      </div>`}
+      ${pl.tasks?.length > 0 && html`<div class="agency-studio-task-list">
+        ${pl.tasks.map((tk) => html`<div class="agency-studio-task-row">
+          <${BotAvatar} char=${agentAvatarOf(SUBAGENT_DEFAULT_ROLES[tk.subagent] || "developer")} size=${22} state=${tk.status === "running" ? "working" : "idle"} />
+          <div class="agency-studio-task-body">
+            <strong>${tk.title}</strong>
+            <small>${t(`agency.studioSubagentNames.${tk.subagent}`)}${tk.targetFiles?.length ? ` · ${tk.targetFiles.join(", ")}` : ""}</small>
+          </div>
+          <span class=${"agency-whatsapp-state " + tk.status}>${tk.status}</span>
         </div>`)}
+      </div>`}
+      ${canApprove && html`<div class="agency-commercial-actions">
+        <button class="btn primary" type="button" disabled=${!!busy} onClick=${() => sendStudioTurn({ mode: "build", executePlan: true, message: "", skipAttachments: true })}>
+          <${Icon} name="spark" size="sm" />${t("agency.studioApprovePlanBtn")}
+        </button>
+      </div>`}
+    </div>`;
+  };
+
+  return html`<section class="agency-studio-workbench">
+    <div
+      class=${"agency-studio-chat" + (dragging ? " dragging" : "")}
+      onDragOver=${(e) => { e.preventDefault(); setDragging(true); }}
+      onDragLeave=${() => setDragging(false)}
+      onDrop=${(e) => { e.preventDefault(); setDragging(false); void handleChatFiles(e.dataTransfer?.files); }}
+    >
+      <div class="agency-studio-chat-top">
+        <div class="agency-studio-mode-switch" role="tablist" aria-label=${t("agency.studioModeLabel")}>
+          <button type="button" role="tab" aria-selected=${mode === "plan"} class=${mode === "plan" ? "active" : ""} onClick=${() => setMode("plan")}>${t("agency.studioModePlan")}</button>
+          <button type="button" role="tab" aria-selected=${mode === "build"} class=${mode === "build" ? "active" : ""} onClick=${() => setMode("build")}>${t("agency.studioModeBuild")}</button>
+        </div>
+        <div class="agency-studio-chat-tools">
+          <select class="field" aria-label=${t("agency.studioSubagentFilterLabel")} value=${targetSubagent} onChange=${(e) => setTargetSubagent(e.currentTarget.value)}>
+            <option value="">${t("agency.studioSubagentAuto")}</option>
+            <option value="architect">${t("agency.studioSubagentNames.architect")}</option>
+            <option value="ui_ux">${t("agency.studioSubagentNames.ui_ux")}</option>
+            <option value="frontend">${t("agency.studioSubagentNames.frontend")}</option>
+            <option value="backend">${t("agency.studioSubagentNames.backend")}</option>
+            <option value="qa">${t("agency.studioSubagentNames.qa")}</option>
+          </select>
+          ${messages.length > 0 && html`<button class="text" type="button" disabled=${!!busy} onClick=${clearHistory}>${t("agency.copilotClearBtn")}</button>`}
+        </div>
       </div>
-    </details>`}
-    <div class="agency-studio-grid">
-      <div class="agency-studio-tree">
-        <div class="agency-commercial-head">
-          <strong>${t("agency.studioFilesTitle")}</strong>
-          <div class="agency-commercial-actions">
-            <input ref=${uploadInputRef} class="agency-copilot-file-input" type="file" multiple onChange=${(e) => { void uploadStudioDocs(e.currentTarget.files); e.currentTarget.value = ""; }} />
-            <button class="btn" type="button" disabled=${!!busy} onClick=${() => uploadInputRef.current?.click()}><${Icon} name="doc" size="sm" />${t("agency.studioUploadDocsBtn")}</button>
-            <span class="agency-count-pill">${files.length}</span>
+
+      ${error && html`<div class="agency-alert" role="alert">${error}</div>`}
+      ${notice && html`<p class="agency-research-feedback" role="status">${notice}</p>`}
+
+      <div class="agency-studio-thread" ref=${threadRef}>
+        ${!messages.length && html`<div class="agency-studio-welcome">
+          <span class="agency-quick-icon tone-purple"><${Icon} name="code" size="lg" /></span>
+          <div>
+            <h2>${project.title}</h2>
+            <p>${t("agency.studioWelcomeDesc")}</p>
           </div>
-        </div>
-        <form class="agency-studio-new-file" onSubmit=${createFile}>
-          <input class="field" value=${newFilePath} placeholder=${t("agency.studioNewFilePlaceholder")} onInput=${(e) => setNewFilePath(e.currentTarget.value)} />
-          <button class="btn" type="submit" disabled=${!!busy || !newFilePath.trim()}>${t("agency.studioNewFileBtn")}</button>
-        </form>
-        <div class="agency-studio-file-list">
-          ${files.map((f) => html`<button type="button" class=${"agency-studio-file" + (f.path === selectedPath ? " active" : "")} onClick=${() => openFile(f.path)}>${f.path}</button>`)}
-        </div>
-      </div>
-      <div class="agency-studio-editor">
-        <div class="agency-commercial-head">
-          <strong>${selectedPath || "—"}</strong>
-          <div class="agency-commercial-actions">
-            <button class="btn primary" type="button" disabled=${!selectedPath || !!busy} onClick=${saveFile}>${t("agency.studioSaveFileBtn")}</button>
-            <button class="text" type="button" disabled=${!selectedPath || !!busy} onClick=${deleteFile}>${t("agency.studioDeleteFileBtn")}</button>
+          <div class="agency-studio-starters">
+            <button type="button" class="agency-copilot-prompt" disabled=${!!busy} onClick=${() => sendStudioTurn({ mode: "plan", message: t("agency.studioStarterPlan") })}>
+              <span>${t("agency.studioStarterPlan")}</span>
+            </button>
+            <button type="button" class="agency-copilot-prompt" disabled=${!!busy} onClick=${() => sendStudioTurn({ mode: "build", message: t("agency.studioStarterBuild") })}>
+              <span>${t("agency.studioStarterBuild")}</span>
+            </button>
+            <button type="button" class="agency-copilot-prompt" disabled=${!!busy} onClick=${() => sendStudioTurn({ mode: "build", targetSubagent: "ui_ux", message: t("agency.studioStarterDesign") })}>
+              <span>${t("agency.studioStarterDesign")}</span>
+            </button>
+            <button type="button" class="agency-copilot-prompt" disabled=${!!busy} onClick=${() => sendStudioTurn({ mode: "build", targetSubagent: "qa", message: t("agency.studioStarterQa") })}>
+              <span>${t("agency.studioStarterQa")}</span>
+            </button>
           </div>
-        </div>
-        <textarea class="field mono agency-studio-textarea" rows="16" value=${content} onInput=${(e) => setContent(e.currentTarget.value)}></textarea>
+          <small class="agency-muted">${t("agency.studioDropDocsHint")}</small>
+        </div>`}
+
+        ${messages.map((m) => m.role === "user"
+          ? html`<article key=${m.id} class="agency-copilot-msg user">
+              <div class="agency-studio-msg-tag">${m.mode === "plan" ? t("agency.studioModePlan") : t("agency.studioModeBuild")}</div>
+              <p class="agency-copilot-user-text">${m.text}</p>
+              ${m.files?.length > 0 && html`<div class="agency-copilot-attachments">
+                ${m.files.map((fname) => html`<span class="agency-copilot-chip"><${Icon} name="doc" size="sm" />${fname}</span>`)}
+              </div>`}
+            </article>`
+          : html`<article key=${m.id} class="agency-copilot-msg assistant">
+              <div class="agency-copilot-msg-head">
+                <div class="agency-copilot-msg-meta">
+                  <strong>Studio IA</strong>
+                  <span class="agency-whatsapp-state">${m.mode === "plan" ? t("agency.studioModePlan") : t("agency.studioModeBuild")}</span>
+                </div>
+                <${CopyButton} text=${m.text} />
+              </div>
+              <${Markdown} text=${m.text} />
+              ${m.plan && renderPlanCard(m.plan, true)}
+              ${m.subagentRuns?.length > 0 && html`<details class="agency-copilot-actions-list" open>
+                <summary>${t("agency.studioSubagentRunsTitle")} (${m.subagentRuns.length})</summary>
+                ${m.subagentRuns.map((run) => html`<div class="agency-copilot-action-row">
+                  <span class="agency-agent-inline">
+                    <${BotAvatar} char=${agentAvatarOf(SUBAGENT_DEFAULT_ROLES[run.subagent] || "developer")} size=${20} state="idle" />
+                    <strong class="agency-truncate">${t(`agency.studioSubagentNames.${run.subagent}`)} · ${run.title}</strong>
+                  </span>
+                  <span class=${"agency-whatsapp-state " + (run.ok ? "accepted" : "blocked")}>${run.ok ? "OK" : "ERR"}</span>
+                </div>`)}
+              </details>`}
+              ${m.modifiedFiles?.length > 0 && html`<div class="agency-copilot-attachments">
+                ${m.modifiedFiles.map((f) => html`<button type="button" class="agency-studio-file-pill" onClick=${() => openFileInCode(f)}>
+                  <${Icon} name="doc" size="sm" /><span>${f}</span>
+                </button>`)}
+              </div>`}
+            </article>`)}
+
+        ${busy === "chat" && html`<div class="agency-studio-live-stream">
+          <div class="agency-loading">
+            <${Spinner} />
+            ${activeSubagent
+              ? html`<span><strong>${activeSubagent.displayName || t(`agency.studioSubagentNames.${activeSubagent.subagent}`)}</strong> · ${activeSubagent.title}</span>`
+              : html`<span>${mode === "plan" ? t("agency.studioPlanningStatus") : t("agency.studioBuildingStatus")}</span>`}
+          </div>
+          ${activeSubagent?.skills?.length > 0 && html`<div class="agency-copilot-attachments">
+            ${activeSubagent.skills.map((sk) => html`<span class="agency-studio-stack-pill">${sk}</span>`)}
+          </div>`}
+          ${liveSteps.length > 0 && html`<div class="agency-studio-steps">
+            ${liveSteps.slice(-6).map((st) => html`<div class="agency-audit-row">
+              <strong>[${st.subagent || "agent"}] #${st.step} · ${st.tool}${st.target ? ` (${st.target})` : ""}</strong>
+              <span class=${"agency-whatsapp-state " + (st.ok ? "accepted" : "blocked")}>${st.ok ? "OK" : "ERR"}</span>
+            </div>`)}
+          </div>`}
+        </div>`}
       </div>
+
+      ${attachments.length > 0 && html`<div class="agency-copilot-attachments">
+        ${attachments.map((att, idx) => html`<span class="agency-copilot-chip">
+          <${Icon} name="doc" size="sm" />
+          <span>${att.name}</span>
+          <button class="text" type="button" aria-label=${t("agency.close")} onClick=${() => setAttachments((p) => p.filter((_, i) => i !== idx))}><${Icon} name="close" size="sm" /></button>
+        </span>`)}
+      </div>`}
+
+      <form class="agency-copilot-form" onSubmit=${(e) => { e.preventDefault(); void sendStudioTurn(); }}>
+        <input
+          ref=${chatUploadRef}
+          class="agency-copilot-file-input"
+          type="file"
+          multiple
+          accept=".txt,.md,.markdown,.csv,.json,.js,.mjs,.ts,.tsx,.jsx,.html,.css,.xml,.yaml,.yml,.sql,.pdf,.png,.jpg,.jpeg,.webp,.svg"
+          onChange=${(e) => { void handleChatFiles(e.currentTarget.files); e.currentTarget.value = ""; }}
+        />
+        <button class="btn" type="button" disabled=${!!busy || attachments.length >= MAX_ATTACH} title=${t("agency.studioUploadDocsBtn")} onClick=${() => chatUploadRef.current?.click()}>
+          <${Icon} name="doc" size="sm" />${t("agency.copilotAttachBtn")}
+        </button>
+        <input
+          class="field"
+          value=${input}
+          placeholder=${mode === "plan" ? t("agency.studioPlanPlaceholder") : t("agency.studioBuildPlaceholder")}
+          onInput=${(e) => setInput(e.currentTarget.value)}
+        />
+        <button class="btn primary" type="submit" disabled=${!!busy || (!input.trim() && attachments.length === 0)}>
+          ${busy === "chat" ? html`<${Spinner} />` : html`<${Icon} name="spark" size="sm" />`}
+          ${mode === "plan" ? t("agency.studioDiscussBtn") : t("agency.studioBuildBtn")}
+        </button>
+      </form>
     </div>
-    ${hasIndex && html`<div class="agency-studio-preview">
-      <div class="agency-commercial-head">
-        <strong>${t("agency.studioPreviewTitle")}</strong>
-        <div class="agency-commercial-actions">
-          <button class="btn" type="button" onClick=${() => setMobilePreview((v) => !v)}>${mobilePreview ? "Desktop" : "Mobile"}</button>
-          <button class="btn" type="button" onClick=${() => setPreviewNonce((n) => n + 1)}>${t("agency.studioPreviewRefresh")}</button>
+
+    <div class="agency-studio-workspace">
+      <div class="agency-studio-ws-head">
+        <div class="agency-subtabs" role="tablist">
+          <button type="button" role="tab" aria-selected=${workspaceTab === "preview"} class=${workspaceTab === "preview" ? "active" : ""} onClick=${() => setWorkspaceTab("preview")}>${t("agency.studioTabPreview")}</button>
+          <button type="button" role="tab" aria-selected=${workspaceTab === "code"} class=${workspaceTab === "code" ? "active" : ""} onClick=${() => setWorkspaceTab("code")}>${t("agency.studioTabCode")} (${files.length})</button>
+          <button type="button" role="tab" aria-selected=${workspaceTab === "plan"} class=${workspaceTab === "plan" ? "active" : ""} onClick=${() => setWorkspaceTab("plan")}>${t("agency.studioTabPlan")}</button>
+          <button type="button" role="tab" aria-selected=${workspaceTab === "ops"} class=${workspaceTab === "ops" ? "active" : ""} onClick=${() => setWorkspaceTab("ops")}>${t("agency.studioTabOps")}</button>
         </div>
+        ${workspaceTab === "preview" && hasIndex && html`<div class="agency-commercial-actions">
+          <button class=${"btn" + (viewport === "desktop" ? " primary" : "")} type="button" onClick=${() => setViewport("desktop")}>Desktop</button>
+          <button class=${"btn" + (viewport === "tablet" ? " primary" : "")} type="button" onClick=${() => setViewport("tablet")}>Tablette</button>
+          <button class=${"btn" + (viewport === "mobile" ? " primary" : "")} type="button" onClick=${() => setViewport("mobile")}>Mobile</button>
+          <button class="btn" type="button" onClick=${() => setPreviewNonce((n) => n + 1)}>${t("agency.studioPreviewRefresh")}</button>
+          <a class="btn" href=${previewUrl} target="_blank" rel="noopener">${t("agency.studioOpenNewTab")}</a>
+        </div>`}
       </div>
-      <iframe class=${"agency-studio-frame" + (mobilePreview ? " mobile" : "")} title=${t("agency.studioPreviewTitle")} src=${previewUrl}></iframe>
-    </div>`}
+
+      ${workspaceTab === "preview" && html`<div class="agency-studio-preview-pane">
+        ${hasIndex
+          ? html`<iframe class=${"agency-studio-frame " + viewport} title=${t("agency.studioPreviewTitle")} src=${previewUrl}></iframe>`
+          : html`<div class="agency-empty">
+              <${Icon} name="code" size="lg" />
+              <strong>${t("agency.studioNoPreviewTitle")}</strong>
+              <p>${t("agency.studioNoPreviewDesc")}</p>
+            </div>`}
+      </div>`}
+
+      ${workspaceTab === "code" && html`<div class="agency-studio-grid">
+        <div class="agency-studio-tree">
+          <div class="agency-commercial-head">
+            <strong>${t("agency.studioFilesTitle")}</strong>
+            <div class="agency-commercial-actions">
+              <input ref=${treeUploadRef} class="agency-copilot-file-input" type="file" multiple onChange=${(e) => { void uploadStudioDocs(e.currentTarget.files); e.currentTarget.value = ""; }} />
+              <button class="btn" type="button" disabled=${!!busy} onClick=${() => treeUploadRef.current?.click()}><${Icon} name="doc" size="sm" />${t("agency.studioUploadDocsBtn")}</button>
+            </div>
+          </div>
+          <form class="agency-studio-new-file" onSubmit=${createFile}>
+            <input class="field" value=${newFilePath} placeholder=${t("agency.studioNewFilePlaceholder")} onInput=${(e) => setNewFilePath(e.currentTarget.value)} />
+            <button class="btn" type="submit" disabled=${!!busy || !newFilePath.trim()}>${t("agency.studioNewFileBtn")}</button>
+          </form>
+          <div class="agency-studio-file-list">
+            ${files.map((f) => html`<button type="button" class=${"agency-studio-file" + (f.path === selectedPath ? " active" : "")} title=${f.path} onClick=${() => openFile(f.path)}>${f.path}</button>`)}
+          </div>
+        </div>
+        <div class="agency-studio-editor">
+          <div class="agency-commercial-head">
+            <strong class="agency-truncate" title=${selectedPath || ""}>${selectedPath || t("agency.studioNoFileSelected")}</strong>
+            <div class="agency-commercial-actions">
+              <button class="btn primary" type="button" disabled=${!selectedPath || !!busy} onClick=${saveFile}>${t("agency.studioSaveFileBtn")}</button>
+              <button class="text" type="button" disabled=${!selectedPath || !!busy} onClick=${deleteFile}>${t("agency.studioDeleteFileBtn")}</button>
+            </div>
+          </div>
+          <textarea
+            class="field mono agency-studio-textarea"
+            rows="20"
+            value=${content}
+            onInput=${(e) => setContent(e.currentTarget.value)}
+            onKeyDown=${(e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); void saveFile(); } }}
+          ></textarea>
+        </div>
+      </div>`}
+
+      ${workspaceTab === "plan" && html`<div class="agency-studio-plan-pane">
+        ${plan ? renderPlanCard(plan, false) : html`<div class="agency-empty">
+          <strong>${t("agency.studioNoPlanTitle")}</strong>
+          <p>${t("agency.studioNoPlanDesc")}</p>
+        </div>`}
+        <div class="agency-studio-subagents-section">
+          <h3>${t("agency.studioSubagentsHeading")}</h3>
+          <div class="agency-studio-subagent-grid">
+            ${subagents.map((sa) => html`<article class="agency-studio-subagent-card">
+              <div class="agency-agent-row-main">
+                <${BotAvatar} char=${agentAvatarOf(sa.agencyRole)} size=${34} state=${activeSubagent?.subagent === sa.id ? "working" : "idle"} />
+                <div>
+                  <strong>${t(`agency.studioSubagentNames.${sa.id}`)}</strong>
+                  <small>${sa.focus}</small>
+                </div>
+              </div>
+              ${sa.skills?.length > 0 && html`<div class="agency-copilot-attachments">
+                ${sa.skills.map((sk) => html`<span class="agency-studio-stack-pill">${sk}</span>`)}
+              </div>`}
+              <div class="agency-commercial-actions">
+                <button class="btn" type="button" onClick=${() => { setTargetSubagent(sa.id); setMode("build"); }}>${t("agency.studioFocusSubagentBtn")}</button>
+              </div>
+            </article>`)}
+          </div>
+        </div>
+      </div>`}
+
+      ${workspaceTab === "ops" && html`<div class="agency-studio-ops-pane">
+        <div class="agency-studio-toolbar">
+          <div class="agency-commercial-actions">
+            <select class="field" aria-label=${t("agency.cliActionLabel")} value=${command} onChange=${(e) => setCommand(e.currentTarget.value)}>
+              ${COMMANDS.map(([id, label]) => html`<option value=${id}>${label}</option>`)}
+            </select>
+            <button class="btn primary" type="button" disabled=${!!busy} onClick=${runCheck}>${t("agency.studioRunCheckBtn")}</button>
+          </div>
+          ${snapshots.length > 0 && html`<div class="agency-commercial-actions">
+            <select class="field" aria-label=${t("agency.studioSnapshotLabel")} value=${selectedSnapshot} onChange=${(e) => setSelectedSnapshot(e.currentTarget.value)}>
+              ${snapshots.map((s) => html`<option value=${s.commitHash}>${s.commitHash.slice(0, 7)} · ${s.message.replace(/^studio:\s*/i, "").slice(0, 32)}</option>`)}
+            </select>
+            <button class="btn" type="button" disabled=${!!busy} onClick=${() => rollbackSnapshot(selectedSnapshot)}>${t("agency.studioRollbackBtn")}</button>
+          </div>`}
+        </div>
+        ${terminalOut && html`<pre class="agency-studio-terminal mono">${terminalOut}</pre>`}
+        ${snapshots.length > 0 && html`<div class="agency-studio-snapshots-list">
+          ${snapshots.map((s) => html`<div class="agency-audit-row">
+            <strong>${s.commitHash.slice(0, 7)} · ${s.message.replace(/^studio:\s*/i, "")}</strong>
+            <button class="btn" type="button" disabled=${!!busy} onClick=${() => rollbackSnapshot(s.commitHash)}>${t("agency.studioRollbackBtn")}</button>
+          </div>`)}
+        </div>`}
+      </div>`}
+    </div>
   </section>`;
 }
