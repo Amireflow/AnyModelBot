@@ -8,6 +8,7 @@ import { toast } from "../lib/store.js";
 import { agentAvatarOf } from "./agency/agent-avatars.js";
 import { AgencyCopilot } from "./agency/copilot.js";
 import { AgencyAgents } from "./agency/agents.js";
+import { AgencyOperations } from "./agency/operations.js";
 import { ProjectWorkspaceIde } from "./agency/project-workspace.js";
 import { SecureDeleteModal } from "./agency/delete-modal.js";
 
@@ -176,7 +177,14 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const [prospectResults,setProspectResults]=useState([]);
   const [prospectMeta,setProspectMeta]=useState(null);
   const [prospectMode,setProspectMode]=useState("deep");
+  const [prospectSource,setProspectSource]=useState("hybrid");
+  const [prospectResultFilter,setProspectResultFilter]=useState("all");
   const [prospectResearch,setProspectResearch]=useState(null);
+  const [googlePlacesStatus,setGooglePlacesStatus]=useState(null);
+  const [googlePlacesOpen,setGooglePlacesOpen]=useState(false);
+  const [googlePlacesKeyDraft,setGooglePlacesKeyDraft]=useState("");
+  const [googlePlacesBusy,setGooglePlacesBusy]=useState("");
+  const [googlePlacesNotice,setGooglePlacesNotice]=useState("");
   const [qaE2eUrl,setQaE2eUrl]=useState("http://127.0.0.1:3600/");
   const [qaE2eResult,setQaE2eResult]=useState(null);
   const [deployAdapters,setDeployAdapters]=useState([]);
@@ -272,10 +280,13 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   },[lang]);
 
   useEffect(()=>{
-    if(!orgId){setWhatsappDesktopStatus(null);return;}
+    if(!orgId){setWhatsappDesktopStatus(null);setGooglePlacesStatus(null);return;}
     let live=true;
     api("/agency/"+enc(orgId)+"/whatsapp/desktop/status")
       .then(data=>{if(live)setWhatsappDesktopStatus(data.status||data||null);})
+      .catch(()=>{});
+    api("/agency/"+enc(orgId)+"/prospecting/google-places/status")
+      .then(data=>{if(live)setGooglePlacesStatus(data.status||null);})
       .catch(()=>{});
     return ()=>{live=false;};
   },[orgId,lang]);
@@ -803,12 +814,42 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
   const approveRecord=(approvalId)=>decideApproval(approvalId,"approved");
+  const saveGooglePlacesKey=async(e)=>{
+    e.preventDefault();
+    if(!orgId||!googlePlacesKeyDraft.trim())return;
+    setGooglePlacesBusy("save");setError("");setGooglePlacesNotice("");
+    try{
+      const res=await api(`/agency/${enc(orgId)}/prospecting/google-places/config`,{
+        method:"PUT",body:{apiKey:googlePlacesKeyDraft.trim()}
+      });
+      setGooglePlacesStatus(res.status||null);
+      setGooglePlacesKeyDraft("");
+      setGooglePlacesNotice(t("agency.prospectGoogleKeySaved"));
+      toast(t("agency.prospectGoogleKeySaved"));
+    }catch(err){setError(err.message);}finally{setGooglePlacesBusy("");}
+  };
+  const clearGooglePlacesKey=async()=>{
+    if(!orgId)return;
+    setGooglePlacesBusy("clear");setError("");setGooglePlacesNotice("");
+    try{
+      const res=await api(`/agency/${enc(orgId)}/prospecting/google-places/config`,{method:"DELETE"});
+      setGooglePlacesStatus(res.status||null);
+      setGooglePlacesNotice(t("agency.prospectGoogleKeyCleared"));
+      toast(t("agency.prospectGoogleKeyCleared"));
+    }catch(err){setError(err.message);}finally{setGooglePlacesBusy("");}
+  };
   const searchProspects=async(e)=>{
     e.preventDefault();if(!prospectQuery.trim())return;
-    setBusy("prospect-search");setError("");setProspectMeta(null);setProspectResearch(null);
+    if(prospectSource==="google_places"&&!googlePlacesStatus?.configured){
+      setGooglePlacesOpen(true);
+    }
+    setBusy("prospect-search");setError("");setProspectMeta(null);setProspectResearch(null);setProspectResultFilter("all");
     try{
       const data=await api(`/agency/${enc(orgId)}/prospecting/search`,{
-        method:"POST",body:{query:prospectQuery,industry:prospectIndustry,city:prospectCity,mode:prospectMode,maxResults:prospectMode==="deep"?10:8}
+        method:"POST",body:{
+          query:prospectQuery,industry:prospectIndustry,city:prospectCity,
+          mode:prospectMode,source:prospectSource,maxResults:prospectMode==="deep"?12:8
+        }
       });
       const list=Array.isArray(data.items)?data.items:(Array.isArray(data.items?.candidates)?data.items.candidates:[]);
       setProspectResults(list);
@@ -1010,35 +1051,59 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   };
   const importProspect=async(item)=>{
     setBusy("prospect-imp");setError("");
+    const prospectKey=(x)=>x.googlePlace?.placeId||x.website||`${x.name}|${x.city||""}`;
     try{
       const created=await api(`/agency/${enc(orgId)}/companies`,{
         method:"POST",body:{
           name:item.name,
-          website:item.website,
+          website:item.website||"",
           industry:item.industry||prospectIndustry,
           city:item.city||prospectCity
         }
       });
-      if(created?.company?.id&&(item.audit||item.summary||item.opportunity)){
-        try{
-          const parts=[
-            item.summary||"",
-            item.opportunity?`${t("agency.prospectOpportunityLabel")}: ${item.opportunity}`:"",
-            item.audit?`HTTP ${item.audit.statusCode} · ${item.audit.usesHttps?"HTTPS":"no HTTPS"} · ${item.audit.hasViewportMeta?"mobile OK":"no viewport"}`:""
-          ].filter(Boolean);
-          await api(`/agency/${enc(orgId)}/evidence`,{
-            method:"POST",
-            body:{
-              companyId:created.company.id,
-              evidenceType:"website_audit",
-              sourceUrl:item.audit?.finalUrl||item.sourceUrl||item.website,
-              summary:parts.join(" | ").slice(0,800),
-              confidence:item.audit?0.88:0.7
-            }
-          });
-        }catch{/* evidence enrichment optional */}
+      const companyId=created?.company?.id;
+      if(companyId){
+        const evidenceSourceUrl=item.audit?.finalUrl||item.googlePlace?.googleMapsUri||item.sourceUrl||item.website;
+        if(evidenceSourceUrl&&(item.audit||item.summary||item.opportunity||item.websiteStatus)){
+          try{
+            const statusText=item.websiteStatus?t(`agency.prospectWebsiteStatus.${item.websiteStatus}`):"";
+            const parts=[
+              statusText,
+              item.summary||"",
+              item.opportunity?`${t("agency.prospectOpportunityLabel")}: ${item.opportunity}`:"",
+              item.googlePlace?.formattedAddress||"",
+              item.audit?`HTTP ${item.audit.statusCode} · ${item.audit.usesHttps?"HTTPS":"no HTTPS"} · ${item.audit.hasViewportMeta?"mobile OK":"no viewport"}`:""
+            ].filter(Boolean);
+            await api(`/agency/${enc(orgId)}/evidence`,{
+              method:"POST",
+              body:{
+                companyId,
+                evidenceType:item.websiteStatus==="missing"||item.websiteStatus==="social_only"?"company":"website_audit",
+                sourceUrl:evidenceSourceUrl,
+                summary:parts.join(" | ").slice(0,800),
+                confidence:item.audit?0.88:0.8
+              }
+            });
+          }catch{/* evidence enrichment optional */}
+        }
+        const firstPhone=item.contacts?.phones?.[0]||"";
+        const firstEmail=item.contacts?.emails?.[0]||"";
+        if(firstPhone||firstEmail){
+          try{
+            await api(`/agency/${enc(orgId)}/companies/${enc(companyId)}/contacts`,{
+              method:"POST",
+              body:{
+                displayName:item.name,
+                role:item.industry||t("agency.company"),
+                email:firstEmail,
+                phone:firstPhone
+              }
+            });
+          }catch{/* optional contact prefill */}
+        }
       }
-      setProspectResults(prev=>prev.filter(x=>x.website!==item.website));
+      const targetKey=prospectKey(item);
+      setProspectResults(prev=>prev.filter(x=>prospectKey(x)!==targetKey));
       setRevision(v=>v+1);
       toast(`${item.name} · ✓`);
     }catch(err){setError(err.message);}finally{setBusy("");}
@@ -1582,15 +1647,32 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         <form class="agency-prospect-form" onSubmit=${searchProspects}>
           <div class="agency-prospect-form-head">
             <span class="agency-prospect-form-title"><${Icon} name="globe" size="sm"/><span>${t("agency.prospectSearchTitle")}</span></span>
-            <button type="button" class="icon-btn" title=${t("agency.close")} aria-label=${t("agency.close")} onClick=${()=>setProspectOpen(false)}><${Icon} name="close" size="sm"/></button>
+            <div class="agency-prospect-form-head-actions">
+              <button type="button" class="agency-places-pill" aria-expanded=${googlePlacesOpen} onClick=${()=>setGooglePlacesOpen(v=>!v)}>
+                <span class=${"agency-dot "+(googlePlacesStatus?.configured?"ok":"")}></span>
+                <span>${googlePlacesStatus?.configured?`${t("agency.prospectGoogleStatusReady")}${googlePlacesStatus.keyTail?` · …${googlePlacesStatus.keyTail}`:""}`:t("agency.prospectGoogleStatusOff")}</span>
+              </button>
+              <button type="button" class="icon-btn" title=${t("agency.close")} aria-label=${t("agency.close")} onClick=${()=>setProspectOpen(false)}><${Icon} name="close" size="sm"/></button>
+            </div>
           </div>
+          ${googlePlacesOpen&&html`<div class="agency-places-config">
+            <strong>${t("agency.prospectGoogleConfigTitle")}</strong>
+            <p>${t("agency.prospectGoogleConfigHint")}</p>
+            ${googlePlacesNotice&&html`<p class="agency-research-feedback" role="status">${googlePlacesNotice}</p>`}
+            <div class="agency-places-config-row">
+              <${Field} label=${t("agency.prospectGoogleKeyLabel")} value=${googlePlacesKeyDraft} type="password" placeholder="AIza..." onInput=${setGooglePlacesKeyDraft}/>
+              <button class="btn primary" type="button" disabled=${!!googlePlacesBusy||!googlePlacesKeyDraft.trim()} onClick=${saveGooglePlacesKey}>${googlePlacesBusy==="save"?t("agency.loading"):t("agency.saveProfile")}</button>
+              ${googlePlacesStatus?.savedInSecureStorage&&html`<button class="text agency-danger-btn" type="button" disabled=${!!googlePlacesBusy} onClick=${clearGooglePlacesKey}>${t("agency.deleteBtn")}</button>`}
+            </div>
+          </div>`}
           <div class="agency-prospect-bar">
-            <${Field} label=${t("agency.prospectQuery")} value=${prospectQuery} placeholder="BTP, e-commerce, clinique…" onInput=${setProspectQuery}/>
+            <${Field} label=${t("agency.prospectQuery")} value=${prospectQuery} placeholder="clinique dentaire, restaurant, garage…" onInput=${setProspectQuery}/>
             <button class="btn primary" type="submit" disabled=${!!busy||!prospectQuery.trim()}>${busy==="prospect-search"?html`<${Spinner}/>`:html`<${Icon} name="search" size="sm"/>`}${busy==="prospect-search"?t("agency.loading"):t("agency.prospectSearchBtn")}</button>
           </div>
           <div class="agency-prospect-filters">
             <${Field} label=${t("agency.prospectSector")} value=${prospectIndustry} onInput=${setProspectIndustry}/>
             <${Field} label=${t("agency.prospectCity")} value=${prospectCity} onInput=${setProspectCity}/>
+            <div class="agency-field"><span>${t("agency.prospectSourceLabel")}</span><${Select} label=${t("agency.prospectSourceLabel")} value=${prospectSource} options=${[["hybrid",t("agency.prospectSourceHybrid")],["google_places",t("agency.prospectSourceGoogle")],["web",t("agency.prospectSourceWeb")]]} onChange=${v=>{setProspectSource(v);if(v==="google_places"&&!googlePlacesStatus?.configured)setGooglePlacesOpen(true);}}/></div>
             <div class="agency-field"><span>${t("agency.prospectModeLabel")}</span><${Select} label=${t("agency.prospectModeLabel")} value=${prospectMode} options=${[["deep",t("agency.prospectModeDeep")],["quick",t("agency.prospectModeQuick")]]} onChange=${setProspectMode}/></div>
           </div>
         </form>
@@ -1628,41 +1710,60 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             </div>
           </details>`}
         </div>`}
-        ${prospectMeta&&html`<div class="agency-prospect-results-bar">
-          <span class="agency-qualification-status" role="status">${t("agency.prospectMetaLabel",{count:prospectMeta.count,backend:prospectMeta.backend})}</span>
-        </div>`}
-        ${prospectMeta&&prospectResults.length===0&&html`<p class="agency-muted">${t("agency.prospectNoResults")}</p>`}
-        ${prospectResults.length>0&&html`<div class="agency-commercial-list">
-          ${prospectResults.map(item=>{
-            const relClass=item.relevance==="high"?"completed":item.relevance==="low"?"blocked":"pending";
-            const contactsLine=[...(item.contacts?.emails||[]),...(item.contacts?.phones||[])].slice(0,3).join(" · ");
-            return html`<article class="agency-prospect-card">
-              <div class="agency-prospect-card-head">
-                <div class="agency-prospect-identity">
-                  <span class="agency-avatar">${(item.name||"?").slice(0,1).toUpperCase()}</span>
-                  <div class="agency-prospect-identity-meta">
-                    <strong title=${item.name}>${item.name}</strong>
-                    <div class="agency-prospect-subline">
-                      ${joinMeta(item.industry,item.city)&&html`<span>${joinMeta(item.industry,item.city)}</span>`}
-                      ${item.domain&&html`<a class="agency-link" href=${safeHref(item.website)} target="_blank" rel="noopener noreferrer" title=${item.website||item.domain}><span>${item.domain}</span><${Icon} name="ext" size="xs"/></a>`}
+        ${prospectMeta&&(()=>{
+          const noSiteCount=prospectResults.filter(x=>x.websiteStatus==="missing"||x.websiteStatus==="social_only").length;
+          const upgradeCount=prospectResults.filter(x=>x.websiteStatus==="broken"||x.websiteStatus==="outdated").length;
+          const visibleProspects=prospectResults.filter(x=>{
+            if(prospectResultFilter==="no_website")return x.websiteStatus==="missing"||x.websiteStatus==="social_only";
+            if(prospectResultFilter==="needs_upgrade")return x.websiteStatus==="broken"||x.websiteStatus==="outdated";
+            return true;
+          });
+          return html`<div class="agency-prospect-results-bar">
+            <span class="agency-qualification-status" role="status">${t("agency.prospectMetaLabel",{count:prospectMeta.count,backend:prospectMeta.backend})}</span>
+            ${prospectResults.length>0&&html`<div class="agency-stage-filters" role="group">
+              <button type="button" class=${prospectResultFilter==="all"?"active":""} onClick=${()=>setProspectResultFilter("all")}><span>${t("agency.prospectFilterAll")}</span><span class="agency-count-pill">${prospectResults.length}</span></button>
+              <button type="button" class=${prospectResultFilter==="no_website"?"active":""} onClick=${()=>setProspectResultFilter("no_website")}><span>${t("agency.prospectFilterNoWebsite")}</span><span class="agency-count-pill">${noSiteCount}</span></button>
+              <button type="button" class=${prospectResultFilter==="needs_upgrade"?"active":""} onClick=${()=>setProspectResultFilter("needs_upgrade")}><span>${t("agency.prospectFilterNeedsUpgrade")}</span><span class="agency-count-pill">${upgradeCount}</span></button>
+            </div>`}
+          </div>
+          ${visibleProspects.length===0&&html`<p class="agency-muted">${t("agency.prospectNoResults")}</p>`}
+          ${visibleProspects.length>0&&html`<div class="agency-commercial-list">
+            ${visibleProspects.map(item=>{
+              const relClass=item.relevance==="high"?"completed":item.relevance==="low"?"blocked":"pending";
+              const wsStatus=item.websiteStatus||(item.website?"present":"missing");
+              const wsClass=wsStatus==="broken"?"blocked":(wsStatus==="missing"||wsStatus==="social_only"||wsStatus==="outdated")?"pending":"";
+              const contactsLine=[...(item.contacts?.emails||[]),...(item.contacts?.phones||[])].slice(0,3).join(" · ");
+              return html`<article class="agency-prospect-card">
+                <div class="agency-prospect-card-head">
+                  <div class="agency-prospect-identity">
+                    <span class="agency-avatar">${(item.name||"?").slice(0,1).toUpperCase()}</span>
+                    <div class="agency-prospect-identity-meta">
+                      <strong title=${item.name}>${item.name}</strong>
+                      <div class="agency-prospect-subline">
+                        ${joinMeta(item.industry,item.city)&&html`<span>${joinMeta(item.industry,item.city)}</span>`}
+                        ${item.googlePlace?.rating&&html`<span class="agency-prospect-rating">${t("agency.prospectGoogleReviews",{rating:item.googlePlace.rating,count:item.googlePlace.userRatingCount||0})}</span>`}
+                        ${item.domain&&html`<a class="agency-link" href=${safeHref(item.website)} target="_blank" rel="noopener noreferrer" title=${item.website||item.domain}><span>${item.domain}</span><${Icon} name="ext" size="xs"/></a>`}
+                        ${item.googlePlace?.googleMapsUri&&html`<a class="agency-link" href=${safeHref(item.googlePlace.googleMapsUri)} target="_blank" rel="noopener noreferrer"><span>${t("agency.prospectGoogleOpenMaps")}</span><${Icon} name="ext" size="xs"/></a>`}
+                      </div>
                     </div>
                   </div>
+                  <div class="agency-prospect-card-actions">
+                    <span class=${"agency-whatsapp-state "+wsClass}>${t(`agency.prospectWebsiteStatus.${wsStatus}`)}</span>
+                    ${typeof item.fitScore==="number"&&html`<span class=${"agency-whatsapp-state "+relClass}>${t("agency.prospectScoreLabel",{score:item.fitScore})}</span>`}
+                    <button class="btn primary" type="button" disabled=${!!busy||!!item.duplicateCompanyId} onClick=${()=>importProspect(item)}><${Icon} name=${item.duplicateCompanyId?"check":"plus"} size="sm"/>${item.duplicateCompanyId?"":t("agency.prospectImportBtn")}</button>
+                  </div>
                 </div>
-                <div class="agency-prospect-card-actions">
-                  ${typeof item.fitScore==="number"&&html`<span class=${"agency-whatsapp-state "+relClass}>${t("agency.prospectScoreLabel",{score:item.fitScore})}</span>`}
-                  <button class="btn primary" type="button" disabled=${!!busy||!!item.duplicateCompanyId} onClick=${()=>importProspect(item)}><${Icon} name=${item.duplicateCompanyId?"check":"plus"} size="sm"/>${item.duplicateCompanyId?"":t("agency.prospectImportBtn")}</button>
-                </div>
-              </div>
-              <p class="agency-prospect-summary agency-clamp-2" title=${item.summary||item.snippet||item.website}>${item.summary||item.snippet||item.website}</p>
-              ${(item.opportunity||item.recommendedAngle)&&html`<div class="agency-prospect-insights-grid">
-                ${item.opportunity&&html`<div class="agency-prospect-insight"><strong>${t("agency.prospectOpportunityLabel")}</strong><span>${item.opportunity}</span></div>`}
-                ${item.recommendedAngle&&html`<div class="agency-prospect-insight"><strong>${t("agency.prospectAngleLabel")}</strong><span>${item.recommendedAngle}</span></div>`}
-              </div>`}
-              ${Array.isArray(item.signals)&&item.signals.length>0&&html`<div class="agency-prospect-signals">${item.signals.map(sig=>html`<span class="agency-chip">${sig}</span>`)}</div>`}
-              ${contactsLine&&html`<div class="agency-prospect-contacts"><${Icon} name="user" size="xs"/><span>${t("agency.prospectContactsDetected")}: ${contactsLine}</span></div>`}
-            </article>`;
-          })}
-        </div>`}
+                <p class="agency-prospect-summary agency-clamp-2" title=${item.summary||item.snippet||item.googlePlace?.formattedAddress||item.website}>${item.summary||item.snippet||item.googlePlace?.formattedAddress||item.website}</p>
+                ${(item.opportunity||item.recommendedAngle)&&html`<div class="agency-prospect-insights-grid">
+                  ${item.opportunity&&html`<div class="agency-prospect-insight"><strong>${t("agency.prospectOpportunityLabel")}</strong><span>${item.opportunity}</span></div>`}
+                  ${item.recommendedAngle&&html`<div class="agency-prospect-insight"><strong>${t("agency.prospectAngleLabel")}</strong><span>${item.recommendedAngle}</span></div>`}
+                </div>`}
+                ${Array.isArray(item.signals)&&item.signals.length>0&&html`<div class="agency-prospect-signals">${item.signals.map(sig=>html`<span class="agency-chip">${sig}</span>`)}</div>`}
+                ${contactsLine&&html`<div class="agency-prospect-contacts"><${Icon} name="user" size="xs"/><span>${t("agency.prospectContactsDetected")}: ${contactsLine}</span></div>`}
+              </article>`;
+            })}
+          </div>`}`;
+        })()}
       </section>`}
       ${!busy&&tab==="companies"&&!rows.items?.length&&html`<${Empty} title=${t("agency.noCompanies")} detail=${query?t("agency.noSearchResults"):t("agency.noCompaniesHint")}/>`}
       ${tab==="companies"&&rows.items?.length>0&&html`<div class=${"agency-content-grid"+(selectedCompany?" has-detail":"")}>
@@ -2293,119 +2394,24 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           </div>`}
         </div>`}
       </div>`}
-      ${tab==="operations"&&html`<div class="agency-ops-stack">
-        <div class="agency-quick-strip">
-          <button type="button" class="agency-quick-tile" onClick=${()=>{setProspectOpen(true);setQualificationForm(false);setCompanyForm(false);switchTab("companies");}}>
-            <span class="agency-quick-icon tone-blue"><${Icon} name="globe" size="sm"/></span>
-            <strong>${t("agency.prospectSearchTitle")}</strong>
-            <${Icon} name="chevRight" size="xs" class="agency-quick-arrow"/>
-          </button>
-          <button type="button" class="agency-quick-tile" onClick=${()=>switchTab("leads")}>
-            <span class="agency-quick-icon tone-teal"><${Icon} name="user" size="sm"/></span>
-            <strong>${t("agency.leads")}</strong>
-            <${Icon} name="chevRight" size="xs" class="agency-quick-arrow"/>
-          </button>
-          <button type="button" class="agency-quick-tile" onClick=${()=>switchTab("commercial")}>
-            <span class="agency-quick-icon tone-amber"><${Icon} name="banknotes" size="sm"/></span>
-            <strong>${t("agency.commercial")}</strong>
-            <${Icon} name="chevRight" size="xs" class="agency-quick-arrow"/>
-          </button>
-          <button type="button" class="agency-quick-tile" onClick=${()=>switchTab("copilot")}>
-            <span class="agency-quick-icon tone-purple"><${Icon} name="spark" size="sm"/></span>
-            <strong>${t("agency.copilot")}</strong>
-            <${Icon} name="chevRight" size="xs" class="agency-quick-arrow"/>
-          </button>
-        </div>
-        <div class="agency-commercial-actions">
-          <button class="btn" type="button" disabled=${!!busy} onClick=${bootstrapDefaults}>${busy==="bootstrap"?t("agency.loading"):t("agency.bootstrapBtn")}</button>
-          <button class="btn" type="button" disabled=${!!busy} onClick=${createBackupNow}>${t("agency.opsBackupBtn")}${opsBackups.length?` (${opsBackups.length})`:""}</button>
-          <a class="btn" target="_blank" rel="noopener noreferrer" href=${`/amb/api/agency/${enc(orgId)}/ops/export/companies.csv`}>${t("agency.opsExportCompaniesBtn")}</a>
-          <a class="btn" target="_blank" rel="noopener noreferrer" href=${`/amb/api/agency/${enc(orgId)}/ops/export/leads.csv`}>${t("agency.opsExportLeadsBtn")}</a>
-          ${bootstrapNotice&&html`<span class="agency-research-feedback" role="status">${bootstrapNotice}</span>`}
-          ${opsBackupNotice&&html`<span class="agency-research-feedback" role="status">${opsBackupNotice}</span>`}
-        </div>
-        ${llmUsage&&html`<div class="agency-prospect-synthesis">
-          <div class="agency-prospect-head">
-            <div><strong>${t("agency.opsLlmUsageTitle")}</strong><p>${t("agency.opsLlmCallsLabel",{calls:llmUsage.totalCalls||0,tokens:fmtNum(llmUsage.totalTokens||0),cost:(llmUsage.estimatedCostUsd||0).toFixed(4)})}</p></div>
-          </div>
-        </div>`}
-        ${metrics&&html`<div class="agency-kpi-grid">
-          <${Metric} label=${t("agency.kpiSignedRevenue")} value=${`${fmtNum(metrics.signedRevenue)} ${cur}`.trim()} icon="banknotes" tone="green"/>
-          <${Metric} label=${t("agency.depositPaidLabel")} value=${`${fmtNum(metrics.collectedDeposits)} ${cur}`.trim()} icon="wallet" tone="teal"/>
-          <${Metric} label=${t("agency.kpiQuoteAcceptance")} value=${`${metrics.quoteAcceptanceRate}%`} icon="trend" tone="blue"/>
-          <${Metric} label=${t("agency.kpiQaFirstPass")} value=${`${metrics.qaFirstPassRate}%`} icon="shield" tone="purple"/>
-          <${Metric} label=${t("agency.kpiProjectsDelivered")} value=${metrics.projectsDelivered} icon="folder" tone="green"/>
-          <${Metric} label=${t("agency.approvalsTitle")} value=${metrics.pendingApprovalsCount} icon="clipboardCheck" tone="amber"/>
-          <${Metric} label=${t("agency.kpiOpenMissions")} value=${metrics.openMissions} icon="code" tone="blue"/>
-          <${Metric} label=${t("agency.kpiPendingFollowUps")} value=${metrics.pendingFollowUps} icon="user" tone="purple"/>
-        </div>`}
-        <div class="agency-ops-bento">
-          <div class="agency-commercial-col">
-            <section class="agency-project-section">
-              <div class="agency-commercial-head">
-                <h3>${t("agency.approvalsTitle")}</h3>
-                <span class="agency-count-pill">${approvals.filter(a=>a.status==="pending").length}</span>
-              </div>
-              <div class="agency-commercial-list">
-                ${!approvals.filter(a=>a.status==="pending").length&&html`<p class="agency-muted">${t("agency.noPendingApprovals")}</p>`}
-                ${approvals.filter(a=>a.status==="pending").map(ap=>html`<article class="agency-commercial-card">
-                  <div class="agency-commercial-head"><strong>${ap.actionType}</strong><span class="agency-whatsapp-state pending">${ap.subjectType} · ${ap.subjectId}</span></div>
-                  ${ap.reason&&html`<small>${ap.reason}</small>`}
-                  <div class="agency-commercial-actions">
-                    <button class="btn primary" type="button" disabled=${!!busy} onClick=${()=>decideApproval(ap.id,"approved")}>${t("agency.approveAndSend")}</button>
-                    <button class="text" type="button" disabled=${!!busy} onClick=${()=>decideApproval(ap.id,"rejected")}>${t("agency.rejectBtn")}</button>
-                  </div>
-                </article>`)}
-              </div>
-            </section>
-            <section class="agency-project-section">
-              <div class="agency-commercial-head">
-                <h3>${t("agency.auditTitle")}</h3>
-                <button class="btn" type="button" disabled=${!!busy} onClick=${verifyAuditChain}>${t("agency.verifyAuditBtn")}</button>
-              </div>
-              ${auditVerify&&html`<p class="agency-research-feedback" role="status">${auditVerify.valid?t("agency.auditValid"):t("agency.qaGateBlocked")} (${auditVerify.checkedEvents??auditVerify.eventsChecked??0})</p>`}
-              <div class="agency-commercial-list">
-                ${auditEvents.slice(0,6).map(ev=>html`<div class="agency-audit-row"><strong title=${ev.action}>${ev.action}</strong><span>${new Date(ev.createdAt).toLocaleTimeString()}</span></div>`)}
-              </div>
-            </section>
-          </div>
-          <section class="agency-project-section">
-            <div class="agency-commercial-head">
-              <h3>${t("agency.missionsTitle")}</h3>
-              <button class="btn primary" type="button" onClick=${()=>setMissionFormOpen(v=>!v)}><${Icon} name=${missionFormOpen?"close":"plus"} size="sm"/>${missionFormOpen?t("agency.cancel"):t("agency.createMissionBtn")}</button>
-            </div>
-            ${missionFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${createMission}>
-              <div class="agency-field"><span>${t("agency.missionProjectLabel")}</span><${Select} label=${t("agency.missionProjectLabel")} value=${missionDraft.projectId} placeholder=${t("agency.chooseOption")} options=${[["",t("agency.chooseOption")],...projects.map(p=>[p.id,p.title])]} onChange=${v=>update(setMissionDraft,"projectId",v)}/></div>
-              <div class="agency-field"><span>${t("agency.missionRoleLabel")}</span><${Select} label=${t("agency.missionRoleLabel")} value=${missionDraft.agentRole} options=${AGENT_ROLES.map(r=>[r,t(`agency.agentRoleNames.${r}`)||r])} onChange=${v=>update(setMissionDraft,"agentRole",v)}/></div>
-              <${Field} label=${t("agency.missionTitle")} value=${missionDraft.title} required onInput=${v=>update(setMissionDraft,"title",v)}/>
-              <${Field} label=${t("agency.missionObjective")} value=${missionDraft.objective} onInput=${v=>update(setMissionDraft,"objective",v)}/>
-              <${Field} label=${t("agency.missionToolLabel")} value=${missionDraft.preferredTool} onInput=${v=>update(setMissionDraft,"preferredTool",v)}/>
-              <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy}>${t("agency.createMissionBtn")}</button></div>
-            </form>`}
-            <div class="agency-commercial-list">
-              ${!missions.length&&html`<p class="agency-muted">${t("agency.noMissions")}</p>`}
-              ${missions.map(m=>{
-                const mMeta=joinMeta(m.preferredTool,m.projectId?(projects.find(p=>p.id===m.projectId)?.title||m.projectId):"");
-                return html`<article class="agency-commercial-card">
-                <div class="agency-commercial-head"><span class="agency-agent-inline"><${BotAvatar} char=${agentAvatarOf(m.agentRole)} size=${28} state=${m.status==="running"?"working":"idle"}/><strong title=${`${m.title} · ${m.agentRole}`}>${m.title} · ${m.agentRole}</strong></span><span class=${"agency-whatsapp-state "+m.status}>${t(`agency.missionStatus.${m.status}`)}</span></div>
-                ${mMeta&&html`<small class="agency-truncate" title=${mMeta}>${mMeta}</small>`}
-                ${m.outputSummary&&html`<small class="agency-clamp-3" title=${m.outputSummary}><strong>${t("agency.missionOutputLabel")}:</strong> ${m.outputSummary}</small>`}
-                ${m.evidencePaths?.length>0&&html`<small><strong>${t("agency.missionEvidenceLabel")}:</strong> ${m.evidencePaths.join(", ")}</small>`}
-                ${m.brief&&html`<details class="agency-brief-details"><summary>${t("agency.missionBriefLabel")}</summary><div class="agency-brief-md"><${Markdown} text=${m.brief}/></div></details>`}
-                <div class="agency-commercial-actions">
-                  <button class="btn" type="button" disabled=${!!busy} onClick=${()=>executeMission(m.id,"brief_export")}>${t("agency.exportBriefBtn")}</button>
-                  <button class="btn" type="button" disabled=${!!busy} onClick=${()=>executeMission(m.id,"llm_draft")}>${t("agency.executeLlmBtn")}</button>
-                  <${Select} block=${false} width=${180} label=${t("agency.cliActionLabel")} value=${cliActionByMission[m.id]||"npm_test"} options=${CLI_ACTIONS} onChange=${v=>setCliActionByMission(p=>({...p,[m.id]:v}))}/>
-                  <button class="btn" type="button" disabled=${!!busy} onClick=${()=>executeMission(m.id,"cli_tool",cliActionByMission[m.id]||"npm_test")}>${t("agency.runCliBtn")}</button>
-                  ${m.status==="planned"&&html`<button class="btn" type="button" onClick=${()=>updateMission(m.id,"running")}>${t("agency.startMissionBtn")}</button>`}
-                  ${(m.status==="planned"||m.status==="running")&&html`<button class="btn primary" type="button" onClick=${()=>updateMission(m.id,"completed")}>${t("agency.completeMissionBtn")}</button>`}
-                  ${m.status!=="running"&&html`<button class="text agency-danger-btn" type="button" disabled=${!!busy} onClick=${()=>setDeleteTarget({entityType:"mission",entityId:m.id,label:m.title})}>${t("agency.deleteBtn")}</button>`}
-                </div>
-              </article>`;})}
-            </div>
-          </section>
-        </div>
-      </div>`}
+      ${tab==="operations"&&html`<${AgencyOperations}
+        orgId=${orgId} cur=${cur} metrics=${metrics} approvals=${approvals}
+        auditEvents=${auditEvents} auditVerify=${auditVerify} missions=${missions} projects=${projects}
+        opsBackups=${opsBackups} opsBackupNotice=${opsBackupNotice} llmUsage=${llmUsage} bootstrapNotice=${bootstrapNotice}
+        busy=${busy} missionFormOpen=${missionFormOpen} setMissionFormOpen=${setMissionFormOpen}
+        missionDraft=${missionDraft} setMissionDraft=${setMissionDraft}
+        cliActionByMission=${cliActionByMission} setCliActionByMission=${setCliActionByMission}
+        onOpenProspecting=${()=>{setProspectOpen(true);setQualificationForm(false);setCompanyForm(false);switchTab("companies");}}
+        onSwitchTab=${switchTab}
+        onBootstrap=${bootstrapDefaults}
+        onBackup=${createBackupNow}
+        onDecideApproval=${decideApproval}
+        onVerifyAudit=${verifyAuditChain}
+        onCreateMission=${createMission}
+        onExecuteMission=${executeMission}
+        onUpdateMission=${updateMission}
+        onDeleteMission=${m=>setDeleteTarget({entityType:"mission",entityId:m.id,label:m.title})}
+      />`}
       ${tab==="agents"&&html`<${AgencyAgents} orgId=${orgId} agents=${agentProfiles} onSaved=${()=>setRevision(v=>v+1)}/>`}
       ${tab==="copilot"&&html`<${AgencyCopilot} orgId=${orgId} activeTab=${tab} companyId=${selected} leadId=${selectedLeadId} projectId=${selectedProjectId} onDataChanged=${()=>setRevision(v=>v+1)}/>`}
     `}

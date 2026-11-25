@@ -25,27 +25,21 @@ import {
 } from "../../agency/commercial-ai.js";
 import { buildProjectZipArchive } from "../../agency/delivery-package.js";
 import { bootstrapAgencyDefaults } from "../../agency/presets.js";
+import {
+  envGooglePlacesApiKey,
+  GooglePlacesSecretsFile,
+  resolveGooglePlacesApiKey,
+} from "../../agency/google-places.js";
+import { LocalNodeSecretBox } from "../../agency/secret-box.js";
 import { auditWebsiteSafely, prospectWebCompanies } from "../../agency/prospecting.js";
 import { runFourAxisQaAudit } from "../../agency/qa-auditor.js";
 import { runVisualE2eQa } from "../../agency/qa-e2e.js";
-import {
-  detectDeployAdapters,
-  executeProjectDeploy,
-  runDeploymentHealthCheck,
-  type DeployAdapterId,
-} from "../../agency/deployer.js";
-import {
-  createAgencyBackup,
-  exportCompaniesCsv,
-  exportLeadsCsv,
-  getLlmUsageSummary,
-  listAgencyBackups,
-  recordLlmUsage,
-} from "../../agency/ops-tools.js";
+import { executeProjectDeploy, runDeploymentHealthCheck, type DeployAdapterId } from "../../agency/deployer.js";
+import { recordLlmUsage } from "../../agency/ops-tools.js";
+import { handleAgencyOpsRoutes } from "./agency-ops.js";
 import { listAgencySkills, resolveSkillsPromptBlock } from "../../agency/skills.js";
 import { appendCopilotHistory, clearCopilotHistory, loadCopilotHistory } from "../../agency/copilot-history.js";
 import {
-  browseMachineDirectories,
   extractReadablePdfText,
   getProjectEvolutionSnapshot,
   getProjectGitDiff,
@@ -59,29 +53,21 @@ import {
   type ProjectCommandAction,
 } from "../../agency/project-tracker.js";
 import {
-  deleteCustomIdeProfile,
   detectInstalledIdes,
   dispatchIdeTask,
   listIdeTaskRuns,
   openWorkspaceInIde,
   stopIdeTaskRun,
-  upsertCustomIdeProfile,
-  type IdeCategory,
 } from "../../agency/ide-bridge.js";
 import { buildProjectExecutionBrief, detectLocalDevTools } from "../../agency/orchestrator.js";
 import {
   executeAgencyMission,
   initProjectWorkspace,
-  resolveProjectDirectory,
   runProjectWorkspaceQa,
   type AgencyCliAction,
   type AgencyMissionExecutionMode,
 } from "../../agency/workspace-runner.js";
-import {
-  detectLocalWhatsAppDesktop,
-  normalizeWhatsAppPhone,
-  openWhatsAppDesktop,
-} from "../../agency/whatsapp-desktop.js";
+import { normalizeWhatsAppPhone, openWhatsAppDesktop } from "../../agency/whatsapp-desktop.js";
 
 export const LOCAL_AGENCY_ACTOR = "local-owner";
 const ERROR_STATUS: Record<string, number> = {
@@ -284,42 +270,8 @@ export function agencyRoutes(ctx: WebContext): Route {
         return send(res,200,{approval});
       }
 
-      if (seg[2]==="whatsapp" && seg[3]==="desktop") {
-        if (seg.length===5 && seg[4]==="status" && method==="GET") {
-          service.getOrganization(organizationId,actor);
-          const refresh=url.searchParams.get("refresh")==="1";
-          return send(res,200,{status:detectLocalWhatsAppDesktop(refresh)});
-        }
-        if (seg.length===5 && seg[4]==="open" && method==="POST") {
-          const org=service.getOrganization(organizationId,actor);
-          const body=await readObject(req);
-          const contactId=typeof body.contactId==="string" ? body.contactId.trim() : "";
-          const contact=contactId ? service.getContact(organizationId,actor,contactId) : undefined;
-          const rawPhone=(typeof body.phone==="string" && body.phone.trim()) ? body.phone.trim() : (contact?.phone || "");
-          if (!rawPhone) throw new HttpError(400,"A valid phone number or contact with a phone number is required");
-          const normalized=normalizeWhatsAppPhone(rawPhone,org.countryCode);
-          const messageText=typeof body.text==="string" ? body.text : "";
-          const purpose=typeof body.purpose==="string" ? body.purpose : "marketing";
-          const conversationId=typeof body.conversationId==="string" ? body.conversationId.trim() : "";
-          const recorded=service.recordWhatsAppDesktopOpen(organizationId,actor,{
-            contactId:contact?.id,
-            recipientE164:normalized.e164,
-            purpose,
-            conversationId:conversationId || undefined,
-            messageText,
-            recordMessage:body.recordMessage !== false,
-          });
-          const launched=openWhatsAppDesktop({
-            phone:normalized.e164,
-            text:messageText,
-            defaultCountryCode:org.countryCode,
-            dryRun:body.dryRun===true,
-          });
-          return send(res,200,{
-            ...launched,
-            ...(recorded.recordedMessage ? { message:recorded.recordedMessage } : {}),
-          });
-        }
+      if (await handleAgencyOpsRoutes({ ctx, service, actor, organizationId, req, res, url, seg, method })) {
+        return true;
       }
 
       if (seg[2]==="email" && seg.length===4 && seg[3]==="status" && method==="GET") {
@@ -385,12 +337,42 @@ export function agencyRoutes(ctx: WebContext): Route {
         }
       }
 
+      if (seg[2]==="prospecting" && seg[3]==="google-places") {
+        service.getOrganization(organizationId,actor);
+        const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
+        const secretsFile=GooglePlacesSecretsFile.at(dataDir,new LocalNodeSecretBox(dataDir));
+        if (seg.length===5 && seg[4]==="status" && method==="GET") {
+          const status=await secretsFile.status(organizationId,envGooglePlacesApiKey());
+          return send(res,200,{status});
+        }
+        if (seg.length===5 && seg[4]==="config" && method==="PUT") {
+          const body=await readObject(req);
+          const apiKey=typeof body.apiKey==="string" ? body.apiKey.trim() : "";
+          if (!apiKey) throw new HttpError(400,"Google Places API key is required");
+          await secretsFile.set(organizationId,apiKey);
+          const status=await secretsFile.status(organizationId,envGooglePlacesApiKey());
+          return send(res,200,{status});
+        }
+        if (seg.length===5 && seg[4]==="config" && method==="DELETE") {
+          secretsFile.clear();
+          const status=await secretsFile.status(organizationId,envGooglePlacesApiKey());
+          return send(res,200,{status});
+        }
+        throw new HttpError(405,"Method not allowed");
+      }
+
       if (seg[2]==="prospecting" && seg.length===4 && seg[3]==="search" && method==="POST") {
         service.getOrganization(organizationId,actor);
         const body=await readObject(req);
         const query=typeof body.query==="string" ? body.query.trim() : "";
         if (!query) throw new HttpError(400,"Prospecting search query is required");
         const mode=body.mode==="quick" ? "quick" : "deep";
+        const source=body.source==="google_places" || body.source==="web" ? body.source : "hybrid";
+        const websiteFilter=body.websiteFilter==="missing_only" || body.websiteFilter==="needs_website"
+          ? body.websiteFilter
+          : "all";
+        const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
+        const resolvedPlacesKey=await resolveGooglePlacesApiKey(dataDir,organizationId);
         let agentRuntime: ReturnType<typeof resolveAgentRuntime> | undefined;
         try {
           agentRuntime=resolveAgentRuntime(service,organizationId,actor,"prospecting",ctx.app?.config?.llm?.defaultModel);
@@ -407,6 +389,9 @@ export function agencyRoutes(ctx: WebContext): Route {
           countryCode:typeof body.countryCode==="string" ? body.countryCode : undefined,
           maxResults:body.maxResults==null ? undefined : Number(body.maxResults),
           mode,
+          source,
+          websiteFilter,
+          googlePlacesApiKey:resolvedPlacesKey.apiKey || undefined,
           modelClient:ctx.app?.models,
           preferredModel:agentRuntime?.model,
           defaultModel:ctx.app?.config?.llm?.defaultModel,
@@ -418,7 +403,6 @@ export function agencyRoutes(ctx: WebContext): Route {
           findDuplicate:(name,website) => service.findDuplicateCompanies(organizationId,actor,name,website)[0]?.id,
         });
         if (result.research.mode==="deep_llm") {
-          const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
           try {
             recordLlmUsage(dataDir,{
               organizationId,
@@ -1077,39 +1061,6 @@ export function agencyRoutes(ctx: WebContext): Route {
 
       if (seg[2]==="dev-tools" && seg.length===3 && method==="GET") {
         return send(res,200,{items:service.detectDevTools(organizationId,actor)});
-      }
-
-      if (seg[2]==="machine" && seg.length===4 && seg[3]==="browse" && method==="GET") {
-        service.getOrganization(organizationId,actor);
-        const dir=url.searchParams.get("path") ?? undefined;
-        return send(res,200,browseMachineDirectories(dir));
-      }
-
-      if (seg[2]==="ide") {
-        service.getOrganization(organizationId,actor);
-        const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
-        if (seg.length===4 && seg[3]==="tools" && method==="GET") {
-          const refresh=url.searchParams.get("refresh")==="1";
-          return send(res,200,{items:detectInstalledIdes(dataDir,refresh)});
-        }
-        if (seg.length===4 && seg[3]==="profiles" && method==="POST") {
-          const body=await readObject(req);
-          const profile=upsertCustomIdeProfile(dataDir,{
-            id:typeof body.id==="string" ? body.id : undefined,
-            name:String(body.name ?? ""),
-            category:body.category==="cli_agent" ? "cli_agent" : "ide",
-            executable:String(body.executable ?? ""),
-            openDirArgs:Array.isArray(body.openDirArgs) ? body.openDirArgs.map(String) : undefined,
-            openFileArgs:Array.isArray(body.openFileArgs) ? body.openFileArgs.map(String) : undefined,
-            promptArgs:Array.isArray(body.promptArgs) ? body.promptArgs.map(String) : undefined,
-          });
-          return send(res,201,{profile,items:detectInstalledIdes(dataDir,true)});
-        }
-        if (seg.length===5 && seg[3]==="profiles" && method==="DELETE") {
-          const id=decodeSegment(seg[4],"ide profile id");
-          const result=deleteCustomIdeProfile(dataDir,id);
-          return send(res,200,{...result,items:detectInstalledIdes(dataDir,true)});
-        }
       }
 
       if (seg[2]==="projects") {
@@ -1820,6 +1771,12 @@ export function agencyRoutes(ctx: WebContext): Route {
             if (tool==="prospect_web") {
               const qStr=String(args.query || "").trim();
               if (!qStr) return { ok:false, summary:"query est requis pour prospect_web" };
+              const source=args.source==="google_places" || args.source==="web" ? args.source : "hybrid";
+              const websiteFilter=args.websiteFilter==="missing_only" || args.websiteFilter==="needs_website"
+                ? args.websiteFilter
+                : "all";
+              const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
+              const resolvedPlacesKey=await resolveGooglePlacesApiKey(dataDir,organizationId);
               let prospectRuntime: ReturnType<typeof resolveAgentRuntime> | undefined;
               try {
                 prospectRuntime=resolveAgentRuntime(service,organizationId,actor,"prospecting",ctx.app?.config?.llm?.defaultModel);
@@ -1835,6 +1792,9 @@ export function agencyRoutes(ctx: WebContext): Route {
                 countryCode:typeof args.countryCode==="string" ? args.countryCode : undefined,
                 maxResults:args.maxResults==null ? 8 : Number(args.maxResults),
                 mode:args.mode==="quick" ? "quick" : "deep",
+                source,
+                websiteFilter,
+                googlePlacesApiKey:resolvedPlacesKey.apiKey || undefined,
                 modelClient:ctx.app?.models,
                 preferredModel:prospectRuntime?.model,
                 defaultModel:ctx.app?.config?.llm?.defaultModel,
@@ -2137,65 +2097,6 @@ export function agencyRoutes(ctx: WebContext): Route {
           } catch { /* non-blocking usage telemetry */ }
         }
         return send(res,200,result);
-      }
-
-      if (seg[2]==="deploy" && seg.length===4 && seg[3]==="adapters" && method==="GET") {
-        service.getOrganization(organizationId,actor);
-        const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
-        const pid=url.searchParams.get("projectId") ?? "";
-        const projectDir=pid ? resolveProjectDirectory(dataDir,service.getProject(organizationId,actor,pid)).workspaceDir : undefined;
-        return send(res,200,{items:detectDeployAdapters(projectDir)});
-      }
-
-      if (seg[2]==="ops") {
-        service.getOrganization(organizationId,actor);
-        const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
-        if (seg.length===4 && seg[3]==="backups") {
-          if (method==="GET") return send(res,200,{items:listAgencyBackups(dataDir)});
-          if (method==="POST") return send(res,201,{backup:createAgencyBackup(dataDir),items:listAgencyBackups(dataDir)});
-        }
-        if (seg.length===4 && seg[3]==="llm-usage" && method==="GET") {
-          return send(res,200,{summary:getLlmUsageSummary(dataDir,organizationId)});
-        }
-        if (seg.length===5 && seg[3]==="export" && method==="GET") {
-          const collectPaged = <T>(fetchPage: (offset: number) => { items: T[]; total: number }) => {
-            const all: T[] = [];
-            for (let offset = 0; offset < 500; offset += 100) {
-              const p = fetchPage(offset);
-              all.push(...p.items);
-              if (p.items.length < 100 || all.length >= p.total) break;
-            }
-            return all;
-          };
-          if (seg[4]==="companies.csv") {
-            const companies=collectPaged((offset) => service.searchCompanies(organizationId,actor,{ limit:100, offset }));
-            const csv=exportCompaniesCsv(companies);
-            res.writeHead(200,{
-              "content-type":"text/csv; charset=utf-8",
-              "content-disposition":"attachment; filename=\"companies.csv\"",
-              "cache-control":"no-store",
-            });
-            res.end(csv);
-            return true;
-          }
-          if (seg[4]==="leads.csv") {
-            const companies=collectPaged((offset) => service.searchCompanies(organizationId,actor,{ limit:100, offset }));
-            const leads=collectPaged((offset) => service.searchLeads(organizationId,actor,{ limit:100, offset }));
-            const csv=exportLeadsCsv(leads,companies);
-            res.writeHead(200,{
-              "content-type":"text/csv; charset=utf-8",
-              "content-disposition":"attachment; filename=\"leads.csv\"",
-              "cache-control":"no-store",
-            });
-            res.end(csv);
-            return true;
-          }
-        }
-      }
-
-      if (seg[2]==="execution-node" && seg.length===3 && method==="GET") {
-        service.getOrganization(organizationId,actor);
-        return send(res,200,{status:ctx.app?.executionNode?.status?.() ?? null});
       }
 
       if (seg[2]==="missions") {

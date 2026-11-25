@@ -449,20 +449,29 @@ export function Sidebar({ bots, botsError, reloadBots, selectedId, view, agencyT
     <div class="side-nav">
       <span class="side-nav-label">${t("agency.nav")}</span>
       ${[
-        ["operations", "agency.operations", "monitor"],
-        ["companies", "agency.companies", "folder"],
-        ["leads", "agency.leads", "user"],
-        ["commercial", "agency.commercial", "wallet"],
-        ["catalog", "agency.catalog", "clipboardCheck"],
-        ["projects", "agency.projects", "code"],
-        ["agents", "agency.agents", "chip"],
-        ["copilot", "agency.copilot", "chat"],
-      ].map(([id, key, icon]) => {
-        const active = agencyOn && (agencyTab || "operations") === id;
-        return html`<button type="button" key=${id} class=${`nav-item${active ? " sel" : ""}`} aria-current=${active ? "page" : undefined} onClick=${() => onAgency?.(id)}>
-          <${Icon} name=${icon} size="md" /><span class="label">${t(key)}</span>
-        </button>`;
-      })}
+        [
+          ["operations", "agency.operations", "monitor"],
+          ["copilot", "agency.copilot", "chat"],
+        ],
+        [
+          ["companies", "agency.companies", "folder"],
+          ["leads", "agency.leads", "user"],
+          ["commercial", "agency.commercial", "wallet"],
+          ["catalog", "agency.catalog", "clipboardCheck"],
+        ],
+        [
+          ["projects", "agency.projects", "code"],
+          ["agents", "agency.agents", "chip"],
+        ],
+      ].map((group, gi) => html`
+        ${gi > 0 && html`<div class="side-nav-sep" aria-hidden="true"></div>`}
+        ${group.map(([id, key, icon]) => {
+          const active = agencyOn && (agencyTab || "operations") === id;
+          return html`<button type="button" key=${id} class=${`nav-item${active ? " sel" : ""}`} aria-current=${active ? "page" : undefined} onClick=${() => onAgency?.(id)}>
+            <${Icon} name=${icon} size="md" /><span class="label">${t(key)}</span>
+          </button>`;
+        })}
+      `)}
       <div class="side-nav-sep" aria-hidden="true"></div>
       <button type="button" class=${`nav-item${view === "settings" ? " sel" : ""}`} aria-current=${view === "settings" ? "page" : undefined} onClick=${() => onOpenSettings?.()}>
         <${Icon} name="gear" size="md" /><span class="label">${t("sidebar.settings")}</span>
