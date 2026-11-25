@@ -1,5 +1,6 @@
-import { useState } from "preact/hooks";
-import { html, Icon, Spinner } from "../../components/ui.js";
+import { useEffect, useRef, useState } from "preact/hooks";
+import { CopyButton, html, Icon, Spinner } from "../../components/ui.js";
+import { Markdown } from "../../components/markdown.js";
 import { api } from "../../lib/api.js";
 import { t } from "../../lib/i18n.js";
 
@@ -10,6 +11,12 @@ export function AgencyCopilot({ orgId, activeTab = "copilot", companyId = "", le
   const [messages, setMessages] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const threadRef = useRef(null);
+
+  useEffect(() => {
+    const el = threadRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages.length, busy]);
 
   const ask = async (promptText) => {
     const clean = (promptText ?? question).trim();
@@ -42,7 +49,7 @@ export function AgencyCopilot({ orgId, activeTab = "copilot", companyId = "", le
 
   return html`<section class="agency-copilot">
     ${error && html`<div class="agency-alert" role="alert">${error}</div>`}
-    <div class="agency-copilot-thread">
+    <div class="agency-copilot-thread" ref=${threadRef}>
       ${!messages.length && html`<div class="agency-copilot-welcome">
         <span class="agency-quick-icon tone-purple"><${Icon} name="spark" size="lg" /></span>
         <div>
@@ -55,10 +62,20 @@ export function AgencyCopilot({ orgId, activeTab = "copilot", companyId = "", le
           </button>`)}
         </div>
       </div>`}
-      ${messages.map((m) => html`<article class=${"agency-copilot-msg " + m.role}>
-        <strong>${m.role === "user" ? "Vous" : m.model ? `${t("agency.copilotTitle")} · ${m.model}` : t("agency.copilotTitle")}</strong>
-        <pre>${m.text}</pre>
-      </article>`)}
+      ${messages.map((m) => m.role === "user"
+        ? html`<article class="agency-copilot-msg user">
+            <p class="agency-copilot-user-text">${m.text}</p>
+          </article>`
+        : html`<article class="agency-copilot-msg assistant">
+            <div class="agency-copilot-msg-head">
+              <div class="agency-copilot-msg-meta">
+                <strong>${t("agency.copilotTitle")}</strong>
+                ${m.model && html`<span class="agency-whatsapp-state">${m.model}</span>`}
+              </div>
+              <${CopyButton} text=${m.text} />
+            </div>
+            <${Markdown} text=${m.text} />
+          </article>`)}
       ${busy && html`<div class="agency-loading"><${Spinner} />${t("agency.loading")}</div>`}
     </div>
     <form class="agency-copilot-form" onSubmit=${(e) => { e.preventDefault(); ask(); }}>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { html, Icon, Spinner, Badge } from "../components/ui.js";
+import { Markdown } from "../components/markdown.js";
 import { api } from "../lib/api.js";
 import { fmtNum, t, useLang } from "../lib/i18n.js";
 import { AgencyCopilot } from "./agency/copilot.js";
@@ -1699,7 +1700,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                 </div>
               </article>`)}
             </div>
-            ${briefModal&&html`<div><div class="agency-contact-heading"><strong>${t("agency.generateBriefBtn")}</strong><button class="text" type="button" onClick=${()=>setBriefModal("")}>${t("agency.close")}</button></div><pre class="agency-brief-pre">${briefModal}</pre></div>`}
+            ${briefModal&&html`<div><div class="agency-contact-heading"><strong>${t("agency.generateBriefBtn")}</strong><button class="text" type="button" onClick=${()=>setBriefModal("")}>${t("agency.close")}</button></div><div class="agency-brief-md"><${Markdown} text=${briefModal}/></div></div>`}
           </section>`}
           ${projectSubTab==="scope"&&html`<section class="agency-project-section">
             <div class="agency-commercial-head">
@@ -1907,7 +1908,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                 <small>${m.preferredTool||"—"}${m.projectId?` · ${projects.find(p=>p.id===m.projectId)?.title||m.projectId}`:""}</small>
                 ${m.outputSummary&&html`<small><strong>${t("agency.missionOutputLabel")}:</strong> ${m.outputSummary}</small>`}
                 ${m.evidencePaths?.length>0&&html`<small><strong>${t("agency.missionEvidenceLabel")}:</strong> ${m.evidencePaths.join(", ")}</small>`}
-                ${m.brief&&html`<details class="agency-brief-details"><summary>${t("agency.missionBriefLabel")}</summary><pre>${m.brief}</pre></details>`}
+                ${m.brief&&html`<details class="agency-brief-details"><summary>${t("agency.missionBriefLabel")}</summary><div class="agency-brief-md"><${Markdown} text=${m.brief}/></div></details>`}
                 <div class="agency-commercial-actions">
                   <button class="btn" type="button" disabled=${!!busy} onClick=${()=>executeMission(m.id,"brief_export")}>${t("agency.exportBriefBtn")}</button>
                   <button class="btn" type="button" disabled=${!!busy} onClick=${()=>executeMission(m.id,"llm_draft")}>${t("agency.executeLlmBtn")}</button>
