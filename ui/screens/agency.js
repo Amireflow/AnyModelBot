@@ -1359,15 +1359,15 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const selectedProject=((tab==="projects"||tab==="studio")?projects.find(p=>p.id===selectedProjectId):null);
   const totalPages=Math.max(1,Math.ceil((rows.total||0)/SIZE));
 
-  return html`<section class=${"agency-screen view"+(tab==="copilot"?" is-copilot":"")} data-screen="agency">
+  return html`<section class=${"agency-screen view"+(tab==="copilot"?" is-copilot":"")+(tab==="studio"?" is-studio":"")} data-screen="agency">
     <header class="agency-header">
       <div class="agency-title-wrap">
         <h1 class="t-page">${t(`agency.${tab}`)}</h1>
-        ${cur&&html`<span class="agency-org-pill">${cur}</span>`}
+        ${cur&&!["studio","copilot","agents"].includes(tab)&&html`<span class="agency-org-pill">${cur}</span>`}
       </div>
       ${orgs.length>0&&html`<div class="agency-org-bar">
         <label class="agency-org-picker"><select class="field" aria-label=${t("agency.organization")} value=${orgId} onChange=${e=>changeOrg(e.currentTarget.value)}>${orgs.map(o=>html`<option value=${o.id}>${o.name}</option>`)}</select></label>
-        <button class="btn" type="button" aria-expanded=${orgFormOpen} title=${t("agency.newOrganization")} onClick=${()=>setOrgFormOpen(v=>!v)}><${Icon} name=${orgFormOpen?"close":"plus"} size="sm"/></button>
+        ${!["studio","copilot"].includes(tab)&&html`<button class="btn" type="button" aria-expanded=${orgFormOpen} title=${t("agency.newOrganization")} onClick=${()=>setOrgFormOpen(v=>!v)}><${Icon} name=${orgFormOpen?"close":"plus"} size="sm"/></button>`}
       </div>`}
     </header>
     ${orgError&&html`<div class="agency-alert" role="alert">${orgError}</div>`}
@@ -2336,21 +2336,17 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           </section>
         </div>
       </div>`}
-      ${tab==="studio"&&html`<div class="agency-ops-stack agency-studio-page">
-        <div class="agency-project-bar">
-          <div class="agency-project-bar-left">
-            <select class="field" aria-label=${t("agency.projectsTitle")} value=${selectedProjectId||"__new__"} onChange=${e=>setSelectedProjectId(e.currentTarget.value)}>
-              <option value="__new__">${t("agency.studioNewChatOption")}</option>
-              ${projects.map(p=>html`<option value=${p.id}>${p.title} (${fmtNum(p.budgetAmount)} ${p.currency})</option>`)}
-            </select>
-            ${selectedProject&&html`<span class=${"agency-whatsapp-state "+selectedProject.status}>${t(`agency.projectStatus.${selectedProject.status}`)}</span>`}
-          </div>
-          <div class="agency-commercial-actions">
-            <button class="btn primary" type="button" onClick=${()=>setSelectedProjectId("__new__")}><${Icon} name="plus" size="sm"/>${t("agency.newStudioProjectBtn")}</button>
-          </div>
-        </div>
+      ${tab==="studio"&&html`<div class="agency-studio-page">
         ${workspaceNotice&&html`<p class="agency-research-feedback" role="status">${workspaceNotice}</p>`}
-        <${ProjectStudio} orgId=${orgId} project=${selectedProject||null} onProjectCreated=${proj=>{setSelectedProjectId(proj.id);setRevision(v=>v+1);}} onChanged=${()=>setRevision(v=>v+1)}/>
+        <${ProjectStudio}
+          orgId=${orgId}
+          project=${selectedProject||null}
+          projects=${projects}
+          selectedProjectId=${selectedProjectId||"__new__"}
+          onSelectProject=${id=>setSelectedProjectId(id)}
+          onProjectCreated=${proj=>{setSelectedProjectId(proj.id);setRevision(v=>v+1);}}
+          onChanged=${()=>setRevision(v=>v+1)}
+        />
       </div>`}
       ${tab==="agents"&&html`<${AgencyAgents} orgId=${orgId} agents=${agentProfiles} onSaved=${()=>setRevision(v=>v+1)}/>`}
       ${tab==="copilot"&&html`<${AgencyCopilot} orgId=${orgId} activeTab=${tab} companyId=${selected} leadId=${selectedLeadId} projectId=${selectedProjectId} onDataChanged=${()=>setRevision(v=>v+1)}/>`}

@@ -14,6 +14,7 @@ import {
 } from "./orchestrator.js";
 import type {
   AddConversationMessageInput, AddEvidenceInput, AgencyAgentRole, AgencyDashboard,
+  AgencyDeletableEntityType,
   AgencyMetrics, AgencyMission, AgencyMissionStatus, AgentAutonomyMode, AgentConfig, AgentProfile,
   Approval, ApprovalAction,
   AuditEvent, ClientFollowUp, CommercialChannel, CommercialConversation, CommercialRules,
@@ -21,7 +22,9 @@ import type {
   Contact, ContactSearchFilters, Contract, ConversationMessage,
   CreateCatalogItemInput, CreateCompanyInput, CreateContactInput, CreateContractInput,
   CreateConversationInput, CreateDirectProjectInput, CreateLeadInput, CreateMissionInput, CreateOrganizationInput,
-  CreateProjectInput, CreateProjectLotInput, CreateQuoteInput, DepositStatus, DetectedDevTool,
+  CreateProjectInput, CreateProjectLotInput, CreateQuoteInput,
+  DeleteEntityOptions, DeleteEntityResult, DeleteImpactCounts, DeleteImpactPreview,
+  DepositStatus, DetectedDevTool,
   EmailOutboxMessage, Evidence, FollowUpStatus, FollowUpType, Invoice, InvoiceMilestoneInput, InvoiceStatus, Lead, LeadSearchFilters, LeadStage, MessageDirection,
   NeedsQualification, NegotiationEvaluation, Organization, Page, PrepareDeliveryInput,
   Project, ProjectDelivery, ProjectLot, ProjectLotStatus, ProjectStatus,
@@ -3134,5 +3137,309 @@ export class AgencyService {
       missions: this.store.listMissions(organizationId),
       approvals: this.store.listApprovals(organizationId, 200),
     });
+  }
+
+  private emptyDeleteCounts(): DeleteImpactCounts {
+    return { contacts: 0, leads: 0, evidence: 0, conversations: 0, messages: 0, quotes: 0, needs: 0 };
+  }
+
+  private computeDeletePreview(
+    organizationId: string,
+    entityType: AgencyDeletableEntityType,
+    rawEntityId: string,
+  ): DeleteImpactPreview {
+    const entityId = requiredText(rawEntityId, "entityId", 100);
+    const blockers: string[] = [];
+    const willDelete = this.emptyDeleteCounts();
+
+    switch (entityType) {
+      case "company": {
+        const company = this.store.getCompany(organizationId, entityId);
+        if (!company) throw new AgencyError("NOT_FOUND", "Company not found");
+        const links = this.store.inspectCompanyLinks(organizationId, entityId);
+        if (links.immutableConsents > 0) blockers.push(`Registres de consentement immuables (${links.immutableConsents})`);
+        if (links.immutableWhatsappOutbox > 0 || links.immutableEmailOutbox > 0) {
+          blockers.push(`Historique d'envois WhatsApp/Email immuable (${links.immutableWhatsappOutbox + links.immutableEmailOutbox})`);
+        }
+        if (links.contracts > 0) blockers.push(`Contrats liés (${links.contracts})`);
+        if (links.projects > 0) blockers.push(`Projets liés (${links.projects})`);
+        if (links.followups > 0) blockers.push(`Suivis post-livraison liés (${links.followups})`);
+        if (links.committedQuotes > 0) blockers.push(`Devis approuvés/envoyés/acceptés (${links.committedQuotes})`);
+        if (links.wonLeads > 0) blockers.push(`Prospects gagnés (${links.wonLeads})`);
+        willDelete.contacts = links.contacts;
+        willDelete.leads = links.leads;
+        willDelete.evidence = links.evidence;
+        willDelete.conversations = links.conversations;
+        willDelete.messages = links.messages;
+        willDelete.quotes = links.removableQuotes;
+        willDelete.needs = links.needs;
+        return {
+          entityType,
+          entityId,
+          label: company.name,
+          canDelete: blockers.length === 0,
+          requiresNameConfirmation: true,
+          confirmationTarget: company.name,
+          blockers,
+          willDelete,
+          recommendArchive: true,
+        };
+      }
+      case "contact": {
+        const contact = this.store.getContact(organizationId, entityId);
+        if (!contact) throw new AgencyError("NOT_FOUND", "Contact not found");
+        const links = this.store.inspectContactLinks(organizationId, entityId);
+        if (links.consents > 0) blockers.push(`Registres de consentement RGPD immuables (${links.consents})`);
+        if (links.whatsappOutbox > 0 || links.emailOutbox > 0) {
+          blockers.push(`Messages sortants envoyés ou en file (${links.whatsappOutbox + links.emailOutbox})`);
+        }
+        return {
+          entityType,
+          entityId,
+          label: contact.displayName,
+          canDelete: blockers.length === 0,
+          requiresNameConfirmation: false,
+          confirmationTarget: contact.displayName,
+          blockers,
+          willDelete,
+          recommendArchive: true,
+        };
+      }
+      case "lead": {
+        const lead = this.store.getLead(organizationId, entityId);
+        if (!lead) throw new AgencyError("NOT_FOUND", "Lead not found");
+        const company = this.store.getCompany(organizationId, lead.companyId);
+        const links = this.store.inspectLeadLinks(organizationId, entityId);
+        if (lead.stage === "won") blockers.push("Les prospects gagnés ne peuvent pas être supprimés définitivement");
+        if (links.contracts > 0) blockers.push(`Contrats liés (${links.contracts})`);
+        if (links.projects > 0) blockers.push(`Projets liés (${links.projects})`);
+        if (links.followups > 0) blockers.push(`Suivis post-livraison liés (${links.followups})`);
+        if (links.committedQuotes > 0) blockers.push(`Devis approuvés/envoyés/acceptés (${links.committedQuotes})`);
+        willDelete.conversations = links.conversations;
+        willDelete.messages = links.messages;
+        willDelete.quotes = links.removableQuotes;
+        willDelete.needs = links.needs;
+        const label = company ? `${company.name} (${lead.stage})` : lead.id;
+        return {
+          entityType,
+          entityId,
+          label,
+          canDelete: blockers.length === 0,
+          requiresNameConfirmation: false,
+          confirmationTarget: company?.name || lead.id,
+          blockers,
+          willDelete,
+          recommendArchive: true,
+        };
+      }
+      case "evidence": {
+        const evidence = this.store.getEvidence(organizationId, entityId);
+        if (!evidence) throw new AgencyError("NOT_FOUND", "Evidence not found");
+        return {
+          entityType,
+          entityId,
+          label: `${evidence.evidenceType} · ${evidence.sourceUrl}`,
+          canDelete: true,
+          requiresNameConfirmation: false,
+          confirmationTarget: evidence.evidenceType,
+          blockers,
+          willDelete,
+          recommendArchive: false,
+        };
+      }
+      case "quote": {
+        const quote = this.store.getQuote(organizationId, entityId);
+        if (!quote) throw new AgencyError("NOT_FOUND", "Quote not found");
+        const contractsCount = this.store.countContractsForQuote(organizationId, entityId);
+        if (!["draft", "rejected", "expired"].includes(quote.status)) {
+          blockers.push(`Statut "${quote.status}" protégé (seuls brouillon, refusé ou expiré sont supprimables)`);
+        }
+        if (contractsCount > 0) blockers.push(`Contrats associés (${contractsCount})`);
+        return {
+          entityType,
+          entityId,
+          label: `v${quote.version} · ${quote.title}`,
+          canDelete: blockers.length === 0,
+          requiresNameConfirmation: false,
+          confirmationTarget: quote.title,
+          blockers,
+          willDelete,
+          recommendArchive: false,
+        };
+      }
+      case "catalog_item": {
+        const item = this.store.getCatalogItem(organizationId, entityId);
+        if (!item) throw new AgencyError("NOT_FOUND", "Catalog item not found");
+        return {
+          entityType,
+          entityId,
+          label: `${item.name} (${item.code})`,
+          canDelete: true,
+          requiresNameConfirmation: false,
+          confirmationTarget: item.code,
+          blockers,
+          willDelete,
+          recommendArchive: false,
+        };
+      }
+      case "mission": {
+        const mission = this.store.getMission(organizationId, entityId);
+        if (!mission) throw new AgencyError("NOT_FOUND", "Mission not found");
+        if (mission.status === "running") blockers.push("Impossible de supprimer une mission en cours d'exécution");
+        return {
+          entityType,
+          entityId,
+          label: mission.title,
+          canDelete: blockers.length === 0,
+          requiresNameConfirmation: false,
+          confirmationTarget: mission.title,
+          blockers,
+          willDelete,
+          recommendArchive: false,
+        };
+      }
+      case "followup": {
+        const followUp = this.store.getFollowUp(organizationId, entityId);
+        if (!followUp) throw new AgencyError("NOT_FOUND", "Follow-up not found");
+        return {
+          entityType,
+          entityId,
+          label: `${followUp.type} (${followUp.status})`,
+          canDelete: true,
+          requiresNameConfirmation: false,
+          confirmationTarget: followUp.type,
+          blockers,
+          willDelete,
+          recommendArchive: false,
+        };
+      }
+      default:
+        throw new AgencyError("VALIDATION_ERROR", `Unsupported deletable entity type: ${String(entityType)}`);
+    }
+  }
+
+  previewDelete(
+    organizationId: string,
+    actorId: string,
+    entityType: AgencyDeletableEntityType,
+    entityId: string,
+  ): DeleteImpactPreview {
+    this.requireMember(organizationId, actorId, ["owner", "admin", "member", "auditor"]);
+    return this.computeDeletePreview(organizationId, entityType, entityId);
+  }
+
+  deleteEntity(
+    organizationId: string,
+    actorId: string,
+    entityType: AgencyDeletableEntityType,
+    entityId: string,
+    options: DeleteEntityOptions = {},
+  ): DeleteEntityResult {
+    this.requireMember(organizationId, actorId, ["owner", "admin"]);
+    if (options.confirm !== true) {
+      throw new AgencyError("VALIDATION_ERROR", "Explicit deletion confirmation (confirm: true) is required");
+    }
+    const reason = optionalText(options.reason, "reason", 400);
+
+    return this.store.transaction(() => {
+      const preview = this.computeDeletePreview(organizationId, entityType, entityId);
+      if (!preview.canDelete) {
+        throw new AgencyError("CONFLICT", preview.blockers.join(" | "));
+      }
+      if (preview.requiresNameConfirmation) {
+        const provided = String(options.confirmName ?? "").trim().toLowerCase();
+        const expected = preview.confirmationTarget.trim().toLowerCase();
+        if (!provided || provided !== expected) {
+          throw new AgencyError("VALIDATION_ERROR", `Confirmation name must exactly match "${preview.confirmationTarget}"`);
+        }
+      }
+      const linkedTotal =
+        preview.willDelete.contacts +
+        preview.willDelete.leads +
+        preview.willDelete.evidence +
+        preview.willDelete.conversations +
+        preview.willDelete.messages +
+        preview.willDelete.quotes +
+        preview.willDelete.needs;
+      if (linkedTotal > 0 && options.cascade !== true) {
+        throw new AgencyError("VALIDATION_ERROR", "Explicit cascade confirmation is required when linked records will be deleted");
+      }
+
+      let deleted = this.emptyDeleteCounts();
+      switch (entityType) {
+        case "company":
+          deleted = this.store.deleteCompanyCascadeUnsafe(organizationId, preview.entityId);
+          break;
+        case "contact":
+          this.store.deleteContactUnsafe(organizationId, preview.entityId);
+          deleted.contacts = 1;
+          break;
+        case "lead":
+          deleted = this.store.deleteLeadCascadeUnsafe(organizationId, preview.entityId);
+          break;
+        case "evidence":
+          this.store.deleteEvidenceUnsafe(organizationId, preview.entityId);
+          deleted.evidence = 1;
+          break;
+        case "quote":
+          this.store.deleteQuoteUnsafe(organizationId, preview.entityId);
+          deleted.quotes = 1;
+          break;
+        case "catalog_item":
+          this.store.deleteCatalogItemUnsafe(organizationId, preview.entityId);
+          break;
+        case "mission":
+          this.store.deleteMissionUnsafe(organizationId, preview.entityId);
+          break;
+        case "followup":
+          this.store.deleteFollowUpUnsafe(organizationId, preview.entityId);
+          break;
+      }
+
+      this.audit(organizationId, actorId, `${entityType}.deleted`, entityType, preview.entityId, {
+        label: preview.label,
+        reason,
+        deleted,
+      });
+
+      return {
+        entityType,
+        entityId: preview.entityId,
+        label: preview.label,
+        deleted,
+      };
+    });
+  }
+
+  deleteCompany(organizationId: string, actorId: string, companyId: string, options: DeleteEntityOptions = {}): DeleteEntityResult {
+    return this.deleteEntity(organizationId, actorId, "company", companyId, options);
+  }
+
+  deleteContact(organizationId: string, actorId: string, contactId: string, options: DeleteEntityOptions = {}): DeleteEntityResult {
+    return this.deleteEntity(organizationId, actorId, "contact", contactId, options);
+  }
+
+  deleteLead(organizationId: string, actorId: string, leadId: string, options: DeleteEntityOptions = {}): DeleteEntityResult {
+    return this.deleteEntity(organizationId, actorId, "lead", leadId, options);
+  }
+
+  deleteEvidence(organizationId: string, actorId: string, evidenceId: string, options: DeleteEntityOptions = {}): DeleteEntityResult {
+    return this.deleteEntity(organizationId, actorId, "evidence", evidenceId, options);
+  }
+
+  deleteQuote(organizationId: string, actorId: string, quoteId: string, options: DeleteEntityOptions = {}): DeleteEntityResult {
+    return this.deleteEntity(organizationId, actorId, "quote", quoteId, options);
+  }
+
+  deleteCatalogItem(organizationId: string, actorId: string, itemId: string, options: DeleteEntityOptions = {}): DeleteEntityResult {
+    return this.deleteEntity(organizationId, actorId, "catalog_item", itemId, options);
+  }
+
+  deleteMission(organizationId: string, actorId: string, missionId: string, options: DeleteEntityOptions = {}): DeleteEntityResult {
+    return this.deleteEntity(organizationId, actorId, "mission", missionId, options);
+  }
+
+  deleteFollowUp(organizationId: string, actorId: string, followUpId: string, options: DeleteEntityOptions = {}): DeleteEntityResult {
+    return this.deleteEntity(organizationId, actorId, "followup", followUpId, options);
   }
 }

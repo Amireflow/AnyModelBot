@@ -4,9 +4,11 @@ import path from "node:path";
 import type { ModelClient } from "../llm/client.js";
 import { AgencyError } from "./errors.js";
 import type { AgencyAgentRole, Contract, CreateProjectLotInput, Project, ProjectLot, StudioSnapshotEntry } from "./types.js";
+import { STUDIO_XML_PROTOCOL_PROMPT, parseStudioActions, type StudioParsedAction } from "./studio-xml.js";
 import { initProjectWorkspace, resolveSafeWorkspacePath } from "./workspace-runner.js";
 
 export type StudioTemplateId =
+  | "vite-react-tailwind"
   | "vitrine-html"
   | "webapp-node-preact"
   | "api-node-ts"
@@ -229,7 +231,81 @@ export function scaffoldProjectTemplate(input: {
   const slug = input.project.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "client-app";
   const written: string[] = [];
 
-  if (input.template === "vitrine-html") {
+  if (input.template === "vite-react-tailwind") {
+    const files: Record<string, string> = {
+      "index.html": `<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${safeTitle}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-50 antialiased">
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+</html>
+`,
+      "vite.config.js": `import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+});
+`,
+      "src/main.jsx": `import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App.jsx";
+import "./index.css";
+
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
+`,
+      "src/index.css": `*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { min-height: 100%; margin: 0; }
+`,
+      "src/App.jsx": `import React from "react";
+
+export default function App() {
+  return (
+    <main className="min-h-screen flex items-center justify-center p-8 bg-slate-950 text-slate-100">
+      <div className="max-w-xl w-full rounded-2xl border border-slate-800 bg-slate-900/70 p-8 shadow-xl space-y-3">
+        <h1 className="text-2xl font-semibold tracking-tight">${safeTitle}</h1>
+        <p className="text-sm text-slate-400">${(input.project.technicalSpecs || input.contract?.scopeSummary || "Workspace Vite + React + Tailwind prêt.").replace(/[<>&]/g, "")}</p>
+      </div>
+    </main>
+  );
+}
+`,
+      "package.json": JSON.stringify({
+        name: slug,
+        version: "0.1.0",
+        private: true,
+        type: "module",
+        scripts: {
+          dev: "vite",
+          build: "vite build",
+          preview: "vite preview",
+        },
+        dependencies: {
+          react: "^18.3.1",
+          "react-dom": "^18.3.1",
+        },
+        devDependencies: {
+          "@vitejs/plugin-react": "^4.3.4",
+          vite: "^5.4.11",
+        },
+      }, null, 2),
+    };
+    for (const [rel, content] of Object.entries(files)) {
+      writeWorkspaceFile(input.dataDir, input.project, rel, content);
+      written.push(rel);
+    }
+  } else if (input.template === "vitrine-html") {
     const files: Record<string, string> = {
       "index.html": `<!doctype html>
 <html lang="fr">
@@ -897,10 +973,13 @@ export function resolveStudioPreviewAsset(
   let targetAbs = absPath;
   let targetRel = relPath;
   if ((!fs.existsSync(targetAbs) || fs.statSync(targetAbs).isDirectory()) && clean === "index.html") {
-    const fallback = path.join(workspaceDir, "public", "index.html");
-    if (fs.existsSync(fallback) && fs.statSync(fallback).isFile()) {
-      targetAbs = fallback;
-      targetRel = "public/index.html";
+    for (const alt of ["public/index.html", "dist/index.html"]) {
+      const fallback = path.join(workspaceDir, ...alt.split("/"));
+      if (fs.existsSync(fallback) && fs.statSync(fallback).isFile()) {
+        targetAbs = fallback;
+        targetRel = alt;
+        break;
+      }
     }
   }
   if (!fs.existsSync(targetAbs) || !fs.statSync(targetAbs).isFile()) {
@@ -1041,6 +1120,7 @@ export async function ingestProjectDocuments(input: {
   }>;
 }): Promise<{ writtenFiles: string[]; briefUpdated: boolean }> {
   const validTemplates = new Set<StudioTemplateId>([
+    "vite-react-tailwind",
     "vitrine-html",
     "webapp-node-preact",
     "api-node-ts",
@@ -1130,6 +1210,36 @@ export async function ingestProjectDocuments(input: {
   return { writtenFiles: [...new Set(writtenFiles)], briefUpdated };
 }
 
+export async function installStudioDependencies(
+  dataDir: string,
+  project: Project,
+  packages: readonly string[],
+): Promise<{ packages: string[]; exitCode: number; output: string }> {
+  const { workspaceDir } = resolveSafeWorkspacePath(dataDir, project.workspacePath);
+  if (!fs.existsSync(workspaceDir)) {
+    throw new AgencyError("CONFLICT", "Project workspace is not initialized yet");
+  }
+  const clean = packages
+    .map((p) => p.trim())
+    .filter((p) => /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(@[a-z0-9.^~>=<_-]+)?$/i.test(p))
+    .slice(0, 12);
+  if (clean.length === 0) {
+    throw new AgencyError("VALIDATION_ERROR", "At least one valid npm package name is required");
+  }
+  let command = "npm";
+  let args = ["install", "--no-audit", "--no-fund", ...clean];
+  if (process.platform === "win32") {
+    const npmCli = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
+    if (fs.existsSync(npmCli)) {
+      command = process.execPath;
+      args = [npmCli, ...args];
+    }
+  }
+  const res = await execStudioCmd(command, args, workspaceDir);
+  const output = [res.stdout.trim(), res.stderr.trim()].filter(Boolean).join("\n") || `exitCode=${res.exitCode}`;
+  return { packages: clean, exitCode: res.exitCode, output: output.slice(0, 8000) };
+}
+
 export async function runStudioAiAgent(input: {
   dataDir: string;
   project: Project;
@@ -1176,18 +1286,9 @@ export async function runStudioAiAgent(input: {
     input.lot ? `Active lot: #${input.lot.lotOrder} ${input.lot.title} — ${input.lot.description}` : "",
     input.agentInstructions?.trim() ? `Configured developer instructions: ${input.agentInstructions.trim()}` : "",
     input.agentRules?.length ? `Configured agency rules:\n${input.agentRules.map((r) => `- ${r}`).join("\n")}` : "",
-    `You MUST respond with a single JSON object representing your next tool action:`,
-    `1) {"tool":"list_files"}`,
-    `2) {"tool":"search_files","query":"keyword"}`,
-    `3) {"tool":"read_file","path":"relative/path"}`,
-    `4) {"tool":"patch_file","path":"relative/path","search":"exact snippet","replace":"updated snippet"}`,
-    `5) {"tool":"write_file","path":"relative/path","content":"full file content"}`,
-    `6) {"tool":"delete_file","path":"relative/path"}`,
-    `7) {"tool":"run_check","action":"npm_test"|"npm_typecheck"|"npm_build"|"git_status"}`,
-    `8) {"tool":"finish","summary":"concise factual summary of work done and verified"}`,
-    `Prefer search_files/read_file then patch_file for existing files, run run_check before finish when tests exist, and fix any errors before finishing.`,
-    `Return ONLY valid JSON without markdown code fences.`,
-  ].filter(Boolean).join("\n");
+    STUDIO_XML_PROTOCOL_PROMPT,
+    `Prefer search/read then patch or write; batch related <studio-write> tags in a single turn; run <studio-run action="npm_test" /> or npm_build when package.json scripts exist; finish cleanly with <studio-done>...</studio-done>.`,
+  ].filter(Boolean).join("\n\n");
 
   const history: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
     { role: "system", content: systemPrompt },
@@ -1198,89 +1299,93 @@ export async function runStudioAiAgent(input: {
   ];
 
   let finalSummary = "";
-  for (let step = 1; step <= maxSteps; step++) {
+  let consecutiveNoAction = 0;
+
+  for (let turn = 1; turn <= maxSteps; turn++) {
     const reply = await input.modelClient.streamChat({ model, messages: history }, () => {});
     history.push({ role: "assistant", content: reply });
 
-    let action: Record<string, unknown>;
-    try {
-      const jsonMatch = reply.match(/\{[\s\S]*\}/);
-      action = JSON.parse(jsonMatch ? jsonMatch[0] : reply) as Record<string, unknown>;
-    } catch {
-      const parseErrStep: StudioAgentStep = { step, tool: "parse_error", target: "", ok: false, summary: "Invalid JSON tool response" };
-      steps.push(parseErrStep);
-      input.onStep?.(parseErrStep);
-      history.push({ role: "user", content: "Error: reply must be a single valid JSON object with a 'tool' field." });
+    const parsed = parseStudioActions(reply);
+    if (parsed.actions.length === 0) {
+      consecutiveNoAction += 1;
+      if (modified.size > 0 || consecutiveNoAction >= 2 || (steps.length > 0 && parsed.prose.length > 40)) {
+        finalSummary = parsed.prose.slice(0, 1200) || `Agent exécuté (${modified.size} fichier(s) modifié(s)).`;
+        const finishStep: StudioAgentStep = {
+          step: steps.length + 1,
+          tool: "finish",
+          target: "",
+          ok: true,
+          summary: finalSummary.slice(0, 240),
+        };
+        steps.push(finishStep);
+        input.onStep?.(finishStep);
+        break;
+      }
+      const noActionStep: StudioAgentStep = {
+        step: steps.length + 1,
+        tool: "no_action",
+        target: "",
+        ok: false,
+        summary: "Réponse sans balise d'action — relance guidée",
+      };
+      steps.push(noActionStep);
+      input.onStep?.(noActionStep);
+      history.push({
+        role: "user",
+        content: "Émets tes actions avec <studio-write path=\"...\">...</studio-write> (ou <studio-read path=\"...\" />) et termine par <studio-done>résumé</studio-done>.",
+      });
       continue;
     }
 
-    const tool = String(action.tool || "");
-    if (tool === "finish") {
-      finalSummary = String(action.summary || "Completed workspace updates.").trim();
-      const finishStep: StudioAgentStep = { step, tool, target: "", ok: true, summary: finalSummary };
-      steps.push(finishStep);
-      input.onStep?.(finishStep);
-      break;
-    }
+    consecutiveNoAction = 0;
+    const observations: string[] = [];
+    let finished = false;
 
-    let observation = "";
-    let ok = true;
-    let target = "";
-    try {
-      if (tool === "list_files") {
-        const list = listWorkspaceFiles(input.dataDir, input.project);
-        observation = JSON.stringify(list.map((f) => ({ path: f.path, size: f.size })));
-      } else if (tool === "search_files") {
-        target = String(action.query || "");
-        const hits = searchWorkspaceFiles(input.dataDir, input.project, target);
-        observation = hits.length
-          ? hits.map((h) => `${h.path}:${h.line}: ${h.text}`).join("\n")
-          : "(no matches)";
-      } else if (tool === "read_file") {
-        target = String(action.path || "");
-        const file = readWorkspaceFile(input.dataDir, input.project, target);
-        observation = file.content.slice(0, 8000);
-      } else if (tool === "patch_file") {
-        target = String(action.path || "");
-        const patched = patchWorkspaceFile(
-          input.dataDir,
-          input.project,
-          target,
-          String(action.search ?? ""),
-          String(action.replace ?? ""),
-        );
-        modified.add(patched.path);
-        observation = `Patched ${patched.path} (${patched.size} bytes)`;
-      } else if (tool === "write_file") {
-        target = String(action.path || "");
-        const content = String(action.content ?? "");
-        const saved = writeWorkspaceFile(input.dataDir, input.project, target, content);
-        modified.add(saved.path);
-        observation = `Wrote ${saved.path} (${saved.size} bytes)`;
-      } else if (tool === "delete_file") {
-        target = String(action.path || "");
-        const removed = deleteWorkspaceFile(input.dataDir, input.project, target);
-        modified.add(removed.deleted);
-        observation = `Deleted ${removed.deleted}`;
-      } else if (tool === "run_check") {
-        const cmd = String(action.action || "npm_test") as StudioCommandAction;
-        target = cmd;
-        const result = await runStudioCommand({ dataDir: input.dataDir, project: input.project, action: cmd });
-        ok = result.exitCode === 0;
-        observation = `exitCode=${result.exitCode}\n${result.output.slice(0, 4000)}`;
-      } else {
-        ok = false;
-        observation = `Unsupported tool: ${tool}`;
+    for (const action of parsed.actions) {
+      const stepNum = steps.length + 1;
+      if (action.tool === "finish") {
+        finalSummary = action.summary || "Completed workspace updates.";
+        const finishStep: StudioAgentStep = {
+          step: stepNum,
+          tool: "finish",
+          target: "",
+          ok: true,
+          summary: finalSummary.slice(0, 240),
+        };
+        steps.push(finishStep);
+        input.onStep?.(finishStep);
+        finished = true;
+        break;
       }
-    } catch (error) {
-      ok = false;
-      observation = (error as Error).message || "Tool execution failed";
+
+      let observation = "";
+      let ok = true;
+      let target = "";
+      try {
+        observation = await executeParsedAction({
+          dataDir: input.dataDir,
+          project: input.project,
+          action,
+          modified,
+          onTarget: (t) => { target = t; },
+          onOk: (flag) => { ok = flag; },
+        });
+      } catch (error) {
+        ok = false;
+        observation = (error as Error).message || "Tool execution failed";
+      }
+
+      const stepEntry: StudioAgentStep = { step: stepNum, tool: action.tool, target, ok, summary: observation.slice(0, 240) };
+      steps.push(stepEntry);
+      input.onStep?.(stepEntry);
+      observations.push(`[${action.tool}${target ? ` ${target}` : ""}] ${observation}`);
     }
 
-    const stepEntry: StudioAgentStep = { step, tool, target, ok, summary: observation.slice(0, 240) };
-    steps.push(stepEntry);
-    input.onStep?.(stepEntry);
-    history.push({ role: "user", content: `Tool result (${tool}):\n${observation}` });
+    if (finished) break;
+    history.push({
+      role: "user",
+      content: `Résultats des actions :\n${observations.join("\n\n")}\nContinue ou termine avec <studio-done>...</studio-done>.`,
+    });
   }
 
   if (!finalSummary) {
@@ -1293,4 +1398,63 @@ export async function runStudioAiAgent(input: {
     model,
     ...(snapshotBefore ? { snapshotBefore } : {}),
   };
+}
+
+async function executeParsedAction(ctx: {
+  dataDir: string;
+  project: Project;
+  action: Exclude<StudioParsedAction, { tool: "finish" }>;
+  modified: Set<string>;
+  onTarget: (target: string) => void;
+  onOk: (ok: boolean) => void;
+}): Promise<string> {
+  const { action } = ctx;
+  switch (action.tool) {
+    case "list_files": {
+      const list = listWorkspaceFiles(ctx.dataDir, ctx.project);
+      return JSON.stringify(list.map((f) => ({ path: f.path, size: f.size })));
+    }
+    case "search_files": {
+      ctx.onTarget(action.query);
+      const hits = searchWorkspaceFiles(ctx.dataDir, ctx.project, action.query);
+      return hits.length ? hits.map((h) => `${h.path}:${h.line}: ${h.text}`).join("\n") : "(no matches)";
+    }
+    case "read_file": {
+      ctx.onTarget(action.path);
+      const file = readWorkspaceFile(ctx.dataDir, ctx.project, action.path);
+      return file.content.slice(0, 8000);
+    }
+    case "patch_file": {
+      ctx.onTarget(action.path);
+      const patched = patchWorkspaceFile(ctx.dataDir, ctx.project, action.path, action.search, action.replace);
+      ctx.modified.add(patched.path);
+      return `Patched ${patched.path} (${patched.size} bytes)`;
+    }
+    case "write_file": {
+      ctx.onTarget(action.path);
+      const saved = writeWorkspaceFile(ctx.dataDir, ctx.project, action.path, action.content);
+      ctx.modified.add(saved.path);
+      return `Wrote ${saved.path} (${saved.size} bytes)`;
+    }
+    case "delete_file": {
+      ctx.onTarget(action.path);
+      const removed = deleteWorkspaceFile(ctx.dataDir, ctx.project, action.path);
+      ctx.modified.add(removed.deleted);
+      return `Deleted ${removed.deleted}`;
+    }
+    case "add_dependency": {
+      ctx.onTarget(action.packages.join(", "));
+      const depRes = await installStudioDependencies(ctx.dataDir, ctx.project, action.packages);
+      ctx.onOk(depRes.exitCode === 0);
+      if (depRes.exitCode === 0) ctx.modified.add("package.json");
+      return `npm install (${depRes.packages.join(", ")}) exitCode=${depRes.exitCode}\n${depRes.output.slice(0, 3000)}`;
+    }
+    case "run_check": {
+      const cmd = (action.action || "npm_test") as StudioCommandAction;
+      ctx.onTarget(cmd);
+      const result = await runStudioCommand({ dataDir: ctx.dataDir, project: ctx.project, action: cmd });
+      ctx.onOk(result.exitCode === 0);
+      return `exitCode=${result.exitCode}\n${result.output.slice(0, 4000)}`;
+    }
+  }
 }

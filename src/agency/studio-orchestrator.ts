@@ -11,6 +11,7 @@
  * 4. Persists per-project conversation history + active plan on disk so reloads keep full state.
  */
 import crypto from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ModelClient } from "../llm/client.js";
@@ -20,10 +21,11 @@ import {
   listWorkspaceFiles,
   readWorkspaceFile,
   runStudioAiAgent,
+  runStudioCommand,
   type StudioAgentStep,
 } from "./studio.js";
 import type { AgencyAgentRole, Project } from "./types.js";
-import { initProjectWorkspace } from "./workspace-runner.js";
+import { initProjectWorkspace, resolveSafeWorkspacePath } from "./workspace-runner.js";
 
 export type StudioSubagentId = "architect" | "ui_ux" | "frontend" | "backend" | "qa";
 
@@ -105,6 +107,7 @@ export interface StudioChatMessage {
   plan?: StudioPlan;
   subagentRuns?: StudioSubagentRunSummary[];
   modifiedFiles?: string[];
+  snapshotCommit?: string;
 }
 
 export interface StudioProjectState {
@@ -222,6 +225,9 @@ function sanitizeMessage(raw: unknown): StudioChatMessage | null {
   }
   if (Array.isArray(m.modifiedFiles)) {
     msg.modifiedFiles = m.modifiedFiles.map((f) => String(f)).filter(Boolean).slice(0, 60);
+  }
+  if (typeof m.snapshotCommit === "string" && /^[0-9a-f]{7,40}$/i.test(m.snapshotCommit)) {
+    msg.snapshotCommit = m.snapshotCommit;
   }
   return msg;
 }
@@ -431,6 +437,52 @@ async function resolveModel(
   return model;
 }
 
+function detectVerificationPlan(
+  dataDir: string,
+  project: Project,
+): {
+  checks: Array<"npm_typecheck" | "npm_build">;
+  needsInstall: boolean;
+  missingPreviewReason: string;
+} {
+  try {
+    const raw = readWorkspaceFile(dataDir, project, "package.json").content;
+    const pkg = JSON.parse(raw) as {
+      scripts?: Record<string, string>;
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const checks: Array<"npm_typecheck" | "npm_build"> = [];
+    if (pkg.scripts?.typecheck) checks.push("npm_typecheck");
+    if (pkg.scripts?.build) checks.push("npm_build");
+    const allDeps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+    const hasDeps = Object.keys(allDeps).length > 0;
+    const { workspaceDir } = resolveSafeWorkspacePath(dataDir, project.workspacePath);
+    const needsInstall = hasDeps && !existsSync(path.join(workspaceDir, "node_modules"));
+
+    const isWebApp = /\b(vite|react|preact|svelte|vue|next|astro|tailwindcss)\b/i.test(raw);
+    const hasHtml =
+      existsSync(path.join(workspaceDir, "index.html")) ||
+      existsSync(path.join(workspaceDir, "public", "index.html")) ||
+      existsSync(path.join(workspaceDir, "dist", "index.html"));
+    const hasDevScript = Boolean(pkg.scripts?.dev?.trim() || pkg.scripts?.start?.trim());
+    const missingReasons: string[] = [];
+    if (isWebApp && !hasHtml) {
+      missingReasons.push("Fichier d'entrée `index.html` manquant à la racine du projet.");
+    }
+    if (isWebApp && !hasDevScript) {
+      missingReasons.push('Script `"dev": "vite"` manquant dans `package.json`.');
+    }
+    if (/\bvite\b/i.test(JSON.stringify(pkg.scripts ?? {})) && !allDeps.vite) {
+      missingReasons.push('Dépendance `vite` manquante dans `package.json` (`devDependencies`).');
+    }
+
+    return { checks, needsInstall, missingPreviewReason: missingReasons.join(" ") };
+  } catch {
+    return { checks: [], needsInstall: false, missingPreviewReason: "" };
+  }
+}
+
 export async function runStudioConversation(input: {
   dataDir: string;
   project: Project;
@@ -439,6 +491,7 @@ export async function runStudioConversation(input: {
   executePlan?: boolean;
   targetSubagent?: StudioSubagentId;
   attachedFileNames?: string[];
+  skipAutoVerify?: boolean;
   modelClient?: ModelClient;
   defaultModel?: string;
   hasLlmEndpoint?: boolean;
@@ -668,7 +721,7 @@ export async function runStudioConversation(input: {
       `TÂCHE ASSIGNÉE (#${task.id}) : ${task.title}`,
       task.description,
       `DEMANDE GLOBALE DE L'UTILISATEUR : ${userDisplay}`,
-      `Assure-toi que les fichiers produits fonctionnent ensemble (chemins relatifs ./styles.css, ./app.js valides dans index.html, aucune erreur JS/CSS).`,
+      `IMPORTANT APERÇU : Toute application web doit être immédiatement exécutable dans l'aperçu (soit \`index.html\` + \`./styles.css\` / \`./app.js\`, soit un projet Vite complet avec \`index.html\`, \`vite.config.js\`, \`src/main.*\`, \`src/App.*\` et \`"dev": "vite"\` + \`vite\` dans \`package.json\`).`,
     ].join("\n\n");
 
     try {
@@ -726,26 +779,134 @@ export async function runStudioConversation(input: {
     input.onEvent?.("plan", { plan: state.plan });
   }
 
+  // Détection automatique d'erreurs (entrypoint aperçu / typecheck / build) + boucle d'auto-réparation QA
+  if (!input.skipAutoVerify && (allModified.size > 0 || runs.some((r) => r.ok))) {
+    const qaRuntime = input.resolveRuntime("qa_technical");
+    const MAX_AUTO_FIX_ATTEMPTS = 2;
+    let didInstall = false;
+    for (let attempt = 1; attempt <= MAX_AUTO_FIX_ATTEMPTS; attempt++) {
+      const verifyPlan = detectVerificationPlan(input.dataDir, input.project);
+      if (verifyPlan.checks.length === 0 && !verifyPlan.missingPreviewReason) break;
+
+      if (verifyPlan.needsInstall && !didInstall) {
+        didInstall = true;
+        const inst = await runStudioCommand({ dataDir: input.dataDir, project: input.project, action: "npm_install" });
+        input.onEvent?.("step", {
+          step: attempt,
+          tool: "add_dependency",
+          target: "npm install",
+          ok: inst.exitCode === 0,
+          summary: inst.output.slice(0, 240),
+          subagent: "qa",
+        });
+      }
+
+      let failedCheck: { action: string; output: string } | null = null;
+      if (verifyPlan.missingPreviewReason) {
+        failedCheck = { action: "preview_entrypoint", output: verifyPlan.missingPreviewReason };
+        input.onEvent?.("step", {
+          step: attempt,
+          tool: "run_check",
+          target: "preview_entrypoint",
+          ok: false,
+          summary: verifyPlan.missingPreviewReason.slice(0, 240),
+          subagent: "qa",
+        });
+      } else {
+        for (const check of verifyPlan.checks) {
+          const res = await runStudioCommand({ dataDir: input.dataDir, project: input.project, action: check });
+          input.onEvent?.("step", {
+            step: attempt,
+            tool: "run_check",
+            target: check,
+            ok: res.exitCode === 0,
+            summary: res.output.slice(0, 240),
+            subagent: "qa",
+          });
+          if (res.exitCode !== 0) {
+            failedCheck = { action: check, output: res.output };
+            break;
+          }
+        }
+      }
+      if (!failedCheck) break;
+
+      const fixTitle = `Correction automatique (${failedCheck.action})`;
+      input.onEvent?.("subagent_start", {
+        taskId: `auto-fix-${attempt}`,
+        subagent: "qa",
+        displayName: qaRuntime.displayName,
+        skills: qaRuntime.skills,
+        title: fixTitle,
+      });
+      try {
+        const fixResult = await runStudioAiAgent({
+          dataDir: input.dataDir,
+          project: input.project,
+          instruction: [
+            `La vérification automatique \`${failedCheck.action}\` a échoué (tentative ${attempt}/${MAX_AUTO_FIX_ATTEMPTS}).`,
+            `ERREURS EXACTES :\n${failedCheck.output.slice(0, 3500)}`,
+            `Inspecte les fichiers concernés avec <studio-read>, corrige la cause racine avec <studio-patch> / <studio-write> (ou <studio-add-dep packages="..." />), puis termine avec <studio-done>.`,
+          ].join("\n\n"),
+          maxSteps: Math.max(6, qaRuntime.maxSteps || 8),
+          modelClient: input.modelClient,
+          defaultModel: qaRuntime.model || input.defaultModel,
+          hasLlmEndpoint: true,
+          agentInstructions: qaRuntime.agentInstructions,
+          agentRules: qaRuntime.agentRules,
+          onStep: (step: StudioAgentStep) => {
+            input.onEvent?.("step", { ...step, taskId: `auto-fix-${attempt}`, subagent: "qa" });
+          },
+        });
+        for (const f of fixResult.modifiedFiles) allModified.add(f);
+        if (fixResult.modifiedFiles.includes("package.json")) didInstall = false;
+        const fixSummary: StudioSubagentRunSummary = {
+          taskId: `auto-fix-${attempt}`,
+          subagent: "qa",
+          title: fixTitle,
+          ok: true,
+          summary: fixResult.summary,
+          modifiedFiles: fixResult.modifiedFiles,
+        };
+        runs.push(fixSummary);
+        input.onEvent?.("subagent_done", fixSummary);
+        if (fixResult.modifiedFiles.length === 0) break;
+      } catch (err) {
+        const fixSummary: StudioSubagentRunSummary = {
+          taskId: `auto-fix-${attempt}`,
+          subagent: "qa",
+          title: fixTitle,
+          ok: false,
+          summary: (err as Error).message || "Échec correction auto",
+          modifiedFiles: [],
+        };
+        runs.push(fixSummary);
+        input.onEvent?.("subagent_done", fixSummary);
+        break;
+      }
+    }
+  }
+
   const modifiedList = [...allModified];
-  const answerLines = [
-    `### Exécution terminée (${runs.filter((r) => r.ok).length}/${runs.length} sous-agents réussis)`,
-    ...runs.map(
-      (r) =>
-        `- **${r.subagent}** · ${r.title} : ${r.summary}${r.modifiedFiles.length ? ` (\`${r.modifiedFiles.join("`, `")}\`)` : ""}`,
-    ),
-    modifiedList.length
-      ? `\nFichiers modifiés (${modifiedList.length}) : \`${modifiedList.join("`, `")}\`.`
-      : "",
-  ].filter(Boolean);
+  const postSnap =
+    modifiedList.length > 0
+      ? await createStudioSnapshot(input.dataDir, input.project, userDisplay.slice(0, 60)).catch(() => undefined)
+      : undefined;
+  const snapshotCommit = postSnap?.commitHash;
+
+  const answerLines = runs.map(
+    (r) => `- **${r.subagent}** · ${r.title} : ${r.summary}`,
+  );
 
   const assistantMsg: StudioChatMessage = {
     id: crypto.randomUUID(),
     role: "assistant",
     mode: "build",
-    text: answerLines.join("\n"),
+    text: answerLines.join("\n") || "Modifications appliquées.",
     at: new Date().toISOString(),
     subagentRuns: runs,
     modifiedFiles: modifiedList,
+    ...(snapshotCommit ? { snapshotCommit } : {}),
   };
   state.messages.push(assistantMsg);
   const saved = await saveStudioState(input.dataDir, input.project.id, state);
@@ -755,6 +916,7 @@ export async function runStudioConversation(input: {
     plan: state.plan,
     modifiedFiles: modifiedList,
     subagentRuns: runs,
+    ...(snapshotCommit ? { snapshotCommit } : {}),
     state: saved,
   });
   return { message: assistantMsg, plan: state.plan, state: saved };

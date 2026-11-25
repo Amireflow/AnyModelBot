@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { BotAvatar } from "../../components/avatar.js";
 import { Markdown } from "../../components/markdown.js";
 import { CopyButton, html, Icon, Spinner } from "../../components/ui.js";
@@ -8,13 +8,6 @@ import { agentAvatarOf } from "./agent-avatars.js";
 import { readFilePayload } from "./copilot.js";
 
 const enc = encodeURIComponent;
-const COMMANDS = [
-  ["npm_test", "npm test"],
-  ["npm_typecheck", "typecheck"],
-  ["npm_build", "build"],
-  ["git_status", "git status"],
-  ["npm_install", "npm install"],
-];
 
 const SUBAGENT_DEFAULT_ROLES = {
   architect: "architect",
@@ -44,22 +37,94 @@ function deriveProjectTitle(text, files) {
   return t("agency.studioNewProjectTitle");
 }
 
-export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
+function buildFileTree(files, query) {
+  const q = String(query || "").trim().toLowerCase();
+  const filtered = q ? files.filter((f) => f.path.toLowerCase().includes(q)) : files;
+  const root = { name: "", path: "", dirs: new Map(), files: [] };
+  for (const item of filtered) {
+    const parts = String(item.path || "").split("/").filter(Boolean);
+    let node = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const seg = parts[i];
+      const fullPath = parts.slice(0, i + 1).join("/");
+      if (!node.dirs.has(seg)) {
+        node.dirs.set(seg, { name: seg, path: fullPath, dirs: new Map(), files: [] });
+      }
+      node = node.dirs.get(seg);
+    }
+    node.files.push({ name: parts[parts.length - 1] || item.path, path: item.path });
+  }
+  const sortNode = (node) => {
+    const dirs = Array.from(node.dirs.values())
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(sortNode);
+    const fls = [...node.files].sort((a, b) => a.name.localeCompare(b.name));
+    return { ...node, dirs, files: fls };
+  };
+  return sortNode(root);
+}
+
+function extractSummaryTitle(text, fallback) {
+  const line = String(text || "")
+    .split(/\r?\n/)
+    .map((l) => l.replace(/^#+\s*|^\s*[-*]\s*|\*\*/g, "").trim())
+    .find(Boolean) || "";
+  if (!line) return fallback;
+  return line.length > 56 ? `${line.slice(0, 55).trim()}…` : line;
+}
+
+function formatElapsed(totalSec) {
+  const s = Math.max(0, Math.floor(totalSec));
+  const min = Math.floor(s / 60);
+  const rem = s % 60;
+  return `${min}:${String(rem).padStart(2, "0")}`;
+}
+
+function describeLiveStep(st) {
+  const tool = String(st?.tool || "");
+  const target = String(st?.target || "").trim();
+  const map = {
+    read_file: ["file", "Lecture"],
+    write_file: ["compose", "Écriture"],
+    patch_file: ["code", "Modification"],
+    delete_file: ["trash", "Suppression"],
+    add_dependency: ["download", "Dépendances"],
+    run_check: ["sliders", target || "Vérification"],
+    list_files: ["search", "Exploration"],
+    search_files: ["search", "Recherche"],
+    finish: ["check", "Terminé"],
+    no_action: ["spark", "Analyse"],
+    auto_fix: ["shield", "Correction"],
+  };
+  const [icon, label] = map[tool] || ["spark", tool || "Action"];
+  return { icon, label, target: tool === "run_check" ? "" : target };
+}
+
+export function ProjectStudio({
+  orgId,
+  project,
+  projects = [],
+  selectedProjectId = "__new__",
+  onSelectProject,
+  onProjectCreated,
+  onChanged,
+}) {
   const [files, setFiles] = useState([]);
   const [selectedPath, setSelectedPath] = useState("");
+  const [openTabs, setOpenTabs] = useState([]);
   const [content, setContent] = useState("");
+  const [savedContent, setSavedContent] = useState("");
+  const [fileQuery, setFileQuery] = useState("");
+  const [collapsedDirs, setCollapsedDirs] = useState({});
+  const [newFileOpen, setNewFileOpen] = useState(false);
   const [newFilePath, setNewFilePath] = useState("");
-  const [command, setCommand] = useState("npm_test");
-  const [terminalOut, setTerminalOut] = useState("");
   const [snapshots, setSnapshots] = useState([]);
-  const [selectedSnapshot, setSelectedSnapshot] = useState("");
 
-  // Conversational Lovable/Bolt workbench state
-  const [mode, setMode] = useState("plan");
+  // Conversational workbench state
+  const [mode, setMode] = useState("build");
   const [targetSubagent, setTargetSubagent] = useState("");
   const [messages, setMessages] = useState([]);
   const [plan, setPlan] = useState(null);
-  const [subagents, setSubagents] = useState([]);
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState([]);
   const [dragging, setDragging] = useState(false);
@@ -67,29 +132,67 @@ export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
   // Live SSE streaming feedback
   const [activeSubagent, setActiveSubagent] = useState(null);
   const [liveSteps, setLiveSteps] = useState([]);
+  const [elapsedSec, setElapsedSec] = useState(0);
 
   // Right pane tabs & preview viewport
   const [workspaceTab, setWorkspaceTab] = useState("preview");
   const [viewport, setViewport] = useState("desktop"); // desktop | tablet | mobile
   const [previewNonce, setPreviewNonce] = useState(1);
+  const [devServer, setDevServer] = useState(null);
+  const [devServerBusy, setDevServerBusy] = useState(false);
 
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
   const threadRef = useRef(null);
+  const composerRef = useRef(null);
+  const gutterRef = useRef(null);
   const chatUploadRef = useRef(null);
   const treeUploadRef = useRef(null);
   const justCreatedIdRef = useRef("");
 
+  const isDirty = !!selectedPath && content !== savedContent;
+  const lineCount = useMemo(() => Math.max(1, String(content || "").split("\n").length), [content]);
+  const fileTree = useMemo(() => buildFileTree(files, fileQuery), [files, fileQuery]);
+
+  const resizeComposer = () => {
+    const el = composerRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  };
+
+  useEffect(() => {
+    resizeComposer();
+  }, [input]);
+
   const openFile = async (relPath, pid = project?.id) => {
     if (!relPath || !pid) return;
     setSelectedPath(relPath);
+    setOpenTabs((prev) => (prev.includes(relPath) ? prev : [...prev.slice(-7), relPath]));
     try {
       const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/file?path=${enc(relPath)}`);
-      setContent(res.content || "");
+      const text = res.content || "";
+      setContent(text);
+      setSavedContent(text);
     } catch (err) {
       setError(err.message);
+    }
+  };
+
+  const closeTab = (relPath, e) => {
+    e?.stopPropagation();
+    const nextTabs = openTabs.filter((p) => p !== relPath);
+    setOpenTabs(nextTabs);
+    if (selectedPath === relPath) {
+      const fallback = nextTabs[nextTabs.length - 1] || "";
+      if (fallback) void openFile(fallback);
+      else {
+        setSelectedPath("");
+        setContent("");
+        setSavedContent("");
+      }
     }
   };
 
@@ -97,11 +200,7 @@ export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
     if (!orgId || !pid) { setSnapshots([]); return; }
     try {
       const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/snapshots`);
-      const items = res.items || [];
-      setSnapshots(items);
-      if (items.length && !items.some((s) => s.commitHash === selectedSnapshot)) {
-        setSelectedSnapshot(items[0].commitHash);
-      }
+      setSnapshots(res.items || []);
     } catch {
       setSnapshots([]);
     }
@@ -111,7 +210,9 @@ export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
     if (!orgId || !pid) {
       setFiles([]);
       setSelectedPath("");
+      setOpenTabs([]);
       setContent("");
+      setSavedContent("");
       setSnapshots([]);
       return;
     }
@@ -119,9 +220,11 @@ export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
       const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/files`);
       const list = res.items || [];
       setFiles(list);
-      const next = preferPath || (list.some((f) => f.path === selectedPath) ? selectedPath : (list[0]?.path || ""));
+      const validPaths = new Set(list.map((f) => f.path));
+      setOpenTabs((prev) => prev.filter((p) => validPaths.has(p)));
+      const next = preferPath || (validPaths.has(selectedPath) ? selectedPath : (list[0]?.path || ""));
       if (next) await openFile(next, pid);
-      else { setSelectedPath(""); setContent(""); }
+      else { setSelectedPath(""); setContent(""); setSavedContent(""); }
       void loadSnapshots(pid);
     } catch (err) {
       setError(err.message);
@@ -138,10 +241,58 @@ export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
       const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/state`);
       setMessages(Array.isArray(res.messages) ? res.messages : []);
       setPlan(res.plan || null);
-      setSubagents(Array.isArray(res.subagents) ? res.subagents : []);
     } catch {
       setMessages([]);
       setPlan(null);
+    }
+  };
+
+  const loadDevServer = async (pid = project?.id) => {
+    if (!orgId || !pid) {
+      setDevServer(null);
+      return null;
+    }
+    try {
+      const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/devserver`);
+      setDevServer(res || null);
+      return res || null;
+    } catch {
+      setDevServer(null);
+      return null;
+    }
+  };
+
+  const startDevServer = async (pid = project?.id, { restart = false } = {}) => {
+    if (!orgId || !pid || devServerBusy) return null;
+    setDevServerBusy(true); setError(""); setNotice("");
+    try {
+      const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/devserver/start`, {
+        method: "POST",
+        body: restart ? { restart: true } : {},
+      });
+      setDevServer(res || null);
+      if (res?.error) setError(res.error);
+      setPreviewNonce((n) => n + 1);
+      setWorkspaceTab("preview");
+      return res || null;
+    } catch (err) {
+      setError(err.message);
+      return null;
+    } finally {
+      setDevServerBusy(false);
+    }
+  };
+
+  const stopDevServer = async (pid = project?.id) => {
+    if (!orgId || !pid || devServerBusy) return;
+    setDevServerBusy(true); setError("");
+    try {
+      const res = await api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/devserver/stop`, { method: "POST" });
+      setDevServer(res || null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDevServerBusy(false);
     }
   };
 
@@ -155,25 +306,40 @@ export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
     setError("");
     setLiveSteps([]);
     setActiveSubagent(null);
-    setTerminalOut("");
+    setFileQuery("");
+    setCollapsedDirs({});
+    setOpenTabs([]);
     if (!pid) {
       setFiles([]);
       setSelectedPath("");
       setContent("");
+      setSavedContent("");
       setSnapshots([]);
       setMessages([]);
       setPlan(null);
+      setDevServer(null);
       setWorkspaceTab("preview");
       return;
     }
     void loadFiles("", pid);
     void loadStudioState(pid);
+    void loadDevServer(pid);
   }, [orgId, project?.id]);
 
   useEffect(() => {
     const el = threadRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length, liveSteps.length, busy]);
+
+  useEffect(() => {
+    if (busy !== "chat") {
+      setElapsedSec(0);
+      return;
+    }
+    setElapsedSec(0);
+    const id = setInterval(() => setElapsedSec((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [busy]);
 
   const handleChatFiles = async (fileList) => {
     if (!fileList?.length) return;
@@ -223,7 +389,6 @@ export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
       let activeProjectId = project?.id || "";
       let streamFiles = attached;
 
-      // Création automatique du projet dès le premier message / cahier des charges dans le chat
       if (!activeProjectId) {
         const created = await api(`/agency/${enc(orgId)}/projects/direct`, {
           method: "POST",
@@ -296,10 +461,16 @@ export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
 
       const modified = Array.isArray(finalPayload?.modifiedFiles) ? finalPayload.modifiedFiles : [];
       await loadFiles(modified[0] || "", activeProjectId);
+      const ds = await loadDevServer(activeProjectId);
       if (modified.length > 0 || runMode === "build") {
+        setWorkspaceTab("preview");
         setPreviewNonce((n) => n + 1);
-        if (modified.some((p) => p === "index.html" || p === "public/index.html" || p.endsWith(".css") || p.endsWith(".js"))) {
-          setWorkspaceTab("preview");
+        if (ds?.hasDevScript) {
+          if (!ds.running) {
+            await startDevServer(activeProjectId, { restart: false });
+          } else if (modified.includes("package.json")) {
+            await startDevServer(activeProjectId, { restart: true });
+          }
         }
       }
       onChanged?.();
@@ -335,6 +506,7 @@ export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
         body: { path: rel, content: "" },
       });
       setNewFilePath("");
+      setNewFileOpen(false);
       await loadFiles(rel);
     } catch (err) { setError(err.message); } finally { setBusy(""); }
   };
@@ -347,10 +519,24 @@ export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
         method: "PUT",
         body: { path: selectedPath, content },
       });
+      setSavedContent(content);
       setPreviewNonce((n) => n + 1);
       setNotice(`${selectedPath} ✓`);
       await loadFiles(selectedPath);
     } catch (err) { setError(err.message); } finally { setBusy(""); }
+  };
+
+  const downloadCurrentFile = () => {
+    if (!selectedPath) return;
+    const blob = new Blob([content || ""], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = selectedPath.split("/").pop() || "file.txt";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   };
 
   const deleteFile = async () => {
@@ -360,19 +546,6 @@ export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
       await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/file?path=${enc(selectedPath)}`, { method: "DELETE" });
       setPreviewNonce((n) => n + 1);
       await loadFiles();
-    } catch (err) { setError(err.message); } finally { setBusy(""); }
-  };
-
-  const runCheck = async () => {
-    if (!project?.id) return;
-    setBusy("run"); setError(""); setNotice("");
-    try {
-      const res = await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/run`, {
-        method: "POST",
-        body: { action: command },
-      });
-      setTerminalOut(`$ ${command} (exit=${res.exitCode})\n${res.output || ""}`);
-      setWorkspaceTab("ops");
     } catch (err) { setError(err.message); } finally { setBusy(""); }
   };
 
@@ -387,6 +560,10 @@ export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
       setNotice(t("agency.studioRollbackDone", { commit: (res.restoredCommit || "").slice(0, 7) }));
       await loadFiles();
       setPreviewNonce((n) => n + 1);
+      const ds = await loadDevServer(project.id);
+      if (ds?.hasDevScript && ds.running) {
+        await startDevServer(project.id, { restart: true });
+      }
       onChanged?.();
     } catch (err) { setError(err.message); } finally { setBusy(""); }
   };
@@ -413,14 +590,56 @@ export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
 
   const openFileInCode = (relPath) => {
     setWorkspaceTab("code");
-    void openFile(relPath);
+    if (relPath) void openFile(relPath);
   };
 
-  const hasIndex = !!project?.id && files.some((f) => f.path === "index.html" || f.path === "public/index.html");
+  const openPreview = () => {
+    setPreviewNonce((n) => n + 1);
+    setWorkspaceTab("preview");
+  };
+
+  const hasIndex = !!project?.id && (files.some((f) => f.path === "index.html" || f.path === "public/index.html") || !!devServer?.running);
   const previewPath = files.some((f) => f.path === "public/index.html") ? "public/index.html" : "index.html";
-  const previewUrl = project?.id
+  const staticPreviewUrl = project?.id
     ? `/amb/api/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/preview/${previewPath}?v=${previewNonce}`
     : "";
+  const previewUrl = devServer?.running && devServer.url ? devServer.url : staticPreviewUrl;
+  const displayPreviewHost = devServer?.running && devServer.port ? `127.0.0.1:${devServer.port}` : `/${previewPath}`;
+
+  const toggleDir = (dirPath) => {
+    setCollapsedDirs((prev) => ({ ...prev, [dirPath]: !prev[dirPath] }));
+  };
+
+  const renderTreeNode = (node, depth = 0) => html`
+    ${node.dirs.map((dir) => {
+      const closed = !!collapsedDirs[dir.path];
+      return html`<div key=${dir.path} class="agency-studio-tree-group">
+        <button
+          type="button"
+          class="agency-studio-tree-dir"
+          style=${{ paddingInlineStart: `calc(var(--space-2) + ${depth} * var(--space-3))` }}
+          onClick=${() => toggleDir(dir.path)}
+          title=${dir.path}
+        >
+          <${Icon} name=${closed ? "chevRight" : "chevDown"} size="xs" />
+          <${Icon} name="folder" size="sm" />
+          <span class="agency-truncate">${dir.name}</span>
+        </button>
+        ${!closed && renderTreeNode(dir, depth + 1)}
+      </div>`;
+    })}
+    ${node.files.map((f) => html`<button
+      key=${f.path}
+      type="button"
+      class=${"agency-studio-file" + (f.path === selectedPath ? " active" : "")}
+      style=${{ paddingInlineStart: `calc(var(--space-5) + ${depth} * var(--space-3))` }}
+      title=${f.path}
+      onClick=${() => openFile(f.path)}
+    >
+      <${Icon} name="file" size="sm" />
+      <span class="agency-truncate">${f.name}</span>
+    </button>`)}
+  `;
 
   const renderPlanCard = (pl, compact = false) => {
     if (!pl) return null;
@@ -442,8 +661,10 @@ export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
         ${pl.tasks.map((tk) => html`<div class="agency-studio-task-row">
           <${BotAvatar} char=${agentAvatarOf(SUBAGENT_DEFAULT_ROLES[tk.subagent] || "developer")} size=${22} state=${tk.status === "running" ? "working" : "idle"} />
           <div class="agency-studio-task-body">
-            <strong>${tk.title}</strong>
-            <small>${t(`agency.studioSubagentNames.${tk.subagent}`)}${tk.targetFiles?.length ? ` · ${tk.targetFiles.join(", ")}` : ""}</small>
+            <strong class="agency-truncate" title=${tk.title}>${tk.title}</strong>
+            <small class="agency-truncate" title=${tk.targetFiles?.join(", ") || ""}>
+              ${t(`agency.studioSubagentNames.${tk.subagent}`)}${tk.targetFiles?.length ? (compact ? ` · ${tk.targetFiles.length} ${t("agency.studioFilesTitle").toLowerCase()}` : ` · ${tk.targetFiles.join(", ")}`) : ""}
+            </small>
           </div>
           <span class=${"agency-whatsapp-state " + tk.status}>${tk.status}</span>
         </div>`)}
@@ -456,20 +677,34 @@ export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
     </div>`;
   };
 
+  const canSend = !busy && (input.trim().length > 0 || attachments.length > 0);
+
   return html`<section class="agency-studio-workbench">
-    <div
+    <aside
       class=${"agency-studio-chat" + (dragging ? " dragging" : "")}
       onDragOver=${(e) => { e.preventDefault(); setDragging(true); }}
       onDragLeave=${() => setDragging(false)}
       onDrop=${(e) => { e.preventDefault(); setDragging(false); void handleChatFiles(e.dataTransfer?.files); }}
     >
       <div class="agency-studio-chat-top">
-        <div class="agency-studio-mode-switch" role="tablist" aria-label=${t("agency.studioModeLabel")}>
-          <button type="button" role="tab" aria-selected=${mode === "plan"} class=${mode === "plan" ? "active" : ""} onClick=${() => setMode("plan")}>${t("agency.studioModePlan")}</button>
-          <button type="button" role="tab" aria-selected=${mode === "build"} class=${mode === "build" ? "active" : ""} onClick=${() => setMode("build")}>${t("agency.studioModeBuild")}</button>
+        <div class="agency-studio-project-pick">
+          <select
+            class="field agency-studio-project-select"
+            aria-label=${t("agency.projectsTitle")}
+            value=${selectedProjectId}
+            onChange=${(e) => onSelectProject?.(e.currentTarget.value)}
+          >
+            <option value="__new__">${t("agency.studioNewChatOption")}</option>
+            ${projects.map((p) => html`<option value=${p.id}>${p.title}</option>`)}
+          </select>
         </div>
         <div class="agency-studio-chat-tools">
-          <select class="field" aria-label=${t("agency.studioSubagentFilterLabel")} value=${targetSubagent} onChange=${(e) => setTargetSubagent(e.currentTarget.value)}>
+          <select
+            class="field agency-studio-agent-select"
+            aria-label=${t("agency.studioSubagentFilterLabel")}
+            value=${targetSubagent}
+            onChange=${(e) => setTargetSubagent(e.currentTarget.value)}
+          >
             <option value="">${t("agency.studioSubagentAuto")}</option>
             <option value="architect">${t("agency.studioSubagentNames.architect")}</option>
             <option value="ui_ux">${t("agency.studioSubagentNames.ui_ux")}</option>
@@ -477,7 +712,25 @@ export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
             <option value="backend">${t("agency.studioSubagentNames.backend")}</option>
             <option value="qa">${t("agency.studioSubagentNames.qa")}</option>
           </select>
-          ${messages.length > 0 && project?.id && html`<button class="text" type="button" disabled=${!!busy} onClick=${clearHistory}>${t("agency.copilotClearBtn")}</button>`}
+          <button
+            class="icon-btn sm"
+            type="button"
+            title=${t("agency.newStudioProjectBtn")}
+            aria-label=${t("agency.newStudioProjectBtn")}
+            onClick=${() => onSelectProject?.("__new__")}
+          >
+            <${Icon} name="plus" size="sm" />
+          </button>
+          ${messages.length > 0 && project?.id && html`<button
+            class="icon-btn sm"
+            type="button"
+            disabled=${!!busy}
+            title=${t("agency.copilotClearBtn")}
+            aria-label=${t("agency.copilotClearBtn")}
+            onClick=${clearHistory}
+          >
+            <${Icon} name="trash" size="sm" />
+          </button>`}
         </div>
       </div>
 
@@ -493,219 +746,411 @@ export function ProjectStudio({ orgId, project, onProjectCreated, onChanged }) {
           </div>
           <div class="agency-studio-starters">
             <button type="button" class="agency-copilot-prompt" disabled=${!!busy} onClick=${() => sendStudioTurn({ mode: "plan", message: t("agency.studioStarterPlan") })}>
-              <span>${t("agency.studioStarterPlan")}</span>
+              <span class="agency-copilot-prompt-icon tone-blue"><${Icon} name="outline" size="sm" /></span>
+              <strong>${t("agency.studioStarterPlan")}</strong>
             </button>
             <button type="button" class="agency-copilot-prompt" disabled=${!!busy} onClick=${() => sendStudioTurn({ mode: "build", message: t("agency.studioStarterBuild") })}>
-              <span>${t("agency.studioStarterBuild")}</span>
+              <span class="agency-copilot-prompt-icon tone-purple"><${Icon} name="spark" size="sm" /></span>
+              <strong>${t("agency.studioStarterBuild")}</strong>
             </button>
             <button type="button" class="agency-copilot-prompt" disabled=${!!busy} onClick=${() => sendStudioTurn({ mode: "build", targetSubagent: "ui_ux", message: t("agency.studioStarterDesign") })}>
-              <span>${t("agency.studioStarterDesign")}</span>
+              <span class="agency-copilot-prompt-icon tone-teal"><${Icon} name="palette" size="sm" /></span>
+              <strong>${t("agency.studioStarterDesign")}</strong>
             </button>
             <button type="button" class="agency-copilot-prompt" disabled=${!!busy} onClick=${() => sendStudioTurn({ mode: "build", targetSubagent: "qa", message: t("agency.studioStarterQa") })}>
-              <span>${t("agency.studioStarterQa")}</span>
+              <span class="agency-copilot-prompt-icon tone-amber"><${Icon} name="shield" size="sm" /></span>
+              <strong>${t("agency.studioStarterQa")}</strong>
             </button>
           </div>
           <small class="agency-muted">${t("agency.studioDropDocsHint")}</small>
         </div>`}
 
-        ${messages.map((m) => m.role === "user"
-          ? html`<article key=${m.id} class="agency-copilot-msg user">
-              <div class="agency-studio-msg-tag">${m.mode === "plan" ? t("agency.studioModePlan") : t("agency.studioModeBuild")}</div>
+        ${messages.map((m) => {
+          if (m.role === "user") {
+            return html`<article key=${m.id} class="agency-studio-msg user">
               <p class="agency-copilot-user-text">${m.text}</p>
               ${m.files?.length > 0 && html`<div class="agency-copilot-attachments">
-                ${m.files.map((fname) => html`<span class="agency-copilot-chip"><${Icon} name="doc" size="sm" />${fname}</span>`)}
+                ${m.files.map((fname) => html`<span class="agency-copilot-chip"><${Icon} name="doc" size="sm" /><span class="agency-truncate">${fname}</span></span>`)}
               </div>`}
-            </article>`
-          : html`<article key=${m.id} class="agency-copilot-msg assistant">
-              <div class="agency-copilot-msg-head">
-                <div class="agency-copilot-msg-meta">
-                  <strong>Studio IA</strong>
-                  <span class="agency-whatsapp-state">${m.mode === "plan" ? t("agency.studioModePlan") : t("agency.studioModeBuild")}</span>
+            </article>`;
+          }
+          const modFiles = Array.isArray(m.modifiedFiles) ? m.modifiedFiles : [];
+          const restoreRef = m.snapshotCommit || "";
+          const canRestore = !!project?.id && (!!restoreRef || (modFiles.length > 0 && snapshots.length > 0));
+          return html`<article key=${m.id} class="agency-studio-msg assistant">
+            ${(modFiles.length > 0 || restoreRef) && html`<div class="agency-studio-checkpoint">
+              <div class="agency-studio-checkpoint-head">
+                <strong class="agency-truncate">${extractSummaryTitle(m.text, `${modFiles.length} ${t("agency.studioFilesTitle").toLowerCase()}`)}</strong>
+                <div class="agency-studio-checkpoint-right">
+                  ${modFiles.length > 0 && html`<span class="agency-studio-checkpoint-count">${modFiles.length}</span>`}
+                  ${canRestore && html`<button
+                    type="button"
+                    class="agency-studio-checkpoint-restore"
+                    disabled=${!!busy}
+                    title=${restoreRef ? restoreRef.slice(0, 7) : t("agency.studioRollbackBtn")}
+                    onClick=${() => rollbackSnapshot(restoreRef || undefined)}
+                  >
+                    <${Icon} name="reset" size="xs" /><span>${t("agency.studioRollbackBtn")}</span>
+                  </button>`}
                 </div>
-                <${CopyButton} text=${m.text} />
               </div>
-              <${Markdown} text=${m.text} />
-              ${m.plan && renderPlanCard(m.plan, true)}
-              ${m.subagentRuns?.length > 0 && html`<details class="agency-copilot-actions-list" open>
-                <summary>${t("agency.studioSubagentRunsTitle")} (${m.subagentRuns.length})</summary>
-                ${m.subagentRuns.map((run) => html`<div class="agency-copilot-action-row">
-                  <span class="agency-agent-inline">
-                    <${BotAvatar} char=${agentAvatarOf(SUBAGENT_DEFAULT_ROLES[run.subagent] || "developer")} size=${20} state="idle" />
-                    <strong class="agency-truncate">${t(`agency.studioSubagentNames.${run.subagent}`)} · ${run.title}</strong>
-                  </span>
-                  <span class=${"agency-whatsapp-state " + (run.ok ? "accepted" : "blocked")}>${run.ok ? "OK" : "ERR"}</span>
-                </div>`)}
-              </details>`}
-              ${m.modifiedFiles?.length > 0 && html`<div class="agency-copilot-attachments">
-                ${m.modifiedFiles.map((f) => html`<button type="button" class="agency-studio-file-pill" onClick=${() => openFileInCode(f)}>
-                  <${Icon} name="doc" size="sm" /><span>${f}</span>
+              <div class="agency-studio-checkpoint-actions">
+                <button type="button" class="agency-studio-checkpoint-btn" onClick=${() => openFileInCode(modFiles[0] || "")}>
+                  <${Icon} name="code" size="xs" /><span>${t("agency.studioTabCode")}</span>
+                </button>
+                <button
+                  type="button"
+                  class=${"agency-studio-checkpoint-btn" + (workspaceTab === "preview" ? " active" : "")}
+                  onClick=${openPreview}
+                >
+                  <${Icon} name="globe" size="xs" /><span>${t("agency.studioTabPreview")}</span>
+                </button>
+              </div>
+              ${modFiles.length > 0 && html`<div class="agency-copilot-attachments">
+                ${modFiles.slice(0, 4).map((f) => html`<button type="button" class="agency-studio-file-pill" onClick=${() => openFileInCode(f)}>
+                  <${Icon} name="file" size="xs" /><span class="agency-truncate">${f}</span>
                 </button>`)}
+                ${modFiles.length > 4 && html`<span class="agency-studio-checkpoint-count">+${modFiles.length - 4}</span>`}
               </div>`}
-            </article>`)}
+            </div>`}
+            <div class="agency-studio-msg-body">
+              <${Markdown} text=${m.text} />
+            </div>
+            ${m.plan && renderPlanCard(m.plan, true)}
+            ${m.subagentRuns?.length > 0 && html`<details class="agency-studio-details">
+              <summary>
+                <span>${t("agency.studioSubagentRunsTitle")} (${m.subagentRuns.length})</span>
+              </summary>
+              <div class="agency-studio-details-list">
+                ${m.subagentRuns.map((run) => html`<div class="agency-studio-run-row">
+                  <${BotAvatar} char=${agentAvatarOf(SUBAGENT_DEFAULT_ROLES[run.subagent] || "developer")} size=${18} state="idle" />
+                  <span class="agency-truncate" title=${run.title}>${t(`agency.studioSubagentNames.${run.subagent}`)} · ${run.title}</span>
+                  <span class=${"agency-studio-step-status " + (run.ok ? "ok" : "err")}>
+                    <${Icon} name=${run.ok ? "check" : "alert"} size="xs" />
+                  </span>
+                </div>`)}
+              </div>
+            </details>`}
+            <div class="agency-studio-msg-foot">
+              <${CopyButton} text=${m.text} />
+              ${canRestore && !modFiles.length && html`<button
+                type="button"
+                class="agency-studio-checkpoint-restore"
+                disabled=${!!busy}
+                onClick=${() => rollbackSnapshot(restoreRef || undefined)}
+              >
+                <${Icon} name="reset" size="xs" /><span>${t("agency.studioRollbackBtn")}</span>
+              </button>`}
+            </div>
+          </article>`;
+        })}
 
-        ${busy === "chat" && html`<div class="agency-studio-live-stream">
-          <div class="agency-loading">
-            <${Spinner} />
-            ${activeSubagent
-              ? html`<span><strong>${activeSubagent.displayName || t(`agency.studioSubagentNames.${activeSubagent.subagent}`)}</strong> · ${activeSubagent.title}</span>`
-              : html`<span>${mode === "plan" ? t("agency.studioPlanningStatus") : t("agency.studioBuildingStatus")}</span>`}
+        ${busy === "chat" && html`<div class="agency-studio-live-card" role="status" aria-live="polite">
+          <div class="agency-studio-live-head">
+            <${BotAvatar} char=${agentAvatarOf(SUBAGENT_DEFAULT_ROLES[activeSubagent?.subagent] || "developer")} size=${28} state="working" />
+            <div class="agency-studio-live-title">
+              <div class="agency-studio-live-sub">
+                <span class="agency-studio-live-dot" aria-hidden="true"></span>
+                <strong class="agency-truncate">
+                  ${activeSubagent
+                    ? (activeSubagent.displayName || t(`agency.studioSubagentNames.${activeSubagent.subagent}`))
+                    : (mode === "plan" ? t("agency.studioPlanningStatus") : t("agency.studioBuildingStatus"))}
+                </strong>
+              </div>
+              ${activeSubagent?.title && html`<small class="agency-truncate" title=${activeSubagent.title}>${activeSubagent.title}</small>`}
+            </div>
+            <span class="agency-studio-live-timer mono">${formatElapsed(elapsedSec)}</span>
           </div>
-          ${activeSubagent?.skills?.length > 0 && html`<div class="agency-copilot-attachments">
-            ${activeSubagent.skills.map((sk) => html`<span class="agency-studio-stack-pill">${sk}</span>`)}
-          </div>`}
-          ${liveSteps.length > 0 && html`<div class="agency-studio-steps">
-            ${liveSteps.slice(-6).map((st) => html`<div class="agency-audit-row">
-              <strong>[${st.subagent || "agent"}] #${st.step} · ${st.tool}${st.target ? ` (${st.target})` : ""}</strong>
-              <span class=${"agency-whatsapp-state " + (st.ok ? "accepted" : "blocked")}>${st.ok ? "OK" : "ERR"}</span>
-            </div>`)}
+          ${liveSteps.length > 0 && html`<div class="agency-studio-live-timeline">
+            ${liveSteps.slice(-6).map((st) => {
+              const desc = describeLiveStep(st);
+              return html`<div class="agency-studio-live-step">
+                <span class="agency-studio-step-ic"><${Icon} name=${desc.icon} size="xs" /></span>
+                <span class="agency-studio-step-label">${desc.label}</span>
+                ${desc.target && html`<code class="agency-studio-step-target agency-truncate mono" title=${desc.target}>${desc.target}</code>`}
+                <span class=${"agency-studio-step-status " + (st.ok ? "ok" : "err")}>
+                  <${Icon} name=${st.ok ? "check" : "alert"} size="xs" />
+                </span>
+              </div>`;
+            })}
           </div>`}
         </div>`}
       </div>
 
-      ${attachments.length > 0 && html`<div class="agency-copilot-attachments">
-        ${attachments.map((att, idx) => html`<span class="agency-copilot-chip">
-          <${Icon} name="doc" size="sm" />
-          <span>${att.name}</span>
-          <button class="text" type="button" aria-label=${t("agency.close")} onClick=${() => setAttachments((p) => p.filter((_, i) => i !== idx))}><${Icon} name="close" size="sm" /></button>
-        </span>`)}
-      </div>`}
-
-      <form class="agency-copilot-form" onSubmit=${(e) => { e.preventDefault(); void sendStudioTurn(); }}>
-        <input
-          ref=${chatUploadRef}
-          class="agency-copilot-file-input"
-          type="file"
-          multiple
-          accept=".txt,.md,.markdown,.csv,.json,.js,.mjs,.ts,.tsx,.jsx,.html,.css,.xml,.yaml,.yml,.sql,.pdf,.png,.jpg,.jpeg,.webp,.svg"
-          onChange=${(e) => { void handleChatFiles(e.currentTarget.files); e.currentTarget.value = ""; }}
-        />
-        <button class="btn" type="button" disabled=${!!busy || attachments.length >= MAX_ATTACH} title=${t("agency.studioUploadDocsBtn")} onClick=${() => chatUploadRef.current?.click()}>
-          <${Icon} name="doc" size="sm" />${t("agency.copilotAttachBtn")}
-        </button>
-        <input
-          class="field"
-          value=${input}
-          placeholder=${mode === "plan" ? t("agency.studioPlanPlaceholder") : t("agency.studioBuildPlaceholder")}
-          onInput=${(e) => setInput(e.currentTarget.value)}
-        />
-        <button class="btn primary" type="submit" disabled=${!!busy || (!input.trim() && attachments.length === 0)}>
-          ${busy === "chat" ? html`<${Spinner} />` : html`<${Icon} name="spark" size="sm" />`}
-          ${mode === "plan" ? t("agency.studioDiscussBtn") : t("agency.studioBuildBtn")}
-        </button>
-      </form>
-    </div>
+      <div class="agency-studio-dock">
+        <form
+          class=${"agency-studio-composer" + (dragging ? " drag" : "")}
+          onSubmit=${(e) => { e.preventDefault(); void sendStudioTurn(); }}
+        >
+          <input
+            ref=${chatUploadRef}
+            class="agency-copilot-file-input"
+            type="file"
+            multiple
+            accept=".txt,.md,.markdown,.csv,.json,.js,.mjs,.ts,.tsx,.jsx,.html,.css,.xml,.yaml,.yml,.sql,.pdf,.png,.jpg,.jpeg,.webp,.svg"
+            onChange=${(e) => { void handleChatFiles(e.currentTarget.files); e.currentTarget.value = ""; }}
+          />
+          ${attachments.length > 0 && html`<div class="agency-copilot-attachments">
+            ${attachments.map((att, idx) => html`<span class="agency-copilot-chip">
+              <${Icon} name="doc" size="sm" />
+              <span class="agency-truncate">${att.name}</span>
+              <button class="agency-copilot-chip-rm" type="button" aria-label=${t("agency.close")} onClick=${() => setAttachments((p) => p.filter((_, i) => i !== idx))}><${Icon} name="close" size="xs" /></button>
+            </span>`)}
+          </div>`}
+          <textarea
+            ref=${composerRef}
+            rows="1"
+            value=${input}
+            placeholder=${mode === "plan" ? t("agency.studioPlanPlaceholder") : t("agency.studioBuildPlaceholder")}
+            onInput=${(e) => setInput(e.currentTarget.value)}
+            onKeyDown=${(e) => {
+              if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+                e.preventDefault();
+                if (canSend) void sendStudioTurn();
+              }
+            }}
+          ></textarea>
+          <div class="agency-copilot-bar">
+            <button
+              class="agency-copilot-plus"
+              type="button"
+              disabled=${!!busy || attachments.length >= MAX_ATTACH}
+              title=${t("agency.studioUploadDocsBtn")}
+              aria-label=${t("agency.studioUploadDocsBtn")}
+              onClick=${() => chatUploadRef.current?.click()}
+            >
+              <${Icon} name="plus" size="md" />
+            </button>
+            <span class="grow"></span>
+            <div class="agency-studio-mode-switch" role="tablist" aria-label=${t("agency.studioModeLabel")}>
+              <button type="button" role="tab" aria-selected=${mode === "plan"} class=${mode === "plan" ? "active" : ""} onClick=${() => setMode("plan")}>${t("agency.studioModePlan")}</button>
+              <button type="button" role="tab" aria-selected=${mode === "build"} class=${mode === "build" ? "active" : ""} onClick=${() => setMode("build")}>${t("agency.studioModeBuild")}</button>
+            </div>
+            <button
+              class="agency-copilot-send"
+              type="submit"
+              disabled=${!canSend}
+              aria-busy=${busy === "chat" ? "true" : undefined}
+              title=${mode === "plan" ? t("agency.studioDiscussBtn") : t("agency.studioBuildBtn")}
+              aria-label=${mode === "plan" ? t("agency.studioDiscussBtn") : t("agency.studioBuildBtn")}
+            >
+              ${busy === "chat" ? html`<${Spinner} />` : html`<${Icon} name="up" size="sm" strong=${true} />`}
+            </button>
+          </div>
+        </form>
+      </div>
+    </aside>
 
     <div class="agency-studio-workspace">
       <div class="agency-studio-ws-head">
-        <div class="agency-subtabs" role="tablist">
-          <button type="button" role="tab" aria-selected=${workspaceTab === "preview"} class=${workspaceTab === "preview" ? "active" : ""} onClick=${() => setWorkspaceTab("preview")}>${t("agency.studioTabPreview")}</button>
-          <button type="button" role="tab" aria-selected=${workspaceTab === "code"} class=${workspaceTab === "code" ? "active" : ""} onClick=${() => setWorkspaceTab("code")}>${t("agency.studioTabCode")} (${files.length})</button>
-          <button type="button" role="tab" aria-selected=${workspaceTab === "plan"} class=${workspaceTab === "plan" ? "active" : ""} onClick=${() => setWorkspaceTab("plan")}>${t("agency.studioTabPlan")}</button>
-          <button type="button" role="tab" aria-selected=${workspaceTab === "ops"} class=${workspaceTab === "ops" ? "active" : ""} onClick=${() => setWorkspaceTab("ops")}>${t("agency.studioTabOps")}</button>
+        <div class="agency-studio-ws-tabs" role="tablist">
+          <button type="button" role="tab" aria-selected=${workspaceTab === "preview"} class=${workspaceTab === "preview" ? "active" : ""} onClick=${() => setWorkspaceTab("preview")}>
+            <${Icon} name="globe" size="sm" /><span>${t("agency.studioTabPreview")}</span>
+          </button>
+          <button type="button" role="tab" aria-selected=${workspaceTab === "code"} class=${workspaceTab === "code" ? "active" : ""} onClick=${() => setWorkspaceTab("code")}>
+            <${Icon} name="code" size="sm" /><span>${t("agency.studioTabCode")}</span>
+          </button>
         </div>
-        ${workspaceTab === "preview" && hasIndex && html`<div class="agency-commercial-actions">
-          <button class=${"btn" + (viewport === "desktop" ? " primary" : "")} type="button" onClick=${() => setViewport("desktop")}>Desktop</button>
-          <button class=${"btn" + (viewport === "tablet" ? " primary" : "")} type="button" onClick=${() => setViewport("tablet")}>Tablette</button>
-          <button class=${"btn" + (viewport === "mobile" ? " primary" : "")} type="button" onClick=${() => setViewport("mobile")}>Mobile</button>
-          <button class="btn" type="button" onClick=${() => setPreviewNonce((n) => n + 1)}>${t("agency.studioPreviewRefresh")}</button>
-          <a class="btn" href=${previewUrl} target="_blank" rel="noopener">${t("agency.studioOpenNewTab")}</a>
+
+        ${workspaceTab === "preview" && (hasIndex || devServer?.hasDevScript) && html`<div class="agency-studio-preview-bar">
+          ${devServer?.hasDevScript && html`<button
+            type="button"
+            class=${"btn sm" + (devServer.running ? "" : " primary")}
+            disabled=${devServerBusy}
+            onClick=${() => (devServer.running ? stopDevServer() : startDevServer())}
+          >
+            ${devServerBusy
+              ? html`<${Spinner} />`
+              : html`<${Icon} name=${devServer.running ? "stop" : "spark"} size="xs" />`}
+            <span>${devServer.running ? t("common.off") : t("agency.startMissionBtn")}</span>
+          </button>`}
+          ${hasIndex && html`<div class="agency-studio-vp-group">
+            <button type="button" class=${viewport === "desktop" ? "active" : ""} title="Desktop" onClick=${() => setViewport("desktop")}>
+              <${Icon} name="monitor" size="sm" />
+            </button>
+            <button type="button" class=${viewport === "tablet" ? "active" : ""} title="Tablette" onClick=${() => setViewport("tablet")}>
+              <${Icon} name="panel" size="sm" />
+            </button>
+            <button type="button" class=${viewport === "mobile" ? "active" : ""} title="Mobile" onClick=${() => setViewport("mobile")}>
+              <${Icon} name="card" size="sm" />
+            </button>
+          </div>`}
+          ${hasIndex && html`<div class="agency-studio-url-pill">
+            <button type="button" class="icon-btn xs" title=${t("agency.studioPreviewRefresh")} aria-label=${t("agency.studioPreviewRefresh")} onClick=${() => setPreviewNonce((n) => n + 1)}>
+              <${Icon} name="refresh" size="xs" />
+            </button>
+            <span class="agency-truncate">${displayPreviewHost}</span>
+            <a class="icon-btn xs" href=${previewUrl} target="_blank" rel="noopener" title=${t("agency.studioOpenNewTab")} aria-label=${t("agency.studioOpenNewTab")}>
+              <${Icon} name="ext" size="xs" />
+            </a>
+          </div>`}
+        </div>`}
+
+        ${workspaceTab === "code" && html`<div class="agency-studio-ws-right">
+          ${selectedPath && html`<span class="agency-studio-active-path agency-truncate" title=${selectedPath}>${selectedPath}</span>`}
+          ${isDirty && html`<button class="btn primary sm" type="button" disabled=${!!busy} onClick=${saveFile}>${t("agency.studioSaveFileBtn")}</button>`}
         </div>`}
       </div>
 
       ${workspaceTab === "preview" && html`<div class="agency-studio-preview-pane">
-        ${hasIndex
-          ? html`<iframe class=${"agency-studio-frame " + viewport} title=${t("agency.studioPreviewTitle")} src=${previewUrl}></iframe>`
-          : html`<div class="agency-empty">
-              <${Icon} name="code" size="lg" />
-              <strong>${t("agency.studioNoPreviewTitle")}</strong>
-              <p>${t("agency.studioNoPreviewDesc")}</p>
-            </div>`}
-      </div>`}
-
-      ${workspaceTab === "code" && html`<div class="agency-studio-grid">
-        <div class="agency-studio-tree">
-          <div class="agency-commercial-head">
-            <strong>${t("agency.studioFilesTitle")}</strong>
-            <div class="agency-commercial-actions">
-              <input ref=${treeUploadRef} class="agency-copilot-file-input" type="file" multiple onChange=${(e) => { void uploadStudioDocs(e.currentTarget.files); e.currentTarget.value = ""; }} />
-              <button class="btn" type="button" disabled=${!!busy} onClick=${() => treeUploadRef.current?.click()}><${Icon} name="doc" size="sm" />${t("agency.studioUploadDocsBtn")}</button>
-            </div>
-          </div>
-          <form class="agency-studio-new-file" onSubmit=${createFile}>
-            <input class="field" value=${newFilePath} placeholder=${t("agency.studioNewFilePlaceholder")} onInput=${(e) => setNewFilePath(e.currentTarget.value)} />
-            <button class="btn" type="submit" disabled=${!!busy || !project?.id || !newFilePath.trim()}>${t("agency.studioNewFileBtn")}</button>
-          </form>
-          <div class="agency-studio-file-list">
-            ${files.map((f) => html`<button type="button" class=${"agency-studio-file" + (f.path === selectedPath ? " active" : "")} title=${f.path} onClick=${() => openFile(f.path)}>${f.path}</button>`)}
-          </div>
-        </div>
-        <div class="agency-studio-editor">
-          <div class="agency-commercial-head">
-            <strong class="agency-truncate" title=${selectedPath || ""}>${selectedPath || t("agency.studioNoFileSelected")}</strong>
-            <div class="agency-commercial-actions">
-              <button class="btn primary" type="button" disabled=${!selectedPath || !!busy} onClick=${saveFile}>${t("agency.studioSaveFileBtn")}</button>
-              <button class="text" type="button" disabled=${!selectedPath || !!busy} onClick=${deleteFile}>${t("agency.studioDeleteFileBtn")}</button>
-            </div>
-          </div>
-          <textarea
-            class="field mono agency-studio-textarea"
-            rows="20"
-            value=${content}
-            onInput=${(e) => setContent(e.currentTarget.value)}
-            onKeyDown=${(e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); void saveFile(); } }}
-          ></textarea>
-        </div>
-      </div>`}
-
-      ${workspaceTab === "plan" && html`<div class="agency-studio-plan-pane">
-        ${plan ? renderPlanCard(plan, false) : html`<div class="agency-empty">
-          <strong>${t("agency.studioNoPlanTitle")}</strong>
-          <p>${t("agency.studioNoPlanDesc")}</p>
-        </div>`}
-        <div class="agency-studio-subagents-section">
-          <h3>${t("agency.studioSubagentsHeading")}</h3>
-          <div class="agency-studio-subagent-grid">
-            ${subagents.map((sa) => html`<article class="agency-studio-subagent-card">
-              <div class="agency-agent-row-main">
-                <${BotAvatar} char=${agentAvatarOf(sa.agencyRole)} size=${34} state=${activeSubagent?.subagent === sa.id ? "working" : "idle"} />
-                <div>
-                  <strong>${t(`agency.studioSubagentNames.${sa.id}`)}</strong>
-                  <small>${sa.focus}</small>
+        ${devServerBusy && !devServer?.running
+          ? html`<div class="agency-empty">
+              <${Spinner} />
+              <strong>${t("agency.loading")}</strong>
+              <p>${t("agency.studioBuildingStatus")}</p>
+            </div>`
+          : hasIndex
+            ? html`<iframe key=${`${previewUrl}#${previewNonce}`} class=${"agency-studio-frame " + viewport} title=${t("agency.studioPreviewTitle")} src=${previewUrl}></iframe>`
+            : html`<div class="agency-empty">
+                <${Icon} name="code" size="lg" />
+                <strong>${t("agency.studioNoPreviewTitle")}</strong>
+                <p>${devServer?.error || t("agency.studioNoPreviewDesc")}</p>
+                ${devServer?.logs?.length > 0 && html`<pre class="agency-studio-empty-logs mono">${devServer.logs.slice(-6).join("\n")}</pre>`}
+                <div class="agency-commercial-actions">
+                  ${devServer?.status === "error" && html`<button
+                    class="btn primary"
+                    type="button"
+                    disabled=${!!busy}
+                    onClick=${() => sendStudioTurn({
+                      mode: "build",
+                      targetSubagent: "qa",
+                      message: `Corrige l'erreur au démarrage de l'aperçu :\n${devServer.error || ""}\n\nLogs :\n${(devServer.logs || []).slice(-15).join("\n")}`,
+                      skipAttachments: true,
+                    })}
+                  >
+                    <${Icon} name="shield" size="sm" /><span>${t("agency.qaAutofixBtn")}</span>
+                  </button>`}
+                  ${devServer?.hasDevScript && html`<button class=${"btn" + (devServer?.status === "error" ? "" : " primary")} type="button" disabled=${devServerBusy} onClick=${() => startDevServer(project?.id, { restart: true })}>
+                    <${Icon} name="spark" size="sm" /><span>${t("agency.startMissionBtn")}</span>
+                  </button>`}
                 </div>
-              </div>
-              ${sa.skills?.length > 0 && html`<div class="agency-copilot-attachments">
-                ${sa.skills.map((sk) => html`<span class="agency-studio-stack-pill">${sk}</span>`)}
               </div>`}
-              <div class="agency-commercial-actions">
-                <button class="btn" type="button" onClick=${() => { setTargetSubagent(sa.id); setMode("build"); }}>${t("agency.studioFocusSubagentBtn")}</button>
-              </div>
-            </article>`)}
-          </div>
-        </div>
+        ${devServer?.status === "error" && hasIndex && html`<div class="agency-studio-preview-error">
+          <span class="agency-truncate" title=${devServer.error || ""}>${devServer.error || t("common.error")}</span>
+          <button
+            class="btn primary sm"
+            type="button"
+            disabled=${!!busy}
+            onClick=${() => sendStudioTurn({
+              mode: "build",
+              targetSubagent: "qa",
+              message: `Corrige l'erreur au démarrage de l'aperçu :\n${devServer.error || ""}\n\nLogs :\n${(devServer.logs || []).slice(-15).join("\n")}`,
+              skipAttachments: true,
+            })}
+          >
+            <${Icon} name="shield" size="xs" /><span>${t("agency.qaAutofixBtn")}</span>
+          </button>
+        </div>`}
+        ${busy === "chat" && html`<div class="agency-studio-preview-building">
+          <${Spinner} />
+          <span class="agency-truncate">${activeSubagent?.title || t("agency.studioBuildingStatus")}</span>
+        </div>`}
       </div>`}
 
-      ${workspaceTab === "ops" && html`<div class="agency-studio-ops-pane">
-        <div class="agency-studio-toolbar">
-          <div class="agency-commercial-actions">
-            <select class="field" aria-label=${t("agency.cliActionLabel")} value=${command} onChange=${(e) => setCommand(e.currentTarget.value)}>
-              ${COMMANDS.map(([id, label]) => html`<option value=${id}>${label}</option>`)}
-            </select>
-            <button class="btn primary" type="button" disabled=${!!busy || !project?.id} onClick=${runCheck}>${t("agency.studioRunCheckBtn")}</button>
+      ${workspaceTab === "code" && html`<div class="agency-studio-code-shell">
+        <div class="agency-studio-tree">
+          <div class="agency-studio-tree-top">
+            <label class="agency-studio-tree-search">
+              <${Icon} name="search" size="xs" />
+              <input
+                type="search"
+                value=${fileQuery}
+                placeholder=${t("agency.studioFilesTitle")}
+                onInput=${(e) => setFileQuery(e.currentTarget.value)}
+              />
+            </label>
+            <button
+              class="icon-btn sm"
+              type="button"
+              disabled=${!!busy || !project?.id}
+              title=${t("agency.studioNewFileBtn")}
+              aria-label=${t("agency.studioNewFileBtn")}
+              onClick=${() => setNewFileOpen((v) => !v)}
+            >
+              <${Icon} name=${newFileOpen ? "close" : "plus"} size="sm" />
+            </button>
+            <input ref=${treeUploadRef} class="agency-copilot-file-input" type="file" multiple onChange=${(e) => { void uploadStudioDocs(e.currentTarget.files); e.currentTarget.value = ""; }} />
+            <button
+              class="icon-btn sm"
+              type="button"
+              disabled=${!!busy}
+              title=${t("agency.studioUploadDocsBtn")}
+              aria-label=${t("agency.studioUploadDocsBtn")}
+              onClick=${() => treeUploadRef.current?.click()}
+            >
+              <${Icon} name="doc" size="sm" />
+            </button>
           </div>
-          ${snapshots.length > 0 && html`<div class="agency-commercial-actions">
-            <select class="field" aria-label=${t("agency.studioSnapshotLabel")} value=${selectedSnapshot} onChange=${(e) => setSelectedSnapshot(e.currentTarget.value)}>
-              ${snapshots.map((s) => html`<option value=${s.commitHash}>${s.commitHash.slice(0, 7)} · ${s.message.replace(/^studio:\s*/i, "").slice(0, 32)}</option>`)}
-            </select>
-            <button class="btn" type="button" disabled=${!!busy} onClick=${() => rollbackSnapshot(selectedSnapshot)}>${t("agency.studioRollbackBtn")}</button>
-          </div>`}
+          ${newFileOpen && html`<form class="agency-studio-new-file" onSubmit=${createFile}>
+            <input class="field" value=${newFilePath} placeholder=${t("agency.studioNewFilePlaceholder")} onInput=${(e) => setNewFilePath(e.currentTarget.value)} />
+            <button class="btn primary sm" type="submit" disabled=${!!busy || !project?.id || !newFilePath.trim()}>${t("agency.studioNewFileBtn")}</button>
+          </form>`}
+          <div class="agency-studio-file-list">
+            ${files.length === 0
+              ? html`<p class="agency-muted agency-studio-tree-empty">${t("agency.studioNoFileSelected")}</p>`
+              : renderTreeNode(fileTree, 0)}
+          </div>
         </div>
-        ${terminalOut && html`<pre class="agency-studio-terminal mono">${terminalOut}</pre>`}
-        ${snapshots.length > 0 && html`<div class="agency-studio-snapshots-list">
-          ${snapshots.map((s) => html`<div class="agency-audit-row">
-            <strong>${s.commitHash.slice(0, 7)} · ${s.message.replace(/^studio:\s*/i, "")}</strong>
-            <button class="btn" type="button" disabled=${!!busy} onClick=${() => rollbackSnapshot(s.commitHash)}>${t("agency.studioRollbackBtn")}</button>
-          </div>`)}
-        </div>`}
+
+        <div class="agency-studio-editor">
+          <div class="agency-studio-editor-tabs">
+            <div class="agency-studio-tab-strip">
+              ${openTabs.length === 0 && html`<span class="agency-studio-tab-empty">${t("agency.studioNoFileSelected")}</span>`}
+              ${openTabs.map((tabPath) => html`<button
+                key=${tabPath}
+                type="button"
+                class=${"agency-studio-editor-tab" + (tabPath === selectedPath ? " active" : "")}
+                title=${tabPath}
+                onClick=${() => openFile(tabPath)}
+              >
+                <span class="agency-truncate">${tabPath}</span>
+                ${tabPath === selectedPath && isDirty && html`<span class="agency-studio-dirty-dot" aria-hidden="true"></span>`}
+                <span class="agency-studio-tab-close" role="button" tabindex="-1" aria-label=${t("agency.close")} onClick=${(e) => closeTab(tabPath, e)}>
+                  <${Icon} name="close" size="xs" />
+                </span>
+              </button>`)}
+            </div>
+            <div class="agency-studio-editor-actions">
+              ${selectedPath && html`<${CopyButton} text=${content} />`}
+              ${selectedPath && html`<button class="icon-btn sm" type="button" title=${t("agency.downloadDocument")} aria-label=${t("agency.downloadDocument")} onClick=${downloadCurrentFile}>
+                <${Icon} name="download" size="sm" />
+              </button>`}
+              ${selectedPath && html`<button class="btn primary sm" type="button" disabled=${!!busy || !isDirty} onClick=${saveFile}>${t("agency.studioSaveFileBtn")}</button>`}
+              ${selectedPath && html`<button class="icon-btn sm" type="button" disabled=${!!busy} title=${t("agency.studioDeleteFileBtn")} aria-label=${t("agency.studioDeleteFileBtn")} onClick=${deleteFile}>
+                <${Icon} name="trash" size="sm" />
+              </button>`}
+            </div>
+          </div>
+
+          <div class="agency-studio-code-body">
+            <div class="agency-studio-gutter mono" ref=${gutterRef} aria-hidden="true">
+              ${Array.from({ length: lineCount }, (_, i) => html`<span key=${i}>${i + 1}</span>`)}
+            </div>
+            <textarea
+              class="mono agency-studio-code-input"
+              spellcheck="false"
+              wrap="off"
+              value=${content}
+              disabled=${!selectedPath}
+              onScroll=${(e) => { if (gutterRef.current) gutterRef.current.scrollTop = e.currentTarget.scrollTop; }}
+              onInput=${(e) => setContent(e.currentTarget.value)}
+              onKeyDown=${(e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+                  e.preventDefault();
+                  void saveFile();
+                } else if (e.key === "Tab") {
+                  e.preventDefault();
+                  const el = e.currentTarget;
+                  const s = el.selectionStart;
+                  const end = el.selectionEnd;
+                  const next = `${content.slice(0, s)}  ${content.slice(end)}`;
+                  setContent(next);
+                  requestAnimationFrame(() => { el.selectionStart = el.selectionEnd = s + 2; });
+                }
+              }}
+            ></textarea>
+          </div>
+        </div>
       </div>`}
     </div>
   </section>`;

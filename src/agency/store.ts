@@ -8,7 +8,7 @@ import type {
   Approval, ApprovalAction, ApprovalStatus, AuditEvent, ClientFollowUp,
   CommercialChannel, CommercialConversation, CommercialRules, CommercialSignal,
   Company, ConsentRecord, Contact, Contract, ContractStatus, ConversationMessage,
-  ConversationStatus, DeliveryStatus, DepositStatus, EmailOutboxMessage, EmailOutboxStatus,
+  ConversationStatus, DeleteImpactCounts, DeliveryStatus, DepositStatus, EmailOutboxMessage, EmailOutboxStatus,
   Evidence, FollowUpStatus, FollowUpType, Invoice, InvoiceStatus, Lead, LeadStage, Membership, MessageDirection,
   NeedsQualification, Organization, OrganizationStatus, Project, ProjectDelivery, ProjectLot,
   ProjectLotStatus, ProjectStatus, QaCategory, QaCheck, QaCheckStatus,
@@ -2179,6 +2179,194 @@ export class AgencyStore {
       "UPDATE agency_invoices SET status=?,paid_at=?,payment_reference=?,updated_at=? WHERE organization_id=? AND id=?",
     ).run(patch.status, patch.paidAt, patch.paymentReference, patch.updatedAt, orgId, id);
     return this.getInvoice(orgId, id);
+  }
+
+  private countRows(sql: string, ...args: Array<string | number>): number {
+    const row = this.db.prepare(sql).get(...args) as { cnt?: number } | undefined;
+    return Number(row?.cnt ?? 0);
+  }
+
+  getEvidence(orgId: string, id: string): Evidence | undefined {
+    const row = this.db.prepare("SELECT * FROM agency_evidence WHERE organization_id=? AND id=?").get(orgId, id) as Row | undefined;
+    return row ? evidenceOf(row) : undefined;
+  }
+
+  countContractsForQuote(orgId: string, quoteId: string): number {
+    return this.countRows(
+      "SELECT COUNT(*) AS cnt FROM agency_contracts WHERE organization_id=? AND quote_id=?",
+      orgId,
+      quoteId,
+    );
+  }
+
+  inspectContactLinks(orgId: string, contactId: string): {
+    consents: number;
+    whatsappOutbox: number;
+    emailOutbox: number;
+    linkedLeads: number;
+  } {
+    return {
+      consents: this.countRows("SELECT COUNT(*) AS cnt FROM agency_consents WHERE organization_id=? AND contact_id=?", orgId, contactId),
+      whatsappOutbox: this.countRows("SELECT COUNT(*) AS cnt FROM agency_whatsapp_outbox WHERE organization_id=? AND contact_id=?", orgId, contactId),
+      emailOutbox: this.countRows("SELECT COUNT(*) AS cnt FROM agency_email_outbox WHERE organization_id=? AND contact_id=?", orgId, contactId),
+      linkedLeads: this.countRows("SELECT COUNT(*) AS cnt FROM agency_leads WHERE organization_id=? AND contact_id=?", orgId, contactId),
+    };
+  }
+
+  inspectLeadLinks(orgId: string, leadId: string): {
+    contracts: number;
+    projects: number;
+    followups: number;
+    committedQuotes: number;
+    removableQuotes: number;
+    conversations: number;
+    messages: number;
+    needs: number;
+  } {
+    return {
+      contracts: this.countRows("SELECT COUNT(*) AS cnt FROM agency_contracts WHERE organization_id=? AND lead_id=?", orgId, leadId),
+      projects: this.countRows("SELECT COUNT(*) AS cnt FROM agency_projects WHERE organization_id=? AND lead_id=?", orgId, leadId),
+      followups: this.countRows("SELECT COUNT(*) AS cnt FROM agency_followups WHERE organization_id=? AND lead_id=?", orgId, leadId),
+      committedQuotes: this.countRows(
+        "SELECT COUNT(*) AS cnt FROM agency_quotes WHERE organization_id=? AND lead_id=? AND status IN ('approved','sent','accepted')",
+        orgId,
+        leadId,
+      ),
+      removableQuotes: this.countRows(
+        "SELECT COUNT(*) AS cnt FROM agency_quotes WHERE organization_id=? AND lead_id=? AND status IN ('draft','rejected','expired')",
+        orgId,
+        leadId,
+      ),
+      conversations: this.countRows("SELECT COUNT(*) AS cnt FROM agency_conversations WHERE organization_id=? AND lead_id=?", orgId, leadId),
+      messages: this.countRows(
+        "SELECT COUNT(*) AS cnt FROM agency_conversation_messages WHERE organization_id=? AND conversation_id IN (SELECT id FROM agency_conversations WHERE organization_id=? AND lead_id=?)",
+        orgId,
+        orgId,
+        leadId,
+      ),
+      needs: this.countRows("SELECT COUNT(*) AS cnt FROM agency_needs_qualifications WHERE organization_id=? AND lead_id=?", orgId, leadId),
+    };
+  }
+
+  inspectCompanyLinks(orgId: string, companyId: string): {
+    contacts: number;
+    leads: number;
+    wonLeads: number;
+    evidence: number;
+    immutableConsents: number;
+    immutableWhatsappOutbox: number;
+    immutableEmailOutbox: number;
+    contracts: number;
+    projects: number;
+    followups: number;
+    committedQuotes: number;
+    removableQuotes: number;
+    conversations: number;
+    messages: number;
+    needs: number;
+  } {
+    const contactSub = "SELECT id FROM agency_contacts WHERE organization_id=? AND company_id=?";
+    const leadSub = "SELECT id FROM agency_leads WHERE organization_id=? AND company_id=?";
+    return {
+      contacts: this.countRows("SELECT COUNT(*) AS cnt FROM agency_contacts WHERE organization_id=? AND company_id=?", orgId, companyId),
+      leads: this.countRows("SELECT COUNT(*) AS cnt FROM agency_leads WHERE organization_id=? AND company_id=?", orgId, companyId),
+      wonLeads: this.countRows("SELECT COUNT(*) AS cnt FROM agency_leads WHERE organization_id=? AND company_id=? AND stage='won'", orgId, companyId),
+      evidence: this.countRows("SELECT COUNT(*) AS cnt FROM agency_evidence WHERE organization_id=? AND company_id=?", orgId, companyId),
+      immutableConsents: this.countRows(`SELECT COUNT(*) AS cnt FROM agency_consents WHERE organization_id=? AND contact_id IN (${contactSub})`, orgId, orgId, companyId),
+      immutableWhatsappOutbox: this.countRows(`SELECT COUNT(*) AS cnt FROM agency_whatsapp_outbox WHERE organization_id=? AND contact_id IN (${contactSub})`, orgId, orgId, companyId),
+      immutableEmailOutbox: this.countRows(`SELECT COUNT(*) AS cnt FROM agency_email_outbox WHERE organization_id=? AND contact_id IN (${contactSub})`, orgId, orgId, companyId),
+      contracts: this.countRows(`SELECT COUNT(*) AS cnt FROM agency_contracts WHERE organization_id=? AND lead_id IN (${leadSub})`, orgId, orgId, companyId),
+      projects: this.countRows(`SELECT COUNT(*) AS cnt FROM agency_projects WHERE organization_id=? AND lead_id IN (${leadSub})`, orgId, orgId, companyId),
+      followups: this.countRows(`SELECT COUNT(*) AS cnt FROM agency_followups WHERE organization_id=? AND lead_id IN (${leadSub})`, orgId, orgId, companyId),
+      committedQuotes: this.countRows(`SELECT COUNT(*) AS cnt FROM agency_quotes WHERE organization_id=? AND lead_id IN (${leadSub}) AND status IN ('approved','sent','accepted')`, orgId, orgId, companyId),
+      removableQuotes: this.countRows(`SELECT COUNT(*) AS cnt FROM agency_quotes WHERE organization_id=? AND lead_id IN (${leadSub}) AND status IN ('draft','rejected','expired')`, orgId, orgId, companyId),
+      conversations: this.countRows(`SELECT COUNT(*) AS cnt FROM agency_conversations WHERE organization_id=? AND lead_id IN (${leadSub})`, orgId, orgId, companyId),
+      messages: this.countRows(
+        `SELECT COUNT(*) AS cnt FROM agency_conversation_messages WHERE organization_id=? AND conversation_id IN (SELECT id FROM agency_conversations WHERE organization_id=? AND lead_id IN (${leadSub}))`,
+        orgId,
+        orgId,
+        orgId,
+        companyId,
+      ),
+      needs: this.countRows(`SELECT COUNT(*) AS cnt FROM agency_needs_qualifications WHERE organization_id=? AND lead_id IN (${leadSub})`, orgId, orgId, companyId),
+    };
+  }
+
+  deleteContactUnsafe(orgId: string, contactId: string): boolean {
+    this.db.prepare("UPDATE agency_leads SET contact_id=NULL WHERE organization_id=? AND contact_id=?").run(orgId, contactId);
+    this.db.prepare("UPDATE agency_conversations SET contact_id='' WHERE organization_id=? AND contact_id=?").run(orgId, contactId);
+    const result = this.db.prepare("DELETE FROM agency_contacts WHERE organization_id=? AND id=?").run(orgId, contactId);
+    return Number(result.changes) > 0;
+  }
+
+  deleteLeadCascadeUnsafe(orgId: string, leadId: string): DeleteImpactCounts {
+    const messages = Number(this.db.prepare(
+      "DELETE FROM agency_conversation_messages WHERE organization_id=? AND conversation_id IN (SELECT id FROM agency_conversations WHERE organization_id=? AND lead_id=?)",
+    ).run(orgId, orgId, leadId).changes);
+    const conversations = Number(this.db.prepare(
+      "DELETE FROM agency_conversations WHERE organization_id=? AND lead_id=?",
+    ).run(orgId, leadId).changes);
+    const needs = Number(this.db.prepare(
+      "DELETE FROM agency_needs_qualifications WHERE organization_id=? AND lead_id=?",
+    ).run(orgId, leadId).changes);
+    const quotes = Number(this.db.prepare(
+      "DELETE FROM agency_quotes WHERE organization_id=? AND lead_id=?",
+    ).run(orgId, leadId).changes);
+    this.db.prepare("UPDATE agency_evidence SET lead_id=NULL WHERE organization_id=? AND lead_id=?").run(orgId, leadId);
+    this.db.prepare("UPDATE agency_missions SET lead_id=NULL WHERE organization_id=? AND lead_id=?").run(orgId, leadId);
+    const leads = Number(this.db.prepare(
+      "DELETE FROM agency_leads WHERE organization_id=? AND id=?",
+    ).run(orgId, leadId).changes);
+    return { contacts: 0, leads, evidence: 0, conversations, messages, quotes, needs };
+  }
+
+  deleteCompanyCascadeUnsafe(orgId: string, companyId: string): DeleteImpactCounts {
+    const leadRows = this.db.prepare("SELECT id FROM agency_leads WHERE organization_id=? AND company_id=?").all(orgId, companyId) as Row[];
+    const totals: DeleteImpactCounts = {
+      contacts: 0,
+      leads: 0,
+      evidence: 0,
+      conversations: 0,
+      messages: 0,
+      quotes: 0,
+      needs: 0,
+    };
+    for (const row of leadRows) {
+      const part = this.deleteLeadCascadeUnsafe(orgId, text(row, "id"));
+      totals.leads += part.leads;
+      totals.conversations += part.conversations;
+      totals.messages += part.messages;
+      totals.quotes += part.quotes;
+      totals.needs += part.needs;
+    }
+    totals.evidence = Number(this.db.prepare(
+      "DELETE FROM agency_evidence WHERE organization_id=? AND company_id=?",
+    ).run(orgId, companyId).changes);
+    totals.contacts = Number(this.db.prepare(
+      "DELETE FROM agency_contacts WHERE organization_id=? AND company_id=?",
+    ).run(orgId, companyId).changes);
+    this.db.prepare("DELETE FROM agency_companies WHERE organization_id=? AND id=?").run(orgId, companyId);
+    return totals;
+  }
+
+  deleteEvidenceUnsafe(orgId: string, evidenceId: string): boolean {
+    return Number(this.db.prepare("DELETE FROM agency_evidence WHERE organization_id=? AND id=?").run(orgId, evidenceId).changes) > 0;
+  }
+
+  deleteQuoteUnsafe(orgId: string, quoteId: string): boolean {
+    return Number(this.db.prepare("DELETE FROM agency_quotes WHERE organization_id=? AND id=?").run(orgId, quoteId).changes) > 0;
+  }
+
+  deleteCatalogItemUnsafe(orgId: string, itemId: string): boolean {
+    return Number(this.db.prepare("DELETE FROM agency_service_catalog WHERE organization_id=? AND id=?").run(orgId, itemId).changes) > 0;
+  }
+
+  deleteMissionUnsafe(orgId: string, missionId: string): boolean {
+    return Number(this.db.prepare("DELETE FROM agency_missions WHERE organization_id=? AND id=?").run(orgId, missionId).changes) > 0;
+  }
+
+  deleteFollowUpUnsafe(orgId: string, followUpId: string): boolean {
+    return Number(this.db.prepare("DELETE FROM agency_followups WHERE organization_id=? AND id=?").run(orgId, followUpId).changes) > 0;
   }
 }
 

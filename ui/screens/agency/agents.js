@@ -146,8 +146,8 @@ export function AgencyAgents({ orgId, agents = [], onSaved }) {
                 <span class=${"agency-agent-status-dot " + (enabled ? "ok" : "off")} aria-hidden="true"></span>
               </span>
               <span class="agency-company-meta">
-                <strong>${t(`agency.agentRoleNames.${ag.role}`)}</strong>
-                <small>${ag.config?.model || t("agency.agentModelDefault")}</small>
+                <strong class="agency-truncate" title=${t(`agency.agentRoleNames.${ag.role}`)}>${t(`agency.agentRoleNames.${ag.role}`)}</strong>
+                <small class="agency-truncate" title=${ag.config?.model || t("agency.agentModelDefault")}>${ag.config?.model || t("agency.agentModelDefault")}</small>
               </span>
             </div>
             <div class="agency-commercial-actions">
@@ -213,7 +213,7 @@ export function AgencyAgents({ orgId, agents = [], onSaved }) {
           <div class="agency-skills-grid">
             ${skillsCatalog.map((sk) => html`<label class=${"agency-skill-check" + (draft.skills.includes(sk.slug) ? " selected" : "")}>
               <input type="checkbox" checked=${draft.skills.includes(sk.slug)} onChange=${() => toggleSkill(sk.slug)} />
-              <span><strong>${sk.name}</strong><small>${sk.description}</small></span>
+              <span><strong>${sk.name}</strong><small class="agency-clamp-2" title=${sk.description}>${sk.description}</small></span>
             </label>`)}
           </div>
         </div>`}

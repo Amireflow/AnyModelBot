@@ -35,6 +35,11 @@ import {
   type StudioSubagentId,
 } from "../../agency/studio-orchestrator.js";
 import {
+  getStudioDevServerStatus,
+  startStudioDevServer,
+  stopStudioDevServer,
+} from "../../agency/studio-devserver.js";
+import {
   createStudioSnapshot,
   deleteWorkspaceFile,
   extractReadablePdfText,
@@ -1518,6 +1523,16 @@ export function agencyRoutes(ctx: WebContext): Route {
               });
               return send(res,200,agentRes);
             }
+            if (seg.length===6 && seg[5]==="devserver" && method==="GET") {
+              return send(res,200,getStudioDevServerStatus(dataDir,project));
+            }
+            if (seg.length===7 && seg[5]==="devserver" && seg[6]==="start" && method==="POST") {
+              const body=await readObject(req).catch(() => ({} as Record<string,unknown>));
+              return send(res,200,await startStudioDevServer(dataDir,project,{ restart:body.restart===true }));
+            }
+            if (seg.length===7 && seg[5]==="devserver" && seg[6]==="stop" && method==="POST") {
+              return send(res,200,stopStudioDevServer(project.id));
+            }
             if (seg[5]==="preview" && method==="GET") {
               const relPath=seg.length>6 ? seg.slice(6).map((s) => decodeURIComponent(s)).join("/") : "index.html";
               const asset=resolveStudioPreviewAsset(dataDir,project,relPath);
@@ -1525,7 +1540,7 @@ export function agencyRoutes(ctx: WebContext): Route {
                 "content-type":asset.mimeType,
                 "cache-control":"no-store",
                 "x-content-type-options":"nosniff",
-                "content-security-policy":"default-src 'self' 'unsafe-inline' data: blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'",
+                "content-security-policy":"default-src 'self' https: 'unsafe-inline' 'unsafe-eval' data: blob:; img-src 'self' https: data: blob:; font-src 'self' https: data:; style-src 'self' https: 'unsafe-inline'; script-src 'self' https: 'unsafe-inline' 'unsafe-eval'",
               });
               res.end(asset.data);
               return;

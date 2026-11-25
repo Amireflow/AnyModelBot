@@ -239,4 +239,55 @@ describe("Studio conversational multi-subagent orchestrator", () => {
     expect(events).toContain("subagent_done");
     expect(readWorkspaceFile(dir, project, "index.html").content).toContain("Klinika Dakar");
   });
+
+  it("auto-detects failing build scripts and triggers self-healing QA fix loop", async () => {
+    const dir = makeTempDir();
+    const project = makeProject();
+
+    writeWorkspaceFile(
+      dir,
+      project,
+      "package.json",
+      JSON.stringify({
+        name: "autofix-test",
+        private: true,
+        scripts: {
+          build: "node -e \"const fs=require('fs'); if(!fs.existsSync('fixed.txt')) { console.error('Missing fixed.txt'); process.exit(1); }\"",
+        },
+      }),
+    );
+
+    let call = 0;
+    const replies = [
+      // Initial router split
+      JSON.stringify({
+        tasks: [{ id: "t1", title: "App setup", description: "Setup", subagent: "frontend", targetFiles: ["app.js"] }],
+      }),
+      // Frontend subagent writes app.js (forgetting fixed.txt)
+      `<studio-write path="app.js">console.log("ok");</studio-write><studio-done>app.js créé</studio-done>`,
+      // Auto-fix QA subagent creates fixed.txt after npm_build fails
+      `<studio-write path="fixed.txt">ok</studio-write><studio-done>Erreur build corrigée</studio-done>`,
+    ];
+
+    const mockClient: ModelClient = {
+      listModels: async () => ["test-model"],
+      streamChat: async () => replies[call++] ?? "<studio-done>ok</studio-done>",
+    };
+
+    const res = await runStudioConversation({
+      dataDir: dir,
+      project,
+      message: "Prépare l'app",
+      mode: "build",
+      modelClient: mockClient,
+      defaultModel: "test-model",
+      hasLlmEndpoint: true,
+      resolveRuntime: makeRuntimeResolver(),
+    });
+
+    expect(res.message.modifiedFiles).toContain("app.js");
+    expect(res.message.modifiedFiles).toContain("fixed.txt");
+    expect(res.message.subagentRuns?.some((r) => r.taskId === "auto-fix-1" && r.ok)).toBe(true);
+    expect(readWorkspaceFile(dir, project, "fixed.txt").content).toBe("ok");
+  });
 });

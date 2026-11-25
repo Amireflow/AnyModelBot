@@ -1086,4 +1086,51 @@ export interface ConfiguredAgentProfile extends AgentProfile {
   customized: boolean;
 }
 
+export type AgencyDeletableEntityType =
+  | "company"
+  | "contact"
+  | "lead"
+  | "evidence"
+  | "quote"
+  | "catalog_item"
+  | "mission"
+  | "followup";
+
+export interface DeleteImpactCounts {
+  contacts: number;
+  leads: number;
+  evidence: number;
+  conversations: number;
+  messages: number;
+  quotes: number;
+  needs: number;
+}
+
+export interface DeleteImpactPreview {
+  entityType: AgencyDeletableEntityType;
+  entityId: string;
+  label: string;
+  canDelete: boolean;
+  requiresNameConfirmation: boolean;
+  confirmationTarget: string;
+  blockers: string[];
+  willDelete: DeleteImpactCounts;
+  recommendArchive: boolean;
+}
+
+export interface DeleteEntityOptions {
+  confirm?: boolean;
+  confirmName?: string;
+  cascade?: boolean;
+  reason?: string;
+}
+
+export interface DeleteEntityResult {
+  entityType: AgencyDeletableEntityType;
+  entityId: string;
+  label: string;
+  deleted: DeleteImpactCounts;
+}
+
+
 

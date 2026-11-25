@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { CopyButton, html, Icon, Spinner } from "../../components/ui.js";
+import { autoGrow, CopyButton, html, Icon, Spinner } from "../../components/ui.js";
 import { Markdown } from "../../components/markdown.js";
 import { api } from "../../lib/api.js";
 import { t } from "../../lib/i18n.js";
+import { confirmSheet } from "../../lib/store.js";
 
 const enc = encodeURIComponent;
 const TEXT_EXT = /\.(txt|md|markdown|csv|json|js|mjs|ts|tsx|jsx|html|htm|css|xml|yaml|yml|sql|log|svg)$/i;
@@ -56,6 +57,7 @@ export function AgencyCopilot({ orgId, activeTab = "copilot", companyId = "", le
   const [error, setError] = useState("");
   const threadRef = useRef(null);
   const fileInputRef = useRef(null);
+  const taRef = useRef(null);
 
   // Historique persistant côté serveur (par organisation) : survit au rechargement,
   // au changement d'onglet et au redémarrage du daemon.
@@ -70,7 +72,13 @@ export function AgencyCopilot({ orgId, activeTab = "copilot", companyId = "", le
 
   const clearHistory = async () => {
     if (!orgId || busy) return;
-    if (!window.confirm(t("agency.copilotClearConfirm"))) return;
+    const ok = await confirmSheet({
+      title: t("agency.copilotClearBtn"),
+      body: t("agency.copilotClearConfirm"),
+      confirmLabel: t("agency.copilotClearBtn"),
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api(`/agency/${enc(orgId)}/copilot/history`, { method: "DELETE" });
       setMessages([]);
@@ -83,6 +91,10 @@ export function AgencyCopilot({ orgId, activeTab = "copilot", companyId = "", le
     const el = threadRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length, busy]);
+
+  useEffect(() => {
+    if (!question && taRef.current) taRef.current.style.height = "auto";
+  }, [question]);
 
   const handleFiles = async (fileList) => {
     if (!fileList?.length) return;
@@ -147,84 +159,134 @@ export function AgencyCopilot({ orgId, activeTab = "copilot", companyId = "", le
     }
   };
 
+  const onKeyDown = (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void ask();
+    }
+  };
+
+  const onPaste = (e) => {
+    const files = e.clipboardData?.files;
+    if (files && files.length > 0) {
+      e.preventDefault();
+      void handleFiles(files);
+    }
+  };
+
   const quickPrompts = [
-    t("agency.copilotPromptPipeline"),
-    t("agency.copilotPromptProspect"),
-    t("agency.copilotPromptProject"),
-    t("agency.copilotPromptProjects"),
+    { icon: "trend", tone: "blue", text: t("agency.copilotPromptPipeline") },
+    { icon: "globe", tone: "teal", text: t("agency.copilotPromptProspect") },
+    { icon: "code", tone: "purple", text: t("agency.copilotPromptProject") },
+    { icon: "clipboardCheck", tone: "amber", text: t("agency.copilotPromptProjects") },
   ];
+
+  const canSend = !busy && (!!question.trim() || attachments.length > 0);
 
   return html`<section
     class=${"agency-copilot" + (dragging ? " dragging" : "")}
     onDragOver=${(e) => { e.preventDefault(); setDragging(true); }}
-    onDragLeave=${() => setDragging(false)}
+    onDragLeave=${(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false); }}
     onDrop=${(e) => { e.preventDefault(); setDragging(false); void handleFiles(e.dataTransfer?.files); }}
   >
-    ${error && html`<div class="agency-alert" role="alert">${error}</div>`}
     <div class="agency-copilot-thread" ref=${threadRef}>
-      ${!messages.length && html`<div class="agency-copilot-welcome">
-        <span class="agency-quick-icon tone-purple"><${Icon} name="spark" size="lg" /></span>
-        <div>
-          <h2>${t("agency.copilotTitle")}</h2>
-          <p>${t("agency.copilotEmpty")}</p>
-        </div>
-        <div class="agency-copilot-prompts">
-          ${quickPrompts.map((prompt) => html`<button class="agency-copilot-prompt" type="button" disabled=${busy} onClick=${() => ask(prompt)}>
-            <span>${prompt}</span>
-          </button>`)}
-        </div>
-        <small class="agency-muted">${t("agency.copilotDropHint")}</small>
-      </div>`}
-      ${messages.map((m) => m.role === "user"
-        ? html`<article class="agency-copilot-msg user">
-            <p class="agency-copilot-user-text">${m.text}</p>
-            ${m.files?.length > 0 && html`<div class="agency-copilot-attachments">
-              ${m.files.map((fname) => html`<span class="agency-copilot-chip"><${Icon} name="doc" size="sm" />${fname}</span>`)}
-            </div>`}
-          </article>`
-        : html`<article class="agency-copilot-msg assistant">
-            <div class="agency-copilot-msg-head">
-              <div class="agency-copilot-msg-meta">
-                <strong>${t("agency.copilotTitle")}</strong>
-                ${m.model && html`<span class="agency-whatsapp-state">${m.model}</span>`}
+      <div class="agency-copilot-col">
+        ${error && html`<div class="agency-alert" role="alert">${error}</div>`}
+        ${!messages.length && html`<div class="agency-copilot-welcome">
+          <span class="agency-copilot-emblem tone-purple"><${Icon} name="spark" size="xl" /></span>
+          <div class="agency-copilot-intro">
+            <h2>${t("agency.copilotTitle")}</h2>
+            <p>${t("agency.copilotEmpty")}</p>
+          </div>
+          <div class="agency-copilot-prompts">
+            ${quickPrompts.map((item) => html`<button class="agency-copilot-prompt" type="button" disabled=${busy} onClick=${() => ask(item.text)}>
+              <span class=${"agency-quick-icon tone-" + item.tone}><${Icon} name=${item.icon} size="sm" /></span>
+              <span class="agency-copilot-prompt-text">${item.text}</span>
+              <${Icon} name="chevRight" size="xs" class="agency-copilot-prompt-arrow" />
+            </button>`)}
+          </div>
+          <p class="agency-copilot-hint"><${Icon} name="doc" size="xs" /><span>${t("agency.copilotDropHint")}</span></p>
+        </div>`}
+        ${messages.map((m) => m.role === "user"
+          ? html`<article class="agency-copilot-msg user">
+              <p class="agency-copilot-user-text">${m.text}</p>
+              ${m.files?.length > 0 && html`<div class="agency-copilot-attachments">
+                ${m.files.map((fname) => html`<span class="agency-copilot-chip"><${Icon} name="doc" size="sm" /><span class="agency-truncate">${fname}</span></span>`)}
+              </div>`}
+            </article>`
+          : html`<article class="agency-copilot-msg assistant">
+              <div class="agency-copilot-msg-head">
+                <div class="agency-copilot-msg-meta">
+                  <span class="agency-copilot-badge tone-purple"><${Icon} name="spark" size="xs" /></span>
+                  <strong>${t("agency.copilotTitle")}</strong>
+                  ${m.model && html`<span class="agency-whatsapp-state">${m.model}</span>`}
+                </div>
+                <${CopyButton} text=${m.text} />
               </div>
-              <${CopyButton} text=${m.text} />
-            </div>
-            ${m.actions?.length > 0 && html`<details class="agency-copilot-actions-list" open>
-              <summary>${t("agency.copilotActionsTitle")} (${m.actions.length})</summary>
-              ${m.actions.map((act) => html`<div class="agency-copilot-action-row">
-                <span class="agency-truncate" title=${`${act.tool} · ${act.summary}`}><strong>${act.tool}</strong> · ${act.summary}</span>
-                <span class=${"agency-whatsapp-state " + (act.ok ? "accepted" : "blocked")}>${act.ok ? "OK" : "ERR"}</span>
-              </div>`)}
-            </details>`}
-            <${Markdown} text=${m.text} />
-          </article>`)}
-      ${busy && html`<div class="agency-loading"><${Spinner} />${t("agency.loading")}</div>`}
+              ${m.actions?.length > 0 && html`<details class="agency-copilot-actions-list" open>
+                <summary>${t("agency.copilotActionsTitle")} (${m.actions.length})</summary>
+                ${m.actions.map((act) => html`<div class="agency-copilot-action-row">
+                  <span class="agency-truncate" title=${`${act.tool} · ${act.summary}`}><strong>${act.tool}</strong> · ${act.summary}</span>
+                  <span class=${"agency-whatsapp-state " + (act.ok ? "accepted" : "blocked")}>${act.ok ? "OK" : "ERR"}</span>
+                </div>`)}
+              </details>`}
+              <${Markdown} text=${m.text} />
+            </article>`)}
+        ${busy && html`<div class="agency-loading"><${Spinner} /><span>${t("agency.loading")}</span></div>`}
+      </div>
     </div>
-    ${attachments.length > 0 && html`<div class="agency-copilot-attachments">
-      ${attachments.map((att, idx) => html`<span class="agency-copilot-chip">
-        <${Icon} name="doc" size="sm" />
-        <span>${att.name} (${Math.max(1, Math.round(att.size / 1024))} Ko)</span>
-        <button class="text" type="button" aria-label=${t("agency.close")} onClick=${() => removeAttachment(idx)}><${Icon} name="close" size="sm" /></button>
-      </span>`)}
-    </div>`}
-    <form class="agency-copilot-form" onSubmit=${(e) => { e.preventDefault(); ask(); }}>
-      <input
-        ref=${fileInputRef}
-        class="agency-copilot-file-input"
-        type="file"
-        multiple
-        accept=".txt,.md,.markdown,.csv,.json,.js,.mjs,.ts,.tsx,.jsx,.html,.css,.xml,.yaml,.yml,.sql,.pdf,.png,.jpg,.jpeg,.webp,.svg"
-        onChange=${(e) => { void handleFiles(e.currentTarget.files); e.currentTarget.value = ""; }}
-      />
-      <button class="btn" type="button" disabled=${busy || attachments.length >= MAX_FILES} title=${t("agency.copilotAttachBtn")} onClick=${() => fileInputRef.current?.click()}>
-        <${Icon} name="doc" size="sm" />${t("agency.copilotAttachBtn")}
-      </button>
-      <input class="field" value=${question} placeholder=${t("agency.copilotPlaceholder")} onInput=${(e) => setQuestion(e.currentTarget.value)} />
-      ${messages.length > 0 && html`<button class="text" type="button" disabled=${busy} onClick=${clearHistory}>${t("agency.copilotClearBtn")}</button>`}
-      <button class="btn primary" type="submit" disabled=${busy || (!question.trim() && attachments.length === 0)}>
-        ${busy ? html`<${Spinner} />` : html`<${Icon} name="spark" size="sm" />`}${t("agency.copilotSend")}
-      </button>
-    </form>
+    <div class="agency-copilot-dock">
+      <form class=${"agency-copilot-composer" + (dragging ? " drag" : "")} onSubmit=${(e) => { e.preventDefault(); void ask(); }}>
+        <input
+          ref=${fileInputRef}
+          class="agency-copilot-file-input"
+          type="file"
+          multiple
+          accept=".txt,.md,.markdown,.csv,.json,.js,.mjs,.ts,.tsx,.jsx,.html,.css,.xml,.yaml,.yml,.sql,.pdf,.png,.jpg,.jpeg,.webp,.svg"
+          onChange=${(e) => { void handleFiles(e.currentTarget.files); e.currentTarget.value = ""; }}
+        />
+        ${attachments.length > 0 && html`<div class="agency-copilot-attachments">
+          ${attachments.map((att, idx) => html`<span class="agency-copilot-chip">
+            <${Icon} name="doc" size="sm" />
+            <span class="agency-truncate">${att.name} (${Math.max(1, Math.round(att.size / 1024))} Ko)</span>
+            <button class="agency-copilot-chip-rm" type="button" aria-label=${t("agency.close")} onClick=${() => removeAttachment(idx)}><${Icon} name="close" size="xs" /></button>
+          </span>`)}
+        </div>`}
+        <textarea
+          ref=${taRef}
+          rows="1"
+          value=${question}
+          aria-label=${t("agency.copilotPlaceholder")}
+          placeholder=${t("agency.copilotPlaceholder")}
+          onInput=${(e) => { setQuestion(e.currentTarget.value); autoGrow(e.currentTarget); }}
+          onKeyDown=${onKeyDown}
+          onPaste=${onPaste}
+        ></textarea>
+        <div class="agency-copilot-bar">
+          <button
+            class="agency-copilot-plus"
+            type="button"
+            disabled=${busy || attachments.length >= MAX_FILES}
+            title=${t("agency.copilotAttachBtn")}
+            aria-label=${t("agency.copilotAttachBtn")}
+            onClick=${() => fileInputRef.current?.click()}
+          ><${Icon} name="plus" size="md" /></button>
+          ${attachments.length > 0 && html`<span class="agency-count-pill num">${attachments.length}/${MAX_FILES}</span>`}
+          <span class="grow"></span>
+          ${messages.length > 0 && html`<button class="agency-copilot-clear" type="button" disabled=${busy} title=${t("agency.copilotClearBtn")} onClick=${clearHistory}>
+            <${Icon} name="trash" size="sm" /><span>${t("agency.copilotClearBtn")}</span>
+          </button>`}
+          <button
+            class="agency-copilot-send"
+            type="submit"
+            disabled=${!canSend}
+            aria-busy=${busy || undefined}
+            aria-label=${t("agency.copilotSend")}
+            title=${t("agency.copilotSend")}
+          >${busy ? html`<${Spinner} />` : html`<${Icon} name="up" size="md" strong />`}</button>
+        </div>
+      </form>
+    </div>
   </section>`;
 }
