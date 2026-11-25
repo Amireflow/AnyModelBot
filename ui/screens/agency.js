@@ -8,6 +8,7 @@ import { agentAvatarOf } from "./agency/agent-avatars.js";
 import { AgencyCopilot, readFilePayload } from "./agency/copilot.js";
 import { AgencyAgents } from "./agency/agents.js";
 import { ProjectStudio } from "./agency/studio.js";
+import { SecureDeleteModal } from "./agency/delete-modal.js";
 
 const SIZE=25;
 const NEXT={new:["researching","archived"],researching:["new","qualified","lost","archived"],qualified:["researching","contact_pending","lost","archived"],contact_pending:["qualified","contacted","lost"],contacted:["qualified","engaged","lost"],engaged:["contacted","opportunity","lost"],opportunity:["engaged","proposal","lost"],proposal:["opportunity","won","lost"],won:["archived"],lost:["qualified","archived"],archived:[]};
@@ -223,6 +224,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const [qaFormOpen,setQaFormOpen]=useState(false);
   const [deliveryFormOpen,setDeliveryFormOpen]=useState(false);
   const [followUpFormOpen,setFollowUpFormOpen]=useState(false);
+  const [deleteTarget,setDeleteTarget]=useState(null);
 
   useEffect(()=>{
     let live=true;
@@ -327,7 +329,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         .finally(()=>live&&setBusy(""));
       return ()=>{live=false;};
     }
-    if(tab==="projects"||tab==="operations"){
+    if(tab==="projects"||tab==="studio"||tab==="operations"){
       Promise.all([
         api(`/agency/${enc(orgId)}/dashboard`),
         api(`/agency/${enc(orgId)}/contracts`),
@@ -1033,6 +1035,35 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
       setSelected("");setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
+  const archiveFromDeleteModal=async(target)=>{
+    if(!orgId||!target)return;
+    if(target.entityType==="company"){
+      await api(`/agency/${enc(orgId)}/companies/${enc(target.entityId)}`,{method:"PATCH",body:{status:"archived"}});
+      if(selected===target.entityId)setSelected("");
+    }else if(target.entityType==="contact"){
+      await api(`/agency/${enc(orgId)}/contacts/${enc(target.entityId)}`,{method:"PATCH",body:{status:"archived"}});
+      if(consentContactId===target.entityId)setConsentContactId("");
+    }else if(target.entityType==="lead"){
+      await api(`/agency/${enc(orgId)}/leads/${enc(target.entityId)}/stage`,{method:"PATCH",body:{stage:"archived"}});
+      if(selectedLeadId===target.entityId){setSelectedLeadId("");setSelectedConvId("");}
+    }
+    setRevision(v=>v+1);
+  };
+  const handleEntityDeleted=(target)=>{
+    if(!target)return;
+    if(target.entityType==="company"&&selected===target.entityId){setSelected("");setConsentContactId("");setEditingCompany(false);}
+    if(target.entityType==="contact"){
+      if(consentContactId===target.entityId)setConsentContactId("");
+      if(editingContactId===target.entityId)setEditingContactId("");
+    }
+    if(target.entityType==="lead"){
+      if(selectedLeadId===target.entityId){setSelectedLeadId("");setSelectedConvId("");}
+      if(editingLeadId===target.entityId)setEditingLeadId("");
+    }
+    if(target.entityType==="catalog_item"&&editingCatalogId===target.entityId)setEditingCatalogId("");
+    if(target.entityType==="quote"&&editingQuoteId===target.entityId)setEditingQuoteId("");
+    setRevision(v=>v+1);
+  };
   const extractNeeds=async()=>{
     if(!selectedConvId)return;
     setBusy("extract");setError("");setNeedsNotice("");
@@ -1357,8 +1388,36 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const activeOrg=orgs.find(o=>o.id===orgId);
   const cur=activeOrg?.currency||"";
   const selectedCompany=(tab==="companies"?(rows.items||[]).find(x=>x.id===selected):null);
-  const selectedProject=(tab==="projects"?projects.find(p=>p.id===selectedProjectId):null);
+  const selectedProject=((tab==="projects"||tab==="studio")?projects.find(p=>p.id===selectedProjectId):null);
   const totalPages=Math.max(1,Math.ceil((rows.total||0)/SIZE));
+  const directProjectFormEl=html`<form class="agency-form agency-form-grid" onSubmit=${createDirectProject}>
+    <div class="agency-form-head"><strong>${t("agency.newStudioProjectBtn")}</strong><button type="button" class="text" onClick=${()=>setDirectProjectFormOpen(false)}>${t("agency.cancel")}</button></div>
+    <${Field} label=${t("agency.directProjectTitleLabel")} value=${directProjectDraft.title} required placeholder="Portail client Dakar…" onInput=${v=>update(setDirectProjectDraft,"title",v)}/>
+    <${Field} label=${t("agency.directProjectClientLabel")} value=${directProjectDraft.clientName} placeholder="Nom client (optionnel)" onInput=${v=>update(setDirectProjectDraft,"clientName",v)}/>
+    <label class="agency-field"><span>${t("agency.company")}</span><select class="field" value=${directProjectDraft.companyId} onChange=${e=>update(setDirectProjectDraft,"companyId",e.currentTarget.value)}>
+      <option value="">${t("agency.directProjectAutoCompany")}</option>
+      ${companyOptions.map(c=>html`<option value=${c.id}>${c.name}</option>`)}
+    </select></label>
+    <label class="agency-field"><span>${t("agency.studioScaffoldLabel")}</span><select class="field" value=${directProjectDraft.template} onChange=${e=>update(setDirectProjectDraft,"template",e.currentTarget.value)}>
+      <option value="">${t("agency.directProjectNoTemplate")}</option>
+      <option value="vitrine-html">Site vitrine (HTML/CSS/JS)</option>
+      <option value="saas-dashboard-app">Dashboard SaaS</option>
+      <option value="ecommerce-storefront">Boutique E-commerce</option>
+      <option value="webapp-node-preact">Application Web (Node)</option>
+      <option value="api-node-ts">API Service (TypeScript)</option>
+    </select></label>
+    <${Field} label=${t("agency.targetStack")} value=${directProjectDraft.targetStack} onInput=${v=>update(setDirectProjectDraft,"targetStack",v)}/>
+    <${Field} label=${t("agency.directProjectBudgetLabel")} value=${directProjectDraft.budgetAmount} type="number" onInput=${v=>update(setDirectProjectDraft,"budgetAmount",v)}/>
+    <${Field} label=${t("agency.catalogDays")} value=${directProjectDraft.estimatedDays} type="number" onInput=${v=>update(setDirectProjectDraft,"estimatedDays",v)}/>
+    <label class="agency-field agency-form-wide"><span>${t("agency.directProjectSpecsLabel")}</span><textarea class="field" rows="5" value=${directProjectDraft.technicalSpecs} placeholder=${t("agency.directProjectSpecsPlaceholder")} onInput=${e=>update(setDirectProjectDraft,"technicalSpecs",e.currentTarget.value)}></textarea></label>
+    <label class="agency-field agency-form-wide"><span>${t("agency.directProjectFilesLabel")}</span>
+      <input class="field" type="file" multiple accept=".txt,.md,.markdown,.csv,.json,.js,.mjs,.ts,.tsx,.jsx,.html,.css,.xml,.yaml,.yml,.sql,.pdf,.png,.jpg,.jpeg,.webp,.svg" onChange=${e=>{void addDirectProjectFiles(e.currentTarget.files);e.currentTarget.value="";}}/>
+    </label>
+    ${directProjectFiles.length>0&&html`<div class="agency-copilot-attachments agency-form-wide">
+      ${directProjectFiles.map((f,idx)=>html`<span class="agency-copilot-chip"><${Icon} name="doc" size="sm"/><span>${f.name}</span><button class="text" type="button" onClick=${()=>setDirectProjectFiles(p=>p.filter((_,i)=>i!==idx))}><${Icon} name="close" size="sm"/></button></span>`)}
+    </div>`}
+    <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!directProjectDraft.title.trim()}>${busy==="proj-direct"?t("agency.creating"):t("agency.createDirectProjectBtn")}</button></div>
+  </form>`;
 
   return html`<section class="agency-screen view" data-screen="agency">
     <header class="agency-header">
@@ -1569,6 +1628,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           <button role="tab" aria-selected=${tab==="commercial"} class=${tab==="commercial"?"active":""} onClick=${()=>switchTab("commercial")}>${t("agency.commercial")}</button>
           <button role="tab" aria-selected=${tab==="catalog"} class=${tab==="catalog"?"active":""} onClick=${()=>switchTab("catalog")}>${t("agency.catalog")}</button>
           <button role="tab" aria-selected=${tab==="projects"} class=${tab==="projects"?"active":""} onClick=${()=>switchTab("projects")}>${t("agency.projects")}</button>
+          <button role="tab" aria-selected=${tab==="studio"} class=${tab==="studio"?"active":""} onClick=${()=>switchTab("studio")}>${t("agency.studio")}</button>
           <button role="tab" aria-selected=${tab==="agents"} class=${tab==="agents"?"active":""} onClick=${()=>switchTab("agents")}>${t("agency.agents")}</button>
           <button role="tab" aria-selected=${tab==="copilot"} class=${tab==="copilot"?"active":""} onClick=${()=>switchTab("copilot")}>${t("agency.copilot")}</button>
         </div>
@@ -1648,6 +1708,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             <button class="btn" type="button" onClick=${()=>{setEditingCompany(v=>!v);setEditCompanyDraft({name:selectedCompany.name||"",website:selectedCompany.website||"",industry:selectedCompany.industry||"",countryCode:selectedCompany.countryCode||"SN",city:selectedCompany.city||""});}}>${editingCompany?t("agency.cancel"):t("agency.editBtn")}</button>
             ${selectedCompany.website&&html`<button class="btn" type="button" disabled=${!!busy} onClick=${()=>auditCompanySite(selectedCompany.id)}>${t("agency.websiteAuditBtn")}</button>`}
             <button class="text" type="button" disabled=${!!busy} onClick=${()=>archiveCompany(selectedCompany.id)}>${t("agency.archiveBtn")}</button>
+            <button class="text agency-danger-btn" type="button" disabled=${!!busy} onClick=${()=>setDeleteTarget({entityType:"company",entityId:selectedCompany.id,label:selectedCompany.name})}>${t("agency.deleteBtn")}</button>
           </div>
           ${editingCompany&&html`<form class="agency-form agency-inline-edit" onSubmit=${e=>saveCompanyEdit(e,selectedCompany.id)}>
             <${Field} label=${t("agency.companyName")} value=${editCompanyDraft.name} required onInput=${v=>update(setEditCompanyDraft,"name",v)}/>
@@ -1669,6 +1730,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                 <div class="agency-commercial-actions">
                   <button class="text" type="button" onClick=${()=>{setEditingContactId(id=>id===p.id?"":p.id);setEditContactDraft({displayName:p.displayName||"",role:p.role||"",email:p.email||"",phone:p.phone||""});}}>${editingContactId===p.id?t("agency.cancel"):t("agency.editBtn")}</button>
                   <button class="text" type="button" aria-expanded=${consentContactId===p.id} onClick=${()=>openWhatsAppConsent(p,consentChannel)}>${consentContactId===p.id?t("agency.cancel"):t("agency.whatsappManageConsent")}</button>
+                  <button class="text agency-danger-btn" type="button" disabled=${!!busy} onClick=${()=>setDeleteTarget({entityType:"contact",entityId:p.id,label:p.displayName})}>${t("agency.deleteBtn")}</button>
                 </div>
               </div>
               ${editingContactId===p.id&&html`<form class="agency-form agency-inline-edit" onSubmit=${e=>saveContactEdit(e,p.id)}>
@@ -1739,7 +1801,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               <label class="agency-field"><span>${t("agency.evidenceSummary")}</span><textarea class="field" rows="3" required value=${evidenceDraft.summary} onInput=${e=>update(setEvidenceDraft,"summary",e.currentTarget.value)}></textarea></label>
               <button class="btn primary block" type="submit" disabled=${!!busy}>${busy==="evidence"?t("agency.creating"):t("agency.saveEvidence")}</button>
             </form>`}
-            ${(research.items||[]).map(item=>html`<article class="agency-evidence-row"><div><strong>${item.evidenceType}</strong><small>${Math.round(item.confidence*100)}% · ${item.observedAt?new Date(item.observedAt).toLocaleDateString():t("agency.dateUnknown")}</small></div><a href=${item.sourceUrl} target="_blank" rel="noopener noreferrer">${item.sourceUrl}</a><p>${item.summary}</p></article>`)}
+            ${(research.items||[]).map(item=>html`<article class="agency-evidence-row"><div><strong>${item.evidenceType}</strong><small>${Math.round(item.confidence*100)}% · ${item.observedAt?new Date(item.observedAt).toLocaleDateString():t("agency.dateUnknown")}</small></div><a href=${item.sourceUrl} target="_blank" rel="noopener noreferrer">${item.sourceUrl}</a><p>${item.summary}</p><div class="agency-commercial-actions"><button class="text agency-danger-btn" type="button" disabled=${!!busy} onClick=${()=>setDeleteTarget({entityType:"evidence",entityId:item.id,label:`${item.evidenceType} · ${item.sourceUrl}`})}>${t("agency.deleteBtn")}</button></div></article>`)}
             ${!research.items?.length&&html`<p class="agency-muted">${t("agency.noEvidence")}</p>`}
           </section>
         </aside>`}
@@ -1765,6 +1827,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             <button class="btn" type="button" onClick=${()=>{setEditingLeadId(id=>id===l.id?"":l.id);setEditLeadDraft({source:l.source||"",notes:l.notes||""});}}>${editingLeadId===l.id?t("agency.cancel"):t("agency.editBtn")}</button>
             <button class="btn" type="button" onClick=${()=>{setSelectedLeadId(l.id);setSelectedConvId("");switchTab("commercial");}}>${t("agency.openCommercial")}</button>
             <label class="agency-stage-select"><span>${t("agency.moveTo")}</span><select class="field" value=${l.stage} disabled=${busy==="stage"||!NEXT[l.stage]?.length} onChange=${e=>moveLead(l.id,e.currentTarget.value)}><option value=${l.stage}>${t(`agency.stage.${l.stage}`)}</option>${(NEXT[l.stage]||[]).map(s=>html`<option value=${s}>${t(`agency.stage.${s}`)}</option>`)}</select></label>
+            <button class="text agency-danger-btn" type="button" disabled=${!!busy} onClick=${()=>setDeleteTarget({entityType:"lead",entityId:l.id,label:companyOptions.find(c=>c.id===l.companyId)?.name||l.id})}>${t("agency.deleteBtn")}</button>
           </div>
         </div>
         ${editingLeadId===l.id&&html`<form class="agency-form agency-inline-edit" onSubmit=${e=>saveLeadEdit(e,l.id)}>
@@ -1784,6 +1847,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
               <div class="agency-commercial-actions">
                 <button class="btn" type="button" onClick=${()=>{setSelectedLeadId(l.id);setSelectedConvId("");switchTab("commercial");}}>${t("agency.openCommercial")}</button>
                 <select class="field" aria-label=${t("agency.moveTo")} value=${l.stage} disabled=${busy==="stage"||!NEXT[l.stage]?.length} onChange=${e=>moveLead(l.id,e.currentTarget.value)}><option value=${l.stage}>${t(`agency.stage.${l.stage}`)}</option>${(NEXT[l.stage]||[]).map(s=>html`<option value=${s}>${t(`agency.stage.${s}`)}</option>`)}</select>
+                <button class="text agency-danger-btn" type="button" disabled=${!!busy} onClick=${()=>setDeleteTarget({entityType:"lead",entityId:l.id,label:companyOptions.find(c=>c.id===l.companyId)?.name||l.id})}>${t("agency.deleteBtn")}</button>
               </div>
             </article>`)}
           </div>`;
@@ -1822,6 +1886,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                 <button class="btn" type="button" onClick=${()=>previewTiers(item.id)}>${t("agency.previewTiers")}</button>
                 <button class="btn" type="button" onClick=${()=>{setEditingCatalogId(id=>id===item.id?"":item.id);setEditCatalogDraft({code:item.code,name:item.name,category:item.category,description:item.description,estimatedDays:String(item.estimatedDays),priceMin:String(item.priceMin),priceBase:String(item.priceBase),priceMax:String(item.priceMax),estimatedCost:String(item.estimatedCost)});}}>${editingCatalogId===item.id?t("agency.cancel"):t("agency.editBtn")}</button>
                 <button class="text" type="button" disabled=${!!busy} onClick=${()=>toggleCatalogActive(item)}>${item.active?t("agency.deactivateBtn"):t("agency.activateBtn")}</button>
+                <button class="text agency-danger-btn" type="button" disabled=${!!busy} onClick=${()=>setDeleteTarget({entityType:"catalog_item",entityId:item.id,label:`${item.name} (${item.code})`})}>${t("agency.deleteBtn")}</button>
               </div>
               ${editingCatalogId===item.id&&html`<form class="agency-form agency-form-grid agency-inline-edit" onSubmit=${e=>saveCatalogEdit(e,item.id)}>
                 <${Field} label=${t("agency.catalogName")} value=${editCatalogDraft.name} required onInput=${v=>update(setEditCatalogDraft,"name",v)}/>
@@ -1969,6 +2034,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                     ${q.status==="pending_approval"&&ap?.status==="approved"&&html`<button class="btn primary" type="button" onClick=${()=>quoteAction(q.id,"send")}>${t("agency.sendQuoteBtn")}</button>`}
                     ${q.status==="sent"&&html`<button class="btn primary" type="button" onClick=${()=>quoteAction(q.id,"decision",{decision:"accepted"})}>${t("agency.acceptQuoteBtn")}</button><button class="text" type="button" onClick=${()=>quoteAction(q.id,"decision",{decision:"rejected"})}>${t("agency.rejectQuoteBtn")}</button>`}
                     ${q.status==="accepted"&&html`<button class="btn primary" type="button" onClick=${()=>createContract(q.id)}>${t("agency.createContractBtn")}</button>`}
+                    ${["draft","rejected","expired"].includes(q.status)&&html`<button class="text agency-danger-btn" type="button" disabled=${!!busy} onClick=${()=>setDeleteTarget({entityType:"quote",entityId:q.id,label:`v${q.version} · ${q.title}`})}>${t("agency.deleteBtn")}</button>`}
                   </div>
                   ${negEval&&negEval.quoteId===q.id&&html`<small>${negEval.allowedAutonomously?t("agency.negotiationAllowed",{margin:negEval.resultingMarginPct,floor:negEval.priceFloor}):t("agency.negotiationNeedsApproval",{violations:negEval.violations.join(", ")})}</small>`}
                 </article>`;
@@ -2039,34 +2105,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             `}
           </div>
         </div>
-        ${directProjectFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${createDirectProject}>
-          <div class="agency-form-head"><strong>${t("agency.newStudioProjectBtn")}</strong><button type="button" class="text" onClick=${()=>setDirectProjectFormOpen(false)}>${t("agency.cancel")}</button></div>
-          <${Field} label=${t("agency.directProjectTitleLabel")} value=${directProjectDraft.title} required placeholder="Portail client Dakar…" onInput=${v=>update(setDirectProjectDraft,"title",v)}/>
-          <${Field} label=${t("agency.directProjectClientLabel")} value=${directProjectDraft.clientName} placeholder="Nom client (optionnel)" onInput=${v=>update(setDirectProjectDraft,"clientName",v)}/>
-          <label class="agency-field"><span>${t("agency.company")}</span><select class="field" value=${directProjectDraft.companyId} onChange=${e=>update(setDirectProjectDraft,"companyId",e.currentTarget.value)}>
-            <option value="">${t("agency.directProjectAutoCompany")}</option>
-            ${companyOptions.map(c=>html`<option value=${c.id}>${c.name}</option>`)}
-          </select></label>
-          <label class="agency-field"><span>${t("agency.studioScaffoldLabel")}</span><select class="field" value=${directProjectDraft.template} onChange=${e=>update(setDirectProjectDraft,"template",e.currentTarget.value)}>
-            <option value="">${t("agency.directProjectNoTemplate")}</option>
-            <option value="vitrine-html">Site vitrine (HTML/CSS/JS)</option>
-            <option value="saas-dashboard-app">Dashboard SaaS</option>
-            <option value="ecommerce-storefront">Boutique E-commerce</option>
-            <option value="webapp-node-preact">Application Web (Node)</option>
-            <option value="api-node-ts">API Service (TypeScript)</option>
-          </select></label>
-          <${Field} label=${t("agency.targetStack")} value=${directProjectDraft.targetStack} onInput=${v=>update(setDirectProjectDraft,"targetStack",v)}/>
-          <${Field} label=${t("agency.directProjectBudgetLabel")} value=${directProjectDraft.budgetAmount} type="number" onInput=${v=>update(setDirectProjectDraft,"budgetAmount",v)}/>
-          <${Field} label=${t("agency.catalogDays")} value=${directProjectDraft.estimatedDays} type="number" onInput=${v=>update(setDirectProjectDraft,"estimatedDays",v)}/>
-          <label class="agency-field agency-form-wide"><span>${t("agency.directProjectSpecsLabel")}</span><textarea class="field" rows="5" value=${directProjectDraft.technicalSpecs} placeholder=${t("agency.directProjectSpecsPlaceholder")} onInput=${e=>update(setDirectProjectDraft,"technicalSpecs",e.currentTarget.value)}></textarea></label>
-          <label class="agency-field agency-form-wide"><span>${t("agency.directProjectFilesLabel")}</span>
-            <input class="field" type="file" multiple accept=".txt,.md,.markdown,.csv,.json,.js,.mjs,.ts,.tsx,.jsx,.html,.css,.xml,.yaml,.yml,.sql,.pdf,.png,.jpg,.jpeg,.webp,.svg" onChange=${e=>{void addDirectProjectFiles(e.currentTarget.files);e.currentTarget.value="";}}/>
-          </label>
-          ${directProjectFiles.length>0&&html`<div class="agency-copilot-attachments agency-form-wide">
-            ${directProjectFiles.map((f,idx)=>html`<span class="agency-copilot-chip"><${Icon} name="doc" size="sm"/><span>${f.name}</span><button class="text" type="button" onClick=${()=>setDirectProjectFiles(p=>p.filter((_,i)=>i!==idx))}><${Icon} name="close" size="sm"/></button></span>`)}
-          </div>`}
-          <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!directProjectDraft.title.trim()}>${busy==="proj-direct"?t("agency.creating"):t("agency.createDirectProjectBtn")}</button></div>
-        </form>`}
+        ${directProjectFormOpen&&directProjectFormEl}
         ${projectFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${createProjectHandoff}>
           <div class="agency-form-head"><strong>${t("agency.handoffProjectTitle")}</strong><button type="button" class="text" onClick=${()=>setProjectFormOpen(false)}>${t("agency.cancel")}</button></div>
           <label class="agency-field"><span>${t("agency.selectContract")}</span><select class="field" value=${projectDraft.contractId} required onChange=${e=>update(setProjectDraft,"contractId",e.currentTarget.value)}>
@@ -2224,10 +2263,11 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                 ${followUps.filter(f=>f.projectId===selectedProjectId).map(fu=>html`<article class="agency-commercial-card">
                   <div class="agency-commercial-head"><strong>${t(`agency.followUpType.${fu.type}`)}</strong><span class=${"agency-whatsapp-state "+fu.status}>${t(`agency.followUpStatus.${fu.status}`)}</span></div>
                   <small>${fu.notes||"—"}</small>
-                  ${(fu.status==="scheduled"||fu.status==="completed")&&html`<div class="agency-commercial-actions">
+                  <div class="agency-commercial-actions">
                     ${fu.status==="scheduled"&&html`<button class="btn" type="button" onClick=${()=>completeFollowUp(fu.id)}>${t("agency.completeFollowUpBtn")}</button>`}
-                    <button class="btn primary" type="button" disabled=${!!busy} onClick=${()=>convertFollowUp(fu.id)}>${t("agency.convertOpportunityBtn")}</button>
-                  </div>`}
+                    ${(fu.status==="scheduled"||fu.status==="completed")&&html`<button class="btn primary" type="button" disabled=${!!busy} onClick=${()=>convertFollowUp(fu.id)}>${t("agency.convertOpportunityBtn")}</button>`}
+                    <button class="text agency-danger-btn" type="button" disabled=${!!busy} onClick=${()=>setDeleteTarget({entityType:"followup",entityId:fu.id,label:t(`agency.followUpType.${fu.type}`)})}>${t("agency.deleteBtn")}</button>
+                  </div>
                 </article>`)}
               </div>
             </section>
@@ -2327,15 +2367,33 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
                   <button class="btn" type="button" disabled=${!!busy} onClick=${()=>executeMission(m.id,"cli_tool",cliActionByMission[m.id]||"npm_test")}>${t("agency.runCliBtn")}</button>
                   ${m.status==="planned"&&html`<button class="btn" type="button" onClick=${()=>updateMission(m.id,"running")}>${t("agency.startMissionBtn")}</button>`}
                   ${(m.status==="planned"||m.status==="running")&&html`<button class="btn primary" type="button" onClick=${()=>updateMission(m.id,"completed")}>${t("agency.completeMissionBtn")}</button>`}
+                  ${m.status!=="running"&&html`<button class="text agency-danger-btn" type="button" disabled=${!!busy} onClick=${()=>setDeleteTarget({entityType:"mission",entityId:m.id,label:m.title})}>${t("agency.deleteBtn")}</button>`}
                 </div>
               </article>`)}
             </div>
           </section>
         </div>
       </div>`}
+      ${tab==="studio"&&html`<div class="agency-ops-stack">
+        <div class="agency-project-bar">
+          <div class="agency-project-bar-left">
+            ${projects.length>0&&html`<select class="field" aria-label=${t("agency.projectsTitle")} value=${selectedProjectId} onChange=${e=>setSelectedProjectId(e.currentTarget.value)}>
+              ${projects.map(p=>html`<option value=${p.id}>${p.title} (${fmtNum(p.budgetAmount)} ${p.currency})</option>`)}
+            </select>`}
+            ${selectedProject&&html`<span class=${"agency-whatsapp-state "+selectedProject.status}>${t(`agency.projectStatus.${selectedProject.status}`)}</span>`}
+          </div>
+          <div class="agency-commercial-actions">
+            <button class="btn primary" type="button" onClick=${()=>setDirectProjectFormOpen(v=>!v)}><${Icon} name=${directProjectFormOpen?"close":"plus"} size="sm"/>${directProjectFormOpen?t("agency.cancel"):t("agency.newStudioProjectBtn")}</button>
+          </div>
+        </div>
+        ${workspaceNotice&&html`<p class="agency-research-feedback" role="status">${workspaceNotice}</p>`}
+        ${(directProjectFormOpen||!selectedProject)&&directProjectFormEl}
+        ${selectedProject&&html`<${ProjectStudio} orgId=${orgId} project=${selectedProject} onChanged=${()=>setRevision(v=>v+1)}/>`}
+      </div>`}
       ${tab==="agents"&&html`<${AgencyAgents} orgId=${orgId} agents=${agentProfiles} onSaved=${()=>setRevision(v=>v+1)}/>`}
       ${tab==="copilot"&&html`<${AgencyCopilot} orgId=${orgId} activeTab=${tab} companyId=${selected} leadId=${selectedLeadId} projectId=${selectedProjectId} onDataChanged=${()=>setRevision(v=>v+1)}/>`}
     `}
+    ${deleteTarget&&html`<${SecureDeleteModal} orgId=${orgId} target=${deleteTarget} onClose=${()=>setDeleteTarget(null)} onDeleted=${handleEntityDeleted} onArchive=${archiveFromDeleteModal}/>`}
   </section>`;
 
 }

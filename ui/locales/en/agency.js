@@ -53,7 +53,19 @@ export default {
   "startResearch": "Start full research",
   "startingResearch": "Starting research…",
   "researchStarted": "Research was submitted to Company Research. Progress will refresh automatically.",
-  "jobStatus": {"pending": "Waiting to start", "grounding": "Identifying company", "researching": "Researching", "collecting": "Collecting sources", "curating": "Reviewing sources", "enriching": "Filling information gaps", "briefing": "Preparing analysis", "editing": "Writing final report", "completed": "Completed", "failed": "Failed", "cancelled": "Cancelled"},
+  "jobStatus": {
+    "pending": "Waiting to start",
+    "grounding": "Identifying company",
+    "researching": "Researching",
+    "collecting": "Collecting sources",
+    "curating": "Reviewing sources",
+    "enriching": "Filling information gaps",
+    "briefing": "Preparing analysis",
+    "editing": "Writing final report",
+    "completed": "Completed",
+    "failed": "Failed",
+    "cancelled": "Cancelled"
+  },
   "researchLaunchFailed": "Company Research could not finish. Open the Company Research conversation to inspect the error.",
   "researchFinishedNoReport": "The run ended but no matching completed report was found. Check the Company Research conversation.",
   "researchStalled": "No progress for 30 minutes. You can start a fresh run.",
@@ -65,7 +77,11 @@ export default {
   "researchImportResult": "Imported {imported} sources; skipped {duplicates} duplicates and {uncited} unused references.",
   "dateUnknown": "Date unavailable",
   "researchTitle": "Research evidence",
-  "researchStatus": {"insufficient": "No evidence yet", "developing": "Research in progress", "review_ready": "Ready for human review"},
+  "researchStatus": {
+    "insufficient": "No evidence yet",
+    "developing": "Research in progress",
+    "review_ready": "Ready for human review"
+  },
   "evidenceCount": "evidence items",
   "sources": "source sites",
   "addEvidence": "Add evidence",
@@ -92,9 +108,28 @@ export default {
   "qualificationWeight": "Weight {weight}",
   "qualificationUnknownValue": "No matching data recorded",
   "qualificationBlocked": "Blocked by an excluded-industry rule.",
-  "qualificationStatus": {"unconfigured":"Not configured","insufficient_data":"Insufficient data","strong_fit":"Strong fit","review":"Needs review","weak_fit":"Weak fit"},
-  "qualificationResult": {"met":"Met","not_met":"Not met","unknown":"Unknown"},
-  "qualificationCriteria": {"target_industry":"Target industry","target_country":"Target country","excluded_industry":"Excluded industry rule","website":"Official website","evidence_company":"Company evidence","evidence_industry":"Industry evidence","evidence_financial":"Financial evidence","evidence_news":"News evidence"},
+  "qualificationStatus": {
+    "unconfigured": "Not configured",
+    "insufficient_data": "Insufficient data",
+    "strong_fit": "Strong fit",
+    "review": "Needs review",
+    "weak_fit": "Weak fit"
+  },
+  "qualificationResult": {
+    "met": "Met",
+    "not_met": "Not met",
+    "unknown": "Unknown"
+  },
+  "qualificationCriteria": {
+    "target_industry": "Target industry",
+    "target_country": "Target country",
+    "excluded_industry": "Excluded industry rule",
+    "website": "Official website",
+    "evidence_company": "Company evidence",
+    "evidence_industry": "Industry evidence",
+    "evidence_financial": "Financial evidence",
+    "evidence_news": "News evidence"
+  },
   "whatsappEyebrow": "CHANNEL SETUP",
   "whatsappTitle": "WhatsApp Business",
   "whatsappDescription": "Configure the official Cloud API connection for this organization. Credentials are encrypted with system secure storage on this desktop.",
@@ -173,10 +208,30 @@ export default {
   "whatsappTemplateComponents": "Template components (JSON array)",
   "whatsappApprovalReason": "Why this message is relevant",
   "whatsappRequestApproval": "Request owner approval",
-  "whatsappConsentStatus": {"granted":"Granted","withdrawn":"Withdrawn"},
-  "whatsappApprovalStatus": {"pending":"Pending","approved":"Approved","rejected":"Rejected","expired":"Expired"},
-  "whatsappOutboxStatus": {"queued":"Queued","sending":"Submitting","accepted":"Accepted by Meta","failed":"Failed","submission_unknown":"Submission unknown","cancelled":"Cancelled"},
-  "whatsappProviderStatusValues": {"sent":"Sent","delivered":"Delivered","read":"Read","failed":"Failed"},
+  "whatsappConsentStatus": {
+    "granted": "Granted",
+    "withdrawn": "Withdrawn"
+  },
+  "whatsappApprovalStatus": {
+    "pending": "Pending",
+    "approved": "Approved",
+    "rejected": "Rejected",
+    "expired": "Expired"
+  },
+  "whatsappOutboxStatus": {
+    "queued": "Queued",
+    "sending": "Submitting",
+    "accepted": "Accepted by Meta",
+    "failed": "Failed",
+    "submission_unknown": "Submission unknown",
+    "cancelled": "Cancelled"
+  },
+  "whatsappProviderStatusValues": {
+    "sent": "Sent",
+    "delivered": "Delivered",
+    "read": "Read",
+    "failed": "Failed"
+  },
   "whatsappPayloadHash": "Payload SHA-256:",
   "whatsappExactPayload": "Review exact template components",
   "whatsappDecisionReason": "Owner decision:",
@@ -270,10 +325,40 @@ export default {
   "recordDepositBtn": "Record deposit paid",
   "depositPaidLabel": "Deposit paid",
   "depositUnpaidLabel": "Deposit unpaid",
-  "solutionType": {"vitrine":"Showcase site","ecommerce":"E-commerce","web_app":"Web app","mobile_app":"Mobile app","business_platform":"Business platform","internal_tool":"Internal tool","automation":"Automation","maintenance":"Maintenance"},
-  "quoteStatus": {"draft":"Draft","pending_approval":"Pending approval","approved":"Approved","sent":"Sent","accepted":"Accepted","rejected":"Rejected","expired":"Expired"},
-  "contractStatus": {"draft":"Draft","pending_approval":"Pending approval","approved":"Approved","sent":"Sent","signed":"Signed","cancelled":"Cancelled"},
-  "conversationStatus": {"open":"Open","awaiting_reply":"Awaiting reply","handoff_human":"Human handoff","opted_out":"Opted out","closed":"Closed"},
+  "solutionType": {
+    "vitrine": "Showcase site",
+    "ecommerce": "E-commerce",
+    "web_app": "Web app",
+    "mobile_app": "Mobile app",
+    "business_platform": "Business platform",
+    "internal_tool": "Internal tool",
+    "automation": "Automation",
+    "maintenance": "Maintenance"
+  },
+  "quoteStatus": {
+    "draft": "Draft",
+    "pending_approval": "Pending approval",
+    "approved": "Approved",
+    "sent": "Sent",
+    "accepted": "Accepted",
+    "rejected": "Rejected",
+    "expired": "Expired"
+  },
+  "contractStatus": {
+    "draft": "Draft",
+    "pending_approval": "Pending approval",
+    "approved": "Approved",
+    "sent": "Sent",
+    "signed": "Signed",
+    "cancelled": "Cancelled"
+  },
+  "conversationStatus": {
+    "open": "Open",
+    "awaiting_reply": "Awaiting reply",
+    "handoff_human": "Human handoff",
+    "opted_out": "Opted out",
+    "closed": "Closed"
+  },
   "projects": "Projects",
   "operations": "Operations",
   "projectsTitle": "Projects & production",
@@ -284,7 +369,17 @@ export default {
   "technicalSpecs": "Technical specifications",
   "createProjectBtn": "Start project handoff",
   "noProjects": "No active projects yet.",
-  "projectStatus": {"handoff_pending":"Handoff pending","scoping":"Scoping","in_progress":"In progress","qa_review":"QA review","ready_for_delivery":"Ready for delivery","delivered":"Delivered","accepted":"Accepted","maintenance":"Maintenance","archived":"Archived"},
+  "projectStatus": {
+    "handoff_pending": "Handoff pending",
+    "scoping": "Scoping",
+    "in_progress": "In progress",
+    "qa_review": "QA review",
+    "ready_for_delivery": "Ready for delivery",
+    "delivered": "Delivered",
+    "accepted": "Accepted",
+    "maintenance": "Maintenance",
+    "archived": "Archived"
+  },
   "projectLotsTitle": "Project lots",
   "lotTitle": "Lot title",
   "lotDescription": "Lot description",
@@ -296,7 +391,14 @@ export default {
   "markLotInProgress": "Start lot",
   "markLotVerified": "Verify lot",
   "generateBriefBtn": "Execution brief",
-  "lotStatus": {"pending":"Pending","in_progress":"In progress","in_qa":"In QA","verified":"Verified","done":"Done","blocked":"Blocked"},
+  "lotStatus": {
+    "pending": "Pending",
+    "in_progress": "In progress",
+    "in_qa": "In QA",
+    "verified": "Verified",
+    "done": "Done",
+    "blocked": "Blocked"
+  },
   "scopeChangesTitle": "Scope changes",
   "scopeChangeTitle": "Change title",
   "budgetDelta": "Budget delta",
@@ -304,15 +406,31 @@ export default {
   "proposeScopeChangeBtn": "Propose scope change",
   "requestScopeApproval": "Request scope approval",
   "applyScopeChangeBtn": "Apply scope change",
-  "scopeChangeStatus": {"proposed":"Proposed","approval_requested":"Approval requested","approved":"Approved","rejected":"Rejected","applied":"Applied"},
+  "scopeChangeStatus": {
+    "proposed": "Proposed",
+    "approval_requested": "Approval requested",
+    "approved": "Approved",
+    "rejected": "Rejected",
+    "applied": "Applied"
+  },
   "qaGateTitle": "Independent QA gate",
   "qaGateReady": "QA gate passed — ready for governed delivery",
   "qaGateBlocked": "QA gate blocked before delivery",
   "qaBlockers": "Blockers",
   "qaCategoryLabel": "QA discipline",
-  "qaCategory": {"functional":"Functional QA","technical":"Technical QA","ui_ux":"UI/UX QA","security":"Security QA"},
+  "qaCategory": {
+    "functional": "Functional QA",
+    "technical": "Technical QA",
+    "ui_ux": "UI/UX QA",
+    "security": "Security QA"
+  },
   "qaStatusLabel": "Check result",
-  "qaCheckStatus": {"pending":"Pending","passed":"Passed","failed":"Failed","blocked":"Blocked"},
+  "qaCheckStatus": {
+    "pending": "Pending",
+    "passed": "Passed",
+    "failed": "Failed",
+    "blocked": "Blocked"
+  },
   "qaCheckTitle": "Check title",
   "qaEvidence": "Verifiable evidence",
   "qaFindings": "Findings",
@@ -326,11 +444,28 @@ export default {
   "clientFeedback": "Client acceptance notes",
   "acceptDeliveryBtn": "Accept delivery",
   "rejectDeliveryBtn": "Reject to QA",
-  "deliveryStatus": {"prepared":"Prepared","approval_requested":"Approval requested","deployed":"Deployed","accepted":"Accepted","rejected":"Rejected"},
+  "deliveryStatus": {
+    "prepared": "Prepared",
+    "approval_requested": "Approval requested",
+    "deployed": "Deployed",
+    "accepted": "Accepted",
+    "rejected": "Rejected"
+  },
   "followUpsTitle": "Post-delivery retention & follow-ups",
   "followUpTypeLabel": "Follow-up type",
-  "followUpType": {"satisfaction":"Satisfaction","maintenance":"Maintenance","upsell":"Upsell","support":"Support","case_study":"Case study"},
-  "followUpStatus": {"scheduled":"Scheduled","contacted":"Contacted","completed":"Completed","dismissed":"Dismissed"},
+  "followUpType": {
+    "satisfaction": "Satisfaction",
+    "maintenance": "Maintenance",
+    "upsell": "Upsell",
+    "support": "Support",
+    "case_study": "Case study"
+  },
+  "followUpStatus": {
+    "scheduled": "Scheduled",
+    "contacted": "Contacted",
+    "completed": "Completed",
+    "dismissed": "Dismissed"
+  },
   "followUpNotes": "Follow-up notes",
   "scheduleFollowUpBtn": "Schedule follow-up",
   "completeFollowUpBtn": "Complete",
@@ -355,7 +490,13 @@ export default {
   "createMissionBtn": "Create mission",
   "startMissionBtn": "Start",
   "completeMissionBtn": "Complete",
-  "missionStatus": {"planned":"Planned","running":"Running","blocked":"Blocked","completed":"Completed","failed":"Failed"},
+  "missionStatus": {
+    "planned": "Planned",
+    "running": "Running",
+    "blocked": "Blocked",
+    "completed": "Completed",
+    "failed": "Failed"
+  },
   "newOrganization": "New organization",
   "createLeadFromCompany": "Create lead",
   "openCommercial": "Open in Sales",
@@ -517,7 +658,12 @@ export default {
   "activateBtn": "Activate",
   "generateMilestonesBtn": "Generate 40/40/20 Milestones",
   "milestonesTitle": "Billing Milestones & Invoices",
-  "invoiceStatus": {"draft":"Draft","issued":"Issued","paid":"Paid","cancelled":"Cancelled"},
+  "invoiceStatus": {
+    "draft": "Draft",
+    "issued": "Issued",
+    "paid": "Paid",
+    "cancelled": "Cancelled"
+  },
   "previewInvoiceBtn": "Invoice HTML/PDF",
   "markInvoicePaidBtn": "Mark Paid",
   "runLotPipelineBtn": "Run Pipeline (Arch → Dev → QA)",
@@ -544,5 +690,39 @@ export default {
   "createDirectProjectBtn": "Create & Open in Studio",
   "directProjectCreated": "Project created in Studio ({count} file(s) saved).",
   "studioUploadDocsBtn": "Upload docs",
-  "studioDocsUploaded": "{count} document(s) uploaded to docs/sources/."
+  "studioDocsUploaded": "{count} document(s) uploaded to docs/sources/.",
+  "deleteBtn": "Delete",
+  "deleteModalTitle": "Safe & Audited Deletion",
+  "deleteBlockedTitle": "Permanent deletion blocked",
+  "deleteBlockedHint": "This record is protected by compliance, financial, or execution invariants:",
+  "deleteArchiveInsteadBtn": "Archive instead",
+  "deleteIrreversibleWarning": "This deletion is permanent, irreversible, and recorded in the immutable audit chain.",
+  "deleteImpactTitle": "Linked records that will also be deleted:",
+  "deleteCascadeLabel": "I understand all linked records listed above will be permanently deleted",
+  "deleteTypeNamePrompt": "Type \"{name}\" exactly to confirm:",
+  "deleteReasonLabel": "Deletion reason (recorded in audit log, optional)",
+  "deleteReasonPlaceholder": "e.g., duplicate record, test entry, cancelled lead…",
+  "deleteConfirmBtn": "Delete permanently",
+  "deleteCountContacts": "Contacts",
+  "deleteCountLeads": "Leads",
+  "deleteCountEvidence": "Evidence & audits",
+  "deleteCountConversations": "Conversations",
+  "deleteCountMessages": "Messages",
+  "deleteCountQuotes": "Quotes (draft/rejected/expired)",
+  "deleteCountNeeds": "Needs qualifications",
+  "deleteEntityTypes": {
+    "company": "Company",
+    "contact": "Contact",
+    "lead": "Lead",
+    "evidence": "Evidence",
+    "quote": "Quote",
+    "catalog_item": "Catalog item",
+    "mission": "Mission",
+    "followup": "Follow-up"
+  },
+  "studio": "AI Studio",
+  "notSpecified": "Not specified",
+  "notEvaluated": "Not evaluated",
+  "chooseOption": "Choose an option",
+  "studioNoFileSelected": "No file selected"
 };

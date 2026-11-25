@@ -1,4 +1,3 @@
-// agency · fr
 export default {
   "nav": "Agence",
   "eyebrow": "AGENCE",
@@ -54,7 +53,19 @@ export default {
   "startResearch": "Lancer la recherche complète",
   "startingResearch": "Lancement de la recherche…",
   "researchStarted": "La recherche a été envoyée à Company Research. La progression sera actualisée automatiquement.",
-  "jobStatus": {"pending": "En attente de démarrage", "grounding": "Identification de l'entreprise", "researching": "Recherche en cours", "collecting": "Collecte des sources", "curating": "Examen des sources", "enriching": "Complément d'informations", "briefing": "Préparation de l'analyse", "editing": "Rédaction du rapport final", "completed": "Terminé", "failed": "Échec", "cancelled": "Annulé"},
+  "jobStatus": {
+    "pending": "En attente de démarrage",
+    "grounding": "Identification de l'entreprise",
+    "researching": "Recherche en cours",
+    "collecting": "Collecte des sources",
+    "curating": "Examen des sources",
+    "enriching": "Complément d'informations",
+    "briefing": "Préparation de l'analyse",
+    "editing": "Rédaction du rapport final",
+    "completed": "Terminé",
+    "failed": "Échec",
+    "cancelled": "Annulé"
+  },
   "researchLaunchFailed": "Company Research n'a pas pu terminer. Ouvrez la conversation Company Research pour inspecter l'erreur.",
   "researchFinishedNoReport": "L'exécution s'est terminée mais aucun rapport complet correspondant n'a été trouvé. Vérifiez la conversation Company Research.",
   "researchStalled": "Aucune progression depuis 30 minutes. Vous pouvez lancer une nouvelle exécution.",
@@ -66,7 +77,11 @@ export default {
   "researchImportResult": "{imported} sources importées ; {duplicates} doublons et {uncited} références inutilisées ignorés.",
   "dateUnknown": "Date indisponible",
   "researchTitle": "Preuves de recherche",
-  "researchStatus": {"insufficient": "Aucune preuve pour l'instant", "developing": "Recherche en cours", "review_ready": "Prêt pour revue humaine"},
+  "researchStatus": {
+    "insufficient": "Aucune preuve pour l'instant",
+    "developing": "Recherche en cours",
+    "review_ready": "Prêt pour revue humaine"
+  },
   "evidenceCount": "éléments de preuve",
   "sources": "sites sources",
   "addEvidence": "Ajouter une preuve",
@@ -93,9 +108,28 @@ export default {
   "qualificationWeight": "Poids {weight}",
   "qualificationUnknownValue": "Aucune donnée correspondante enregistrée",
   "qualificationBlocked": "Bloqué par une règle de secteur exclu.",
-  "qualificationStatus": {"unconfigured":"Non configuré","insufficient_data":"Données insuffisantes","strong_fit":"Forte adéquation","review":"À examiner","weak_fit":"Faible adéquation"},
-  "qualificationResult": {"met":"Satisfait","not_met":"Non satisfait","unknown":"Inconnu"},
-  "qualificationCriteria": {"target_industry":"Secteur cible","target_country":"Pays cible","excluded_industry":"Règle de secteur exclu","website":"Site web officiel","evidence_company":"Preuves sur l'entreprise","evidence_industry":"Preuves sectorielles","evidence_financial":"Preuves financières","evidence_news":"Preuves d'actualité"},
+  "qualificationStatus": {
+    "unconfigured": "Non configuré",
+    "insufficient_data": "Données insuffisantes",
+    "strong_fit": "Forte adéquation",
+    "review": "À examiner",
+    "weak_fit": "Faible adéquation"
+  },
+  "qualificationResult": {
+    "met": "Satisfait",
+    "not_met": "Non satisfait",
+    "unknown": "Inconnu"
+  },
+  "qualificationCriteria": {
+    "target_industry": "Secteur cible",
+    "target_country": "Pays cible",
+    "excluded_industry": "Règle de secteur exclu",
+    "website": "Site web officiel",
+    "evidence_company": "Preuves sur l'entreprise",
+    "evidence_industry": "Preuves sectorielles",
+    "evidence_financial": "Preuves financières",
+    "evidence_news": "Preuves d'actualité"
+  },
   "whatsappEyebrow": "CANAL",
   "whatsappTitle": "WhatsApp Business",
   "whatsappDescription": "Cloud API officielle.",
@@ -174,10 +208,30 @@ export default {
   "whatsappTemplateComponents": "Composants du modèle (tableau JSON)",
   "whatsappApprovalReason": "Pourquoi ce message est pertinent",
   "whatsappRequestApproval": "Demander l'approbation du propriétaire",
-  "whatsappConsentStatus": {"granted":"Accordé","withdrawn":"Retiré"},
-  "whatsappApprovalStatus": {"pending":"En attente","approved":"Approuvé","rejected":"Rejeté","expired":"Expiré"},
-  "whatsappOutboxStatus": {"queued":"En file","sending":"Soumission","accepted":"Accepté par Meta","failed":"Échec","submission_unknown":"Soumission incertaine","cancelled":"Annulé"},
-  "whatsappProviderStatusValues": {"sent":"Envoyé","delivered":"Livré","read":"Lu","failed":"Échec"},
+  "whatsappConsentStatus": {
+    "granted": "Accordé",
+    "withdrawn": "Retiré"
+  },
+  "whatsappApprovalStatus": {
+    "pending": "En attente",
+    "approved": "Approuvé",
+    "rejected": "Rejeté",
+    "expired": "Expiré"
+  },
+  "whatsappOutboxStatus": {
+    "queued": "En file",
+    "sending": "Soumission",
+    "accepted": "Accepté par Meta",
+    "failed": "Échec",
+    "submission_unknown": "Soumission incertaine",
+    "cancelled": "Annulé"
+  },
+  "whatsappProviderStatusValues": {
+    "sent": "Envoyé",
+    "delivered": "Livré",
+    "read": "Lu",
+    "failed": "Échec"
+  },
   "whatsappPayloadHash": "SHA-256 de la charge utile :",
   "whatsappExactPayload": "Examiner les composants exacts du modèle",
   "whatsappDecisionReason": "Décision du propriétaire :",
@@ -271,10 +325,40 @@ export default {
   "recordDepositBtn": "Enregistrer l'acompte payé",
   "depositPaidLabel": "Acompte payé",
   "depositUnpaidLabel": "Acompte impayé",
-  "solutionType": {"vitrine":"Site vitrine","ecommerce":"E-commerce","web_app":"Application web","mobile_app":"Application mobile","business_platform":"Plateforme métier","internal_tool":"Outil interne","automation":"Automatisation","maintenance":"Maintenance"},
-  "quoteStatus": {"draft":"Brouillon","pending_approval":"En attente d'approbation","approved":"Approuvé","sent":"Envoyé","accepted":"Accepté","rejected":"Refusé","expired":"Expiré"},
-  "contractStatus": {"draft":"Brouillon","pending_approval":"En attente d'approbation","approved":"Approuvé","sent":"Envoyé","signed":"Signé","cancelled":"Annulé"},
-  "conversationStatus": {"open":"Ouverte","awaiting_reply":"En attente de réponse","handoff_human":"Relais humain","opted_out":"Désinscrit","closed":"Fermée"},
+  "solutionType": {
+    "vitrine": "Site vitrine",
+    "ecommerce": "E-commerce",
+    "web_app": "Application web",
+    "mobile_app": "Application mobile",
+    "business_platform": "Plateforme métier",
+    "internal_tool": "Outil interne",
+    "automation": "Automatisation",
+    "maintenance": "Maintenance"
+  },
+  "quoteStatus": {
+    "draft": "Brouillon",
+    "pending_approval": "En attente d'approbation",
+    "approved": "Approuvé",
+    "sent": "Envoyé",
+    "accepted": "Accepté",
+    "rejected": "Refusé",
+    "expired": "Expiré"
+  },
+  "contractStatus": {
+    "draft": "Brouillon",
+    "pending_approval": "En attente d'approbation",
+    "approved": "Approuvé",
+    "sent": "Envoyé",
+    "signed": "Signé",
+    "cancelled": "Annulé"
+  },
+  "conversationStatus": {
+    "open": "Ouverte",
+    "awaiting_reply": "En attente de réponse",
+    "handoff_human": "Relais humain",
+    "opted_out": "Désinscrit",
+    "closed": "Fermée"
+  },
   "projects": "Projets",
   "operations": "Opérations",
   "projectsTitle": "Projets & production",
@@ -285,7 +369,17 @@ export default {
   "technicalSpecs": "Spécifications techniques",
   "createProjectBtn": "Démarrer le passage en projet",
   "noProjects": "Aucun projet actif pour l'instant.",
-  "projectStatus": {"handoff_pending":"Passage en attente","scoping":"Cadrage","in_progress":"En cours","qa_review":"Revue QA","ready_for_delivery":"Prêt pour livraison","delivered":"Livré","accepted":"Accepté","maintenance":"Maintenance","archived":"Archivé"},
+  "projectStatus": {
+    "handoff_pending": "Passage en attente",
+    "scoping": "Cadrage",
+    "in_progress": "En cours",
+    "qa_review": "Revue QA",
+    "ready_for_delivery": "Prêt pour livraison",
+    "delivered": "Livré",
+    "accepted": "Accepté",
+    "maintenance": "Maintenance",
+    "archived": "Archivé"
+  },
   "projectLotsTitle": "Lots du projet",
   "lotTitle": "Titre du lot",
   "lotDescription": "Description du lot",
@@ -297,7 +391,14 @@ export default {
   "markLotInProgress": "Démarrer le lot",
   "markLotVerified": "Vérifier le lot",
   "generateBriefBtn": "Brief d'exécution",
-  "lotStatus": {"pending":"En attente","in_progress":"En cours","in_qa":"En QA","verified":"Vérifié","done":"Terminé","blocked":"Bloqué"},
+  "lotStatus": {
+    "pending": "En attente",
+    "in_progress": "En cours",
+    "in_qa": "En QA",
+    "verified": "Vérifié",
+    "done": "Terminé",
+    "blocked": "Bloqué"
+  },
   "scopeChangesTitle": "Évolutions de périmètre",
   "scopeChangeTitle": "Titre de l'évolution",
   "budgetDelta": "Variation du budget",
@@ -305,15 +406,31 @@ export default {
   "proposeScopeChangeBtn": "Proposer une évolution",
   "requestScopeApproval": "Demander l'approbation du périmètre",
   "applyScopeChangeBtn": "Appliquer l'évolution",
-  "scopeChangeStatus": {"proposed":"Proposée","approval_requested":"Approbation demandée","approved":"Approuvée","rejected":"Refusée","applied":"Appliquée"},
+  "scopeChangeStatus": {
+    "proposed": "Proposée",
+    "approval_requested": "Approbation demandée",
+    "approved": "Approuvée",
+    "rejected": "Refusée",
+    "applied": "Appliquée"
+  },
   "qaGateTitle": "Porte QA",
   "qaGateReady": "QA validée — prêt à livrer",
   "qaGateBlocked": "QA bloquée",
   "qaBlockers": "Bloquants",
   "qaCategoryLabel": "Discipline QA",
-  "qaCategory": {"functional":"QA fonctionnelle","technical":"QA technique","ui_ux":"QA UI/UX","security":"QA sécurité"},
+  "qaCategory": {
+    "functional": "QA fonctionnelle",
+    "technical": "QA technique",
+    "ui_ux": "QA UI/UX",
+    "security": "QA sécurité"
+  },
   "qaStatusLabel": "Résultat du contrôle",
-  "qaCheckStatus": {"pending":"En attente","passed":"Réussi","failed":"Échoué","blocked":"Bloqué"},
+  "qaCheckStatus": {
+    "pending": "En attente",
+    "passed": "Réussi",
+    "failed": "Échoué",
+    "blocked": "Bloqué"
+  },
   "qaCheckTitle": "Titre du contrôle",
   "qaEvidence": "Preuve vérifiable",
   "qaFindings": "Constats",
@@ -327,11 +444,28 @@ export default {
   "clientFeedback": "Notes de recette client",
   "acceptDeliveryBtn": "Accepter la livraison",
   "rejectDeliveryBtn": "Renvoyer en QA",
-  "deliveryStatus": {"prepared":"Préparée","approval_requested":"Approbation demandée","deployed":"Déployée","accepted":"Acceptée","rejected":"Refusée"},
+  "deliveryStatus": {
+    "prepared": "Préparée",
+    "approval_requested": "Approbation demandée",
+    "deployed": "Déployée",
+    "accepted": "Acceptée",
+    "rejected": "Refusée"
+  },
   "followUpsTitle": "Suivi post-livraison & fidélisation",
   "followUpTypeLabel": "Type de suivi",
-  "followUpType": {"satisfaction":"Satisfaction","maintenance":"Maintenance","upsell":"Montée en gamme","support":"Support","case_study":"Étude de cas"},
-  "followUpStatus": {"scheduled":"Planifié","contacted":"Contacté","completed":"Terminé","dismissed":"Écarté"},
+  "followUpType": {
+    "satisfaction": "Satisfaction",
+    "maintenance": "Maintenance",
+    "upsell": "Montée en gamme",
+    "support": "Support",
+    "case_study": "Étude de cas"
+  },
+  "followUpStatus": {
+    "scheduled": "Planifié",
+    "contacted": "Contacté",
+    "completed": "Terminé",
+    "dismissed": "Écarté"
+  },
   "followUpNotes": "Notes de suivi",
   "scheduleFollowUpBtn": "Planifier le suivi",
   "completeFollowUpBtn": "Terminer",
@@ -356,7 +490,13 @@ export default {
   "createMissionBtn": "Créer la mission",
   "startMissionBtn": "Démarrer",
   "completeMissionBtn": "Terminer",
-  "missionStatus": {"planned":"Planifiée","running":"En cours","blocked":"Bloquée","completed":"Terminée","failed":"Échouée"},
+  "missionStatus": {
+    "planned": "Planifiée",
+    "running": "En cours",
+    "blocked": "Bloquée",
+    "completed": "Terminée",
+    "failed": "Échouée"
+  },
   "newOrganization": "Nouvelle organisation",
   "createLeadFromCompany": "Créer un prospect",
   "openCommercial": "Ouvrir en ventes",
@@ -518,7 +658,12 @@ export default {
   "activateBtn": "Activer",
   "generateMilestonesBtn": "Générer échéancier 40/40/20",
   "milestonesTitle": "Échéancier de facturation",
-  "invoiceStatus": {"draft":"Brouillon","issued":"Émise","paid":"Payée","cancelled":"Annulée"},
+  "invoiceStatus": {
+    "draft": "Brouillon",
+    "issued": "Émise",
+    "paid": "Payée",
+    "cancelled": "Annulée"
+  },
   "previewInvoiceBtn": "Facture HTML/PDF",
   "markInvoicePaidBtn": "Marquer payée",
   "runLotPipelineBtn": "Pipeline complet (Arch → Dev → QA)",
@@ -545,5 +690,39 @@ export default {
   "createDirectProjectBtn": "Créer et ouvrir dans Studio",
   "directProjectCreated": "Projet créé dans le Studio ({count} fichier(s) enregistré(s)).",
   "studioUploadDocsBtn": "Importer docs",
-  "studioDocsUploaded": "{count} document(s) importé(s) dans docs/sources/."
+  "studioDocsUploaded": "{count} document(s) importé(s) dans docs/sources/.",
+  "deleteBtn": "Supprimer",
+  "deleteModalTitle": "Suppression sécurisée et auditée",
+  "deleteBlockedTitle": "Suppression définitive bloquée",
+  "deleteBlockedHint": "Cet enregistrement est protégé par des invariants de conformité, financiers ou d'exécution :",
+  "deleteArchiveInsteadBtn": "Archiver à la place",
+  "deleteIrreversibleWarning": "Cette suppression est définitive, irréversible et journalisée dans la chaîne d'audit.",
+  "deleteImpactTitle": "Éléments liés qui seront également supprimés :",
+  "deleteCascadeLabel": "Je comprends que tous ces éléments liés seront supprimés définitivement",
+  "deleteTypeNamePrompt": "Saisissez exactement « {name} » pour confirmer :",
+  "deleteReasonLabel": "Motif de suppression (enregistré dans l'audit, optionnel)",
+  "deleteReasonPlaceholder": "Ex. : doublon, fiche test, prospection annulée…",
+  "deleteConfirmBtn": "Supprimer définitivement",
+  "deleteCountContacts": "Contacts",
+  "deleteCountLeads": "Prospects",
+  "deleteCountEvidence": "Preuves & audits",
+  "deleteCountConversations": "Conversations",
+  "deleteCountMessages": "Messages",
+  "deleteCountQuotes": "Devis (brouillons/refusés)",
+  "deleteCountNeeds": "Fiches de cadrage",
+  "deleteEntityTypes": {
+    "company": "Entreprise",
+    "contact": "Contact",
+    "lead": "Prospect",
+    "evidence": "Preuve",
+    "quote": "Devis",
+    "catalog_item": "Offre catalogue",
+    "mission": "Mission",
+    "followup": "Suivi client"
+  },
+  "studio": "Studio IA",
+  "notSpecified": "Non précisé",
+  "notEvaluated": "Non évalué",
+  "chooseOption": "Choisir une option",
+  "studioNoFileSelected": "Aucun fichier sélectionné"
 };
