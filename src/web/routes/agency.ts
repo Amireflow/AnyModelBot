@@ -29,6 +29,8 @@ import { listAgencySkills, resolveSkillsPromptBlock } from "../../agency/skills.
 import {
   createStudioSnapshot,
   deleteWorkspaceFile,
+  extractReadablePdfText,
+  ingestProjectDocuments,
   listStudioSnapshots,
   listWorkspaceFiles,
   planProjectLotsWithAi,
@@ -146,15 +148,7 @@ function extractCopilotAttachmentText(raw: Record<string, unknown>): CopilotAtta
     return { name, mimeType, size: buf.length, textContent: `[Image jointe: ${name} (${mimeType}, ${buf.length} octets)]` };
   }
   if (isPdf) {
-    // Lightweight pure-Node extraction of readable text runs inside PDF objects
-    const latin = buf.toString("latin1");
-    const runs = latin.match(/[\x20-\x7e\u00c0-\u00ff]{4,}/g) ?? [];
-    const filtered = runs
-      .filter((r) => !/^(%PDF-|endobj|endstream|stream|xref|trailer|startxref|\/Type|\/Filter|\/Length)/.test(r))
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 18_000);
+    const filtered = extractReadablePdfText(buf);
     return { name, mimeType, size: buf.length, textContent: filtered || `[PDF joint: ${name}, ${buf.length} octets]` };
   }
   return { name, mimeType, size: buf.length, textContent: buf.toString("utf8").slice(0, 24_000) };
@@ -1018,6 +1012,38 @@ export function agencyRoutes(ctx: WebContext): Route {
             handoffSummary:body.handoffSummary as string|undefined,
           })});
         }
+        if (seg.length===4 && seg[3]==="direct" && method==="POST") {
+          const body=await readObject(req,4_500_000);
+          const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
+          const created=service.createDirectProject(organizationId,actor,{
+            title:body.title as string,
+            clientName:typeof body.clientName==="string" ? body.clientName : undefined,
+            companyId:typeof body.companyId==="string" ? body.companyId : undefined,
+            technicalSpecs:typeof body.technicalSpecs==="string" ? body.technicalSpecs : undefined,
+            targetStack:Array.isArray(body.targetStack) ? body.targetStack.map(String) : undefined,
+            budgetAmount:body.budgetAmount==null ? undefined : Number(body.budgetAmount),
+            estimatedDays:body.estimatedDays==null ? undefined : Number(body.estimatedDays),
+            workspacePath:typeof body.workspacePath==="string" ? body.workspacePath : undefined,
+          });
+          const docFiles=Array.isArray(body.files)
+            ? body.files.filter((x): x is Record<string,unknown> => !!x && typeof x==="object" && !Array.isArray(x)).map((f) => ({
+              name:String(f.name || "document.txt"),
+              mimeType:typeof f.mimeType==="string" ? f.mimeType : undefined,
+              textContent:typeof f.textContent==="string" ? f.textContent : undefined,
+              base64Content:typeof f.base64Content==="string" ? f.base64Content : undefined,
+            }))
+            : [];
+          const ingested=await ingestProjectDocuments({
+            dataDir,
+            project:created.project,
+            contract:created.contract,
+            lots:[],
+            cahierDesCharges:typeof body.cahierDesCharges==="string" ? body.cahierDesCharges : created.project.technicalSpecs,
+            template:(typeof body.template==="string" ? body.template : "") as StudioTemplateId | "",
+            files:docFiles,
+          });
+          return send(res,201,{ ...created, writtenFiles:ingested.writtenFiles });
+        }
         if (seg.length>=4) {
           const projectId=decodeSegment(seg[3],"project id");
           if (seg.length===4 && method==="GET") {
@@ -1195,6 +1221,28 @@ export function agencyRoutes(ctx: WebContext): Route {
             const project=service.getProject(organizationId,actor,projectId);
             if (seg.length===6 && seg[5]==="files" && method==="GET") {
               return send(res,200,{items:listWorkspaceFiles(dataDir,project)});
+            }
+            if (seg.length===6 && seg[5]==="upload-docs" && method==="POST") {
+              const body=await readObject(req,4_500_000);
+              const contract=service.getContract(organizationId,actor,project.contractId);
+              const lots=service.listProjectLots(organizationId,actor,projectId);
+              const docFiles=Array.isArray(body.files)
+                ? body.files.filter((x): x is Record<string,unknown> => !!x && typeof x==="object" && !Array.isArray(x)).map((f) => ({
+                  name:String(f.name || "document.txt"),
+                  mimeType:typeof f.mimeType==="string" ? f.mimeType : undefined,
+                  textContent:typeof f.textContent==="string" ? f.textContent : undefined,
+                  base64Content:typeof f.base64Content==="string" ? f.base64Content : undefined,
+                }))
+                : [];
+              const ingested=await ingestProjectDocuments({
+                dataDir,
+                project,
+                contract,
+                lots,
+                cahierDesCharges:typeof body.cahierDesCharges==="string" ? body.cahierDesCharges : undefined,
+                files:docFiles,
+              });
+              return send(res,200,{ writtenFiles:ingested.writtenFiles, items:listWorkspaceFiles(dataDir,project) });
             }
             if (seg.length===6 && seg[5]==="file") {
               if (method==="GET") {
@@ -1553,13 +1601,12 @@ export function agencyRoutes(ctx: WebContext): Route {
         const project=projectId ? service.getProject(organizationId,actor,projectId) : undefined;
         const lots=project ? service.listProjectLots(organizationId,actor,project.id) : undefined;
         const qaChecks=project ? service.listQaChecks(organizationId,actor,project.id) : undefined;
-        const attachments=Array.isArray(body.attachments)
-          ? body.attachments
-            .slice(0,5)
-            .filter((x): x is Record<string,unknown> => !!x && typeof x==="object" && !Array.isArray(x))
-            .map(extractCopilotAttachmentText)
-            .filter((x): x is CopilotAttachment => x!==null)
+        const rawAttachments=Array.isArray(body.attachments)
+          ? body.attachments.slice(0,5).filter((x): x is Record<string,unknown> => !!x && typeof x==="object" && !Array.isArray(x))
           : [];
+        const attachments=rawAttachments
+          .map(extractCopilotAttachmentText)
+          .filter((x): x is CopilotAttachment => x!==null);
         const history=Array.isArray(body.history)
           ? body.history
             .slice(-10)
@@ -1709,6 +1756,40 @@ export function agencyRoutes(ctx: WebContext): Route {
                 leadId:typeof args.leadId==="string" ? args.leadId : undefined,
               });
               return { ok:true, summary:`Mission "${created.title}" (${created.agentRole}) planifiée`, data:created };
+            }
+            if (tool==="create_project") {
+              const created=service.createDirectProject(organizationId,actor,{
+                title:String(args.title || "Projet Studio"),
+                clientName:typeof args.clientName==="string" ? args.clientName : undefined,
+                companyId:typeof args.companyId==="string" ? args.companyId : undefined,
+                technicalSpecs:typeof args.technicalSpecs==="string" ? args.technicalSpecs : undefined,
+                targetStack:Array.isArray(args.targetStack) ? args.targetStack.map(String) : undefined,
+                budgetAmount:args.budgetAmount==null ? 0 : Number(args.budgetAmount),
+                estimatedDays:args.estimatedDays==null ? 14 : Number(args.estimatedDays),
+              });
+              const includeFiles=args.includeAttachedFiles !== false;
+              const docFiles=includeFiles
+                ? rawAttachments.map((f) => ({
+                  name:String(f.name || "document.txt"),
+                  mimeType:typeof f.mimeType==="string" ? f.mimeType : undefined,
+                  textContent:typeof f.textContent==="string" ? f.textContent : undefined,
+                  base64Content:typeof f.base64Content==="string" ? f.base64Content : undefined,
+                }))
+                : [];
+              const ingested=await ingestProjectDocuments({
+                dataDir,
+                project:created.project,
+                contract:created.contract,
+                lots:[],
+                cahierDesCharges:created.project.technicalSpecs,
+                template:(typeof args.template==="string" ? args.template : "") as StudioTemplateId | "",
+                files:docFiles,
+              });
+              return {
+                ok:true,
+                summary:`Projet "${created.project.title}" créé dans le Studio (${ingested.writtenFiles.length} fichier(s) enregistré(s))`,
+                data:{ projectId:created.project.id, workspacePath:created.project.workspacePath, writtenFiles:ingested.writtenFiles },
+              };
             }
             if (tool==="run_qa_audit") {
               const pid=String(args.projectId || projectId || "").trim();

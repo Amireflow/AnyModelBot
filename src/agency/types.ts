@@ -956,6 +956,17 @@ export interface CreateProjectInput {
   handoffSummary?: string;
 }
 
+export interface CreateDirectProjectInput {
+  title: string;
+  clientName?: string;
+  companyId?: string;
+  technicalSpecs?: string;
+  targetStack?: string[];
+  budgetAmount?: number;
+  estimatedDays?: number;
+  workspacePath?: string;
+}
+
 export interface CreateProjectLotInput {
   lotOrder?: number;
   title: string;

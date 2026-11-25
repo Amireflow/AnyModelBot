@@ -20,7 +20,7 @@ import type {
   Company, CompanySearchFilters, ConfiguredAgentProfile,
   Contact, ContactSearchFilters, Contract, ConversationMessage,
   CreateCatalogItemInput, CreateCompanyInput, CreateContactInput, CreateContractInput,
-  CreateConversationInput, CreateLeadInput, CreateMissionInput, CreateOrganizationInput,
+  CreateConversationInput, CreateDirectProjectInput, CreateLeadInput, CreateMissionInput, CreateOrganizationInput,
   CreateProjectInput, CreateProjectLotInput, CreateQuoteInput, DepositStatus, DetectedDevTool,
   EmailOutboxMessage, Evidence, FollowUpStatus, FollowUpType, Invoice, InvoiceMilestoneInput, InvoiceStatus, Lead, LeadSearchFilters, LeadStage, MessageDirection,
   NeedsQualification, NegotiationEvaluation, Organization, Page, PrepareDeliveryInput,
@@ -2091,6 +2091,155 @@ export class AgencyService {
         budgetAmount: project.budgetAmount,
       });
       return project;
+    });
+  }
+
+  createDirectProject(
+    organizationId: string,
+    actorId: string,
+    input: CreateDirectProjectInput,
+  ): { project: Project; contract: Contract; company: Company; lead: Lead } {
+    this.requireMember(organizationId, actorId);
+    const org = this.store.getOrganization(organizationId)!;
+    const title = requiredText(input.title, "title", 240);
+    const technicalSpecs = optionalText(input.technicalSpecs, "technicalSpecs", 24_000);
+    const targetStack = input.targetStack != null
+      ? stringList(input.targetStack, "targetStack", 20, 80)
+      : ["typescript", "web"];
+    const budgetAmount = nonNegativeNumber(input.budgetAmount, "budgetAmount", 0);
+    const estimatedDays = input.estimatedDays == null
+      ? 14
+      : Math.max(1, Math.round(nonNegativeNumber(input.estimatedDays, "estimatedDays", 14)));
+    const clientName = optionalText(input.clientName, "clientName", 200);
+    const now = this.now();
+
+    return this.store.transaction(() => {
+      let company: Company | undefined;
+      if (input.companyId && input.companyId.trim()) {
+        company = this.store.getCompany(organizationId, requiredText(input.companyId, "companyId", 100));
+        if (!company) throw new AgencyError("NOT_FOUND", "Company not found");
+      } else {
+        const lookupName = clientName || `${title} (Client)`;
+        const norm = normalizedName(lookupName);
+        company = this.store.findCompanyDuplicate(organizationId, norm, "");
+        if (!company) {
+          company = {
+            id: this.id(),
+            organizationId,
+            name: lookupName,
+            normalizedName: norm,
+            website: "",
+            industry: "",
+            countryCode: org.countryCode || "SN",
+            city: "",
+            status: "active",
+            createdAt: now,
+            updatedAt: now,
+          };
+          this.store.insertCompany(company);
+          this.audit(organizationId, actorId, "company.created", "company", company.id, {
+            name: company.name,
+            source: "studio_direct",
+          });
+        }
+      }
+
+      const lead: Lead = {
+        id: this.id(),
+        organizationId,
+        companyId: company.id,
+        contactId: "",
+        source: "studio_direct",
+        notes: `Projet créé directement : ${title}`,
+        stage: "won",
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.store.insertLead(lead);
+
+      const quoteId = this.id();
+      const quote: Quote = {
+        id: quoteId,
+        organizationId,
+        leadId: lead.id,
+        version: this.store.nextQuoteVersion(organizationId, lead.id),
+        title: `Devis — ${title}`,
+        tier: "custom",
+        currency: org.currency,
+        lines: [{ label: title, quantity: 1, unitPrice: budgetAmount, unitCost: 0, estimatedDays }],
+        exclusions: [],
+        paymentTerms: "Direct Studio",
+        deliveryDays: estimatedDays,
+        discountPct: 0,
+        subtotal: budgetAmount,
+        discountAmount: 0,
+        netTotal: budgetAmount,
+        estimatedCost: 0,
+        grossMargin: budgetAmount,
+        marginPct: budgetAmount > 0 ? 100 : 0,
+        rangeLow: budgetAmount,
+        rangeHigh: budgetAmount,
+        status: "accepted",
+        approvalId: "",
+        validUntil: now + 30 * 86_400_000,
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.store.insertQuote(quote);
+
+      const contractId = this.id();
+      const contract: Contract = {
+        id: contractId,
+        organizationId,
+        leadId: lead.id,
+        quoteId: quote.id,
+        title: `Contrat — ${title}`,
+        scopeSummary: technicalSpecs || title,
+        deliverables: [title],
+        paymentTerms: "Direct Studio",
+        totalAmount: budgetAmount,
+        depositAmount: 0,
+        depositStatus: "paid",
+        depositReference: "STUDIO-DIRECT",
+        currency: org.currency,
+        status: "signed",
+        approvalId: "",
+        signedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.store.insertContract(contract);
+
+      const project: Project = {
+        id: this.id(),
+        organizationId,
+        leadId: lead.id,
+        contractId: contract.id,
+        title,
+        status: "in_progress",
+        workspacePath: this.sanitizeWorkspacePath(input.workspacePath, contract.id),
+        technicalSpecs: technicalSpecs || `Projet démarré directement dans le Studio pour ${company.name}.`,
+        targetStack,
+        budgetAmount,
+        currency: org.currency,
+        estimatedDays,
+        handoffSummary: `Création directe Studio / Copilote (${company.name}).`,
+        handoffAt: now,
+        deliveredAt: null,
+        acceptedAt: null,
+        createdBy: actorId,
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.store.insertProject(project);
+      this.audit(organizationId, actorId, "project.direct_created", "project", project.id, {
+        companyId: company.id,
+        contractId: contract.id,
+        workspacePath: project.workspacePath,
+        budgetAmount: project.budgetAmount,
+      });
+
+      return { project, contract, company, lead };
     });
   }
 

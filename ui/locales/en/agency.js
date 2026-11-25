@@ -530,5 +530,19 @@ export default {
   "copilotActionsTitle": "Executed actions",
   "copilotDropHint": "Drag & drop files (CSV, PDF, MD brief, code, screenshot) or ask for CRM, prospecting, or QA actions.",
   "copilotPromptProspect": "Prospect web agencies in Dakar",
-  "copilotFileTooLarge": "File exceeds size limit: {name}"
+  "copilotPromptProject": "Create a Studio project from these files",
+  "copilotFileTooLarge": "File exceeds size limit: {name}",
+  "newStudioProjectBtn": "New Studio Project",
+  "directProjectTitleLabel": "Project title",
+  "directProjectClientLabel": "Client name (if new)",
+  "directProjectAutoCompany": "Create or match by client name",
+  "directProjectNoTemplate": "Empty workspace (specs only)",
+  "directProjectBudgetLabel": "Estimated budget",
+  "directProjectSpecsLabel": "Requirements / Cahier des charges",
+  "directProjectSpecsPlaceholder": "Paste project specifications, features, constraints, and deliverables…",
+  "directProjectFilesLabel": "Collected client files (PDF, MD brief, CSV, specs, code…)",
+  "createDirectProjectBtn": "Create & Open in Studio",
+  "directProjectCreated": "Project created in Studio ({count} file(s) saved).",
+  "studioUploadDocsBtn": "Upload docs",
+  "studioDocsUploaded": "{count} document(s) uploaded to docs/sources/."
 };

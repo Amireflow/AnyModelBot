@@ -1,9 +1,10 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { BotAvatar } from "../../components/avatar.js";
 import { html, Icon, Spinner } from "../../components/ui.js";
 import { api, sseParser } from "../../lib/api.js";
 import { getLang, t } from "../../lib/i18n.js";
 import { agentAvatarOf } from "./agent-avatars.js";
+import { readFilePayload } from "./copilot.js";
 
 const enc = encodeURIComponent;
 const TEMPLATES = [
@@ -34,6 +35,7 @@ export function ProjectStudio({ orgId, project, onChanged }) {
   const [lastSteps, setLastSteps] = useState([]);
   const [snapshots, setSnapshots] = useState([]);
   const [selectedSnapshot, setSelectedSnapshot] = useState("");
+  const uploadInputRef = useRef(null);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -208,6 +210,22 @@ export function ProjectStudio({ orgId, project, onChanged }) {
     } catch (err) { setError(err.message); } finally { setBusy(""); }
   };
 
+  const uploadStudioDocs = async (fileList) => {
+    if (!fileList?.length) return;
+    setBusy("upload"); setError(""); setNotice("");
+    try {
+      const docs = await Promise.all(Array.from(fileList).slice(0, 10).map(readFilePayload));
+      const res = await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/upload-docs`, {
+        method: "POST",
+        body: { files: docs },
+      });
+      const firstDoc = res.writtenFiles?.[0] || "";
+      setNotice(t("agency.studioDocsUploaded", { count: (res.writtenFiles || []).length }));
+      await loadFiles(firstDoc);
+      onChanged?.();
+    } catch (err) { setError(err.message); } finally { setBusy(""); }
+  };
+
   const hasIndex = files.some((f) => f.path === "index.html" || f.path === "public/index.html");
   const previewPath = files.some((f) => f.path === "public/index.html") ? "public/index.html" : "index.html";
   const previewUrl = `/amb/api/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/preview/${previewPath}?v=${previewNonce}`;
@@ -260,7 +278,11 @@ export function ProjectStudio({ orgId, project, onChanged }) {
       <div class="agency-studio-tree">
         <div class="agency-commercial-head">
           <strong>${t("agency.studioFilesTitle")}</strong>
-          <span class="agency-count-pill">${files.length}</span>
+          <div class="agency-commercial-actions">
+            <input ref=${uploadInputRef} class="agency-copilot-file-input" type="file" multiple onChange=${(e) => { void uploadStudioDocs(e.currentTarget.files); e.currentTarget.value = ""; }} />
+            <button class="btn" type="button" disabled=${!!busy} onClick=${() => uploadInputRef.current?.click()}><${Icon} name="doc" size="sm" />${t("agency.studioUploadDocsBtn")}</button>
+            <span class="agency-count-pill">${files.length}</span>
+          </div>
         </div>
         <form class="agency-studio-new-file" onSubmit=${createFile}>
           <input class="field" value=${newFilePath} placeholder=${t("agency.studioNewFilePlaceholder")} onInput=${(e) => setNewFilePath(e.currentTarget.value)} />

@@ -391,4 +391,90 @@ describe("AnyModelBot Audit Upgrades (P0 / P1 / P2)", () => {
     const companies = service.listCompanies(orgId, "local-owner");
     expect(companies.some((c) => c.name === "Senegal Logistics")).toBe(true);
   });
+
+  it("creates direct Studio projects with cahier des charges + uploaded files and from Copilot create_project tool", async () => {
+    let turn = 0;
+    const invoke = makeInvoker({
+      app: {
+        dataDir: tmpDir,
+        config: { dataDir: tmpDir, workspace: tmpDir, ui: { lang: "fr" }, llm: { defaultModel: "GLM-5.3" } },
+        models: {
+          async listModels() { return ["GLM-5.3"]; },
+          async streamChat() {
+            turn += 1;
+            if (turn === 1) {
+              return JSON.stringify({
+                tool: "create_project",
+                args: {
+                  title: "Portail Clinique Pasteur",
+                  clientName: "Clinique Pasteur Dakar",
+                  technicalSpecs: "Prise de rendez-vous en ligne, dossier patient, tableau admin.",
+                  targetStack: ["typescript", "html", "sqlite"],
+                  budgetAmount: 2_500_000,
+                  estimatedDays: 20,
+                  template: "vitrine-html",
+                  includeAttachedFiles: true,
+                },
+              });
+            }
+            return "## Projet créé\nLe projet **Portail Clinique Pasteur** est prêt dans le Studio avec le cahier des charges.";
+          },
+        },
+      } as any,
+    });
+
+    // 1. Direct project creation from Studio route
+    const directRes = await invoke("POST", `/agency/${orgId}/projects/direct`, {
+      title: "Boutique Teranga",
+      clientName: "Teranga SARL",
+      template: "ecommerce-storefront",
+      budgetAmount: 1_800_000,
+      estimatedDays: 14,
+      targetStack: ["html", "css", "js"],
+      technicalSpecs: "Catalogue produits, panier XOF, paiement mobile money.",
+      files: [
+        { name: "cahier-client.md", mimeType: "text/markdown", textContent: "# Objectif\nVendre en ligne à Dakar.\n" },
+        {
+          name: "specs-client.pdf",
+          mimeType: "application/pdf",
+          base64Content: Buffer.from("%PDF-1.4\n(Module Commande et Facturation XOF)\n%%EOF", "latin1").toString("base64"),
+        },
+      ],
+    });
+    expect(directRes.status).toBe(201);
+    expect(directRes.json.project.title).toBe("Boutique Teranga");
+    expect(directRes.json.company.name).toBe("Teranga SARL");
+    expect(directRes.json.writtenFiles).toContain("docs/CAHIER-DES-CHARGES.md");
+    expect(directRes.json.writtenFiles).toContain("docs/sources/cahier-client.md");
+    expect(directRes.json.writtenFiles).toContain("docs/sources/specs-client.pdf");
+    expect(directRes.json.writtenFiles).toContain("docs/sources/specs-client.pdf.txt");
+
+    const projId = directRes.json.project.id;
+    const directProj = service.getProject(orgId, "local-owner", projId);
+    expect(readWorkspaceFile(tmpDir, directProj, "docs/CAHIER-DES-CHARGES.md").content).toContain("panier XOF");
+    expect(readWorkspaceFile(tmpDir, directProj, "BRIEF.md").content).toContain("docs/sources/cahier-client.md");
+
+    // 2. Upload additional doc into existing Studio workspace
+    const upRes = await invoke("POST", `/agency/${orgId}/projects/${projId}/studio/upload-docs`, {
+      files: [{ name: "notes-atelier.txt", mimeType: "text/plain", textContent: "Couleur principale: vert emeraude" }],
+    });
+    expect(upRes.status).toBe(200);
+    expect(upRes.json.writtenFiles).toContain("docs/sources/notes-atelier.txt");
+
+    // 3. Create project directly via Copilot tool with attached file
+    const copProj = await invoke("POST", `/agency/${orgId}/copilot`, {
+      tab: "copilot",
+      question: "Crée un projet Studio pour la Clinique Pasteur avec ce brief",
+      attachments: [
+        { name: "brief-clinique.txt", mimeType: "text/plain", size: 64, textContent: "Urgent: agenda médecins + SMS" },
+      ],
+    });
+    expect(copProj.status).toBe(200);
+    expect(copProj.json.actions).toHaveLength(1);
+    expect(copProj.json.actions[0].tool).toBe("create_project");
+    expect(copProj.json.actions[0].ok).toBe(true);
+    const createdProjId = copProj.json.actions[0].data.projectId;
+    const copProjectRecord = service.getProject(orgId, "local-owner", createdProjId);
+    expect(readWorkspaceFile(tmpDir, copProjectRecord, "docs/sources/brief-clinique.txt").content).toContain("agenda médecins");
+  });
 });

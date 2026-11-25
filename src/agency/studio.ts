@@ -1015,6 +1015,121 @@ export async function planProjectLotsWithAi(input: {
   return { lots, mode: "deterministic" };
 }
 
+export function extractReadablePdfText(buf: Buffer): string {
+  const latin = buf.toString("latin1");
+  const runs = latin.match(/[\x20-\x7e\u00c0-\u00ff]{4,}/g) ?? [];
+  return runs
+    .filter((r) => !/^(%PDF-|endobj|endstream|stream|xref|trailer|startxref|\/Type|\/Filter|\/Length)/.test(r))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 18_000);
+}
+
+export async function ingestProjectDocuments(input: {
+  dataDir: string;
+  project: Project;
+  contract?: Contract;
+  lots?: readonly ProjectLot[];
+  cahierDesCharges?: string;
+  template?: StudioTemplateId | "";
+  files?: ReadonlyArray<{
+    name: string;
+    mimeType?: string;
+    textContent?: string;
+    base64Content?: string;
+  }>;
+}): Promise<{ writtenFiles: string[]; briefUpdated: boolean }> {
+  const validTemplates = new Set<StudioTemplateId>([
+    "vitrine-html",
+    "webapp-node-preact",
+    "api-node-ts",
+    "saas-dashboard-app",
+    "ecommerce-storefront",
+  ]);
+  const writtenFiles: string[] = [];
+
+  if (input.template && validTemplates.has(input.template)) {
+    const scaf = scaffoldProjectTemplate({
+      dataDir: input.dataDir,
+      project: input.project,
+      contract: input.contract,
+      lots: input.lots ?? [],
+      template: input.template,
+    });
+    writtenFiles.push(...scaf.files);
+  } else {
+    initProjectWorkspace({
+      dataDir: input.dataDir,
+      project: input.project,
+      contract: input.contract,
+      lots: input.lots ?? [],
+    });
+  }
+
+  const cleanSpecs = (input.cahierDesCharges ?? "").trim();
+  if (cleanSpecs) {
+    const savedSpec = writeWorkspaceFile(
+      input.dataDir,
+      input.project,
+      "docs/CAHIER-DES-CHARGES.md",
+      `# Cahier des charges — ${input.project.title}\n\n${cleanSpecs}\n`,
+    );
+    writtenFiles.push(savedSpec.path);
+  }
+
+  const docFiles = (input.files ?? []).slice(0, 10);
+  const ingestedSources: string[] = [];
+  for (const file of docFiles) {
+    const base = path.basename(String(file.name || "document.txt"))
+      .replace(/[^\w.-]/g, "_")
+      .slice(0, 120) || "document.txt";
+    const relTarget = `docs/sources/${base}`;
+    if (typeof file.textContent === "string" && file.textContent.length > 0) {
+      const saved = writeWorkspaceFile(input.dataDir, input.project, relTarget, file.textContent.slice(0, MAX_READ_BYTES));
+      writtenFiles.push(saved.path);
+      ingestedSources.push(saved.path);
+      continue;
+    }
+    if (typeof file.base64Content === "string" && file.base64Content.trim()) {
+      const buf = Buffer.from(file.base64Content.trim(), "base64");
+      if (buf.length > 2 * 1024 * 1024) {
+        throw new AgencyError("VALIDATION_ERROR", `Uploaded file "${base}" exceeds 2 MB limit`);
+      }
+      const { absPath, relPath } = resolveWorkspaceFile(input.dataDir, input.project.workspacePath, relTarget);
+      fs.mkdirSync(path.dirname(absPath), { recursive: true });
+      fs.writeFileSync(absPath, buf);
+      writtenFiles.push(relPath);
+      ingestedSources.push(relPath);
+      const isPdf = (file.mimeType || "").toLowerCase().includes("pdf") || base.toLowerCase().endsWith(".pdf");
+      if (isPdf) {
+        const extracted = extractReadablePdfText(buf);
+        if (extracted) {
+          const txtRel = `${relTarget}.txt`;
+          writeWorkspaceFile(input.dataDir, input.project, txtRel, extracted);
+          writtenFiles.push(txtRel);
+        }
+      }
+    }
+  }
+
+  let briefUpdated = false;
+  if (cleanSpecs || ingestedSources.length > 0) {
+    const currentBrief = readWorkspaceFile(input.dataDir, input.project, "BRIEF.md").content;
+    const sectionLines = [
+      "",
+      "## Cahier des charges & Documents sources",
+      ...(cleanSpecs ? ["- `docs/CAHIER-DES-CHARGES.md`"] : []),
+      ...ingestedSources.map((s) => `- \`${s}\``),
+    ];
+    writeWorkspaceFile(input.dataDir, input.project, "BRIEF.md", `${currentBrief.trimEnd()}\n${sectionLines.join("\n")}\n`);
+    briefUpdated = true;
+  }
+
+  await createStudioSnapshot(input.dataDir, input.project, "initial-cahier-des-charges").catch(() => undefined);
+  return { writtenFiles: [...new Set(writtenFiles)], briefUpdated };
+}
+
 export async function runStudioAiAgent(input: {
   dataDir: string;
   project: Project;

@@ -10,7 +10,7 @@ const MAX_FILES = 5;
 const MAX_TEXT_BYTES = 200 * 1024;
 const MAX_BIN_BYTES = 750 * 1024;
 
-function readFilePayload(file) {
+export function readFilePayload(file) {
   return new Promise((resolve, reject) => {
     const isText = TEXT_EXT.test(file.name) || (file.type && file.type.startsWith("text/"));
     if (isText && file.size > MAX_TEXT_BYTES) {
@@ -128,8 +128,8 @@ export function AgencyCopilot({ orgId, activeTab = "copilot", companyId = "", le
   const quickPrompts = [
     t("agency.copilotPromptPipeline"),
     t("agency.copilotPromptProspect"),
+    t("agency.copilotPromptProject"),
     t("agency.copilotPromptProjects"),
-    t("agency.copilotPromptNext"),
   ];
 
   return html`<section

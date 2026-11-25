@@ -531,5 +531,19 @@ export default {
   "copilotActionsTitle": "Actions exécutées",
   "copilotDropHint": "Glissez-déposez des fichiers (CSV, PDF, brief MD, code, capture) ou demandez une action CRM / prospection / QA.",
   "copilotPromptProspect": "Prospecter des agences web à Dakar",
-  "copilotFileTooLarge": "Fichier trop volumineux : {name}"
+  "copilotPromptProject": "Créer un projet Studio avec ces fichiers",
+  "copilotFileTooLarge": "Fichier trop volumineux : {name}",
+  "newStudioProjectBtn": "Nouveau projet (Studio)",
+  "directProjectTitleLabel": "Nom du projet",
+  "directProjectClientLabel": "Client (si nouveau)",
+  "directProjectAutoCompany": "Créer ou réutiliser depuis le nom client",
+  "directProjectNoTemplate": "Workspace vide (cahier des charges seul)",
+  "directProjectBudgetLabel": "Budget estimatif",
+  "directProjectSpecsLabel": "Cahier des charges & spécifications",
+  "directProjectSpecsPlaceholder": "Collez ici le cahier des charges, objectifs, pages, fonctionnalités et contraintes techniques…",
+  "directProjectFilesLabel": "Fichiers recueillis (PDF, brief MD, CSV, maquettes, code…)",
+  "createDirectProjectBtn": "Créer et ouvrir dans Studio",
+  "directProjectCreated": "Projet créé dans le Studio ({count} fichier(s) enregistré(s)).",
+  "studioUploadDocsBtn": "Importer docs",
+  "studioDocsUploaded": "{count} document(s) importé(s) dans docs/sources/."
 };
