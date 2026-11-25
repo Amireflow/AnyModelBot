@@ -790,13 +790,14 @@ function execStudioCmd(
   command: string,
   args: string[],
   cwd: string,
+  signal?: AbortSignal,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     try {
       execFile(
         command,
         args,
-        { cwd, timeout: 90_000, maxBuffer: 1_048_576, shell: false, windowsHide: true, encoding: "utf8" },
+        { cwd, timeout: 90_000, maxBuffer: 1_048_576, shell: false, windowsHide: true, encoding: "utf8", ...(signal ? { signal } : {}) },
         (err, stdout, stderr) => {
           if (!err) {
             resolve({ exitCode: 0, stdout: stdout ?? "", stderr: stderr ?? "" });
@@ -816,6 +817,7 @@ export async function runStudioCommand(input: {
   dataDir: string;
   project: Project;
   action: StudioCommandAction;
+  signal?: AbortSignal;
 }): Promise<{ action: StudioCommandAction; exitCode: number; output: string }> {
   const { workspaceDir } = resolveSafeWorkspacePath(input.dataDir, input.project.workspacePath);
   if (!fs.existsSync(workspaceDir)) {
@@ -850,7 +852,7 @@ export async function runStudioCommand(input: {
       throw new AgencyError("VALIDATION_ERROR", `Unsupported studio command: ${String(input.action)}`);
   }
 
-  const res = await execStudioCmd(spec.command, spec.args, workspaceDir);
+  const res = await execStudioCmd(spec.command, spec.args, workspaceDir, input.signal);
   const output = [res.stdout.trim(), res.stderr.trim()].filter(Boolean).join("\n") || `exitCode=${res.exitCode}`;
   return { action: input.action, exitCode: res.exitCode, output: output.slice(0, 8000) };
 }
@@ -1308,6 +1310,7 @@ export async function installStudioDependencies(
   dataDir: string,
   project: Project,
   packages: readonly string[],
+  signal?: AbortSignal,
 ): Promise<{ packages: string[]; exitCode: number; output: string }> {
   const { workspaceDir } = resolveSafeWorkspacePath(dataDir, project.workspacePath);
   if (!fs.existsSync(workspaceDir)) {
@@ -1329,7 +1332,7 @@ export async function installStudioDependencies(
       args = [npmCli, ...args];
     }
   }
-  const res = await execStudioCmd(command, args, workspaceDir);
+  const res = await execStudioCmd(command, args, workspaceDir, signal);
   const output = [res.stdout.trim(), res.stderr.trim()].filter(Boolean).join("\n") || `exitCode=${res.exitCode}`;
   return { packages: clean, exitCode: res.exitCode, output: output.slice(0, 8000) };
 }
@@ -1485,6 +1488,7 @@ export async function runStudioAiAgent(input: {
           modified,
           onTarget: (t) => { target = t; },
           onOk: (flag) => { ok = flag; },
+          signal: input.signal,
         });
       } catch (error) {
         ok = false;
@@ -1528,6 +1532,7 @@ async function executeParsedAction(ctx: {
   modified: Set<string>;
   onTarget: (target: string) => void;
   onOk: (ok: boolean) => void;
+  signal?: AbortSignal;
 }): Promise<string> {
   const { action } = ctx;
   switch (action.tool) {
@@ -1565,7 +1570,7 @@ async function executeParsedAction(ctx: {
     }
     case "add_dependency": {
       ctx.onTarget(action.packages.join(", "));
-      const depRes = await installStudioDependencies(ctx.dataDir, ctx.project, action.packages);
+      const depRes = await installStudioDependencies(ctx.dataDir, ctx.project, action.packages, ctx.signal);
       ctx.onOk(depRes.exitCode === 0);
       if (depRes.exitCode === 0) ctx.modified.add("package.json");
       return `npm install (${depRes.packages.join(", ")}) exitCode=${depRes.exitCode}\n${depRes.output.slice(0, 3000)}`;
@@ -1573,7 +1578,7 @@ async function executeParsedAction(ctx: {
     case "run_check": {
       const cmd = (action.action || "npm_test") as StudioCommandAction;
       ctx.onTarget(cmd);
-      const result = await runStudioCommand({ dataDir: ctx.dataDir, project: ctx.project, action: cmd });
+      const result = await runStudioCommand({ dataDir: ctx.dataDir, project: ctx.project, action: cmd, signal: ctx.signal });
       ctx.onOk(result.exitCode === 0);
       return `exitCode=${result.exitCode}\n${result.output.slice(0, 4000)}`;
     }

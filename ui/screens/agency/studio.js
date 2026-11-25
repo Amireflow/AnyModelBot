@@ -604,15 +604,16 @@ export function ProjectStudio({
       }
       await loadFiles(modified[0] || "", activeProjectId);
       const ds = await loadDevServer(activeProjectId);
-      if (finalPayload?.cancelled) setNotice(t("agency.studioCancelledStatus"));
       if (modified.length > 0 || runMode === "build") {
         setWorkspaceTab("preview");
         setPreviewNonce((n) => n + 1);
-        if (modified.includes("package.json") && ds?.running) {
-          setNotice(t("agency.studioPreviewRestartHint"));
-        } else if (ds?.hasDevScript && !ds.running && !finalPayload?.cancelled) {
-          setNotice(t("agency.studioPreviewReadyHint"));
-        }
+      }
+      if (finalPayload?.cancelled) {
+        setNotice(t("agency.studioCancelledStatus"));
+      } else if (modified.includes("package.json") && ds?.running) {
+        setNotice(t("agency.studioPreviewRestartHint"));
+      } else if (ds?.hasDevScript && !ds.running) {
+        setNotice(t("agency.studioPreviewReadyHint"));
       }
       onChanged?.();
     } catch (err) {
@@ -1016,9 +1017,11 @@ export function ProjectStudio({
               <div class="agency-studio-live-sub">
                 <span class="agency-studio-live-dot" aria-hidden="true"></span>
                 <strong class="agency-truncate">
-                  ${activeSubagent
-                    ? (activeSubagent.displayName || t(`agency.studioSubagentNames.${activeSubagent.subagent}`))
-                    : (cancelRequested ? t("agency.studioCancelingStatus") : (mode === "plan" ? t("agency.studioPlanningStatus") : t("agency.studioBuildingStatus")))}
+                  ${cancelRequested
+                    ? t("agency.studioCancelingStatus")
+                    : activeSubagent
+                      ? (activeSubagent.displayName || t(`agency.studioSubagentNames.${activeSubagent.subagent}`))
+                      : (mode === "plan" ? t("agency.studioPlanningStatus") : t("agency.studioBuildingStatus"))}
                 </strong>
               </div>
               ${activeSubagent?.title && html`<small class="agency-truncate" title=${activeSubagent.title}>${activeSubagent.title}</small>`}

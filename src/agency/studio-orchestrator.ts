@@ -892,7 +892,7 @@ export async function runStudioConversation(input: {
 
       if (verifyPlan.needsInstall && !didInstall) {
         didInstall = true;
-        const inst = await runStudioCommand({ dataDir: input.dataDir, project: input.project, action: "npm_install" });
+        const inst = await runStudioCommand({ dataDir: input.dataDir, project: input.project, action: "npm_install", signal: input.signal });
         input.onEvent?.("step", {
           step: attempt,
           tool: "add_dependency",
@@ -916,7 +916,7 @@ export async function runStudioConversation(input: {
         });
       } else {
         for (const check of verifyPlan.checks) {
-          const res = await runStudioCommand({ dataDir: input.dataDir, project: input.project, action: check });
+          const res = await runStudioCommand({ dataDir: input.dataDir, project: input.project, action: check, signal: input.signal });
           if (input.signal?.aborted) { cancelled = true; break; }
           input.onEvent?.("step", {
             step: attempt,
