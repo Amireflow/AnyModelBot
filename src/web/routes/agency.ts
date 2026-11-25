@@ -11,6 +11,7 @@ import type {
   QaCategory, QaCheckStatus, QuoteLineItem, QuoteTier, ServiceCatalogItem, SolutionType,
   UpdateQualificationProfileInput, UpsertNeedsQualificationInput,
 } from "../../agency/types.js";
+import { randomUUID } from "node:crypto";
 import { HttpError, readJson, send, webEvent, type Route, type WebContext } from "../http.js";
 import { CompanyResearchImportError, findActiveCompanyResearchJob, listCompanyResearchJobs, loadCompanyResearchSources } from "../../agency/company-research-import.js";
 import { renderContractDocumentHtml, renderDeliveryReportHtml, renderInvoiceDocumentHtml, renderQuoteDocumentHtml } from "../../agency/documents.js";
@@ -30,7 +31,9 @@ import { appendCopilotHistory, clearCopilotHistory, loadCopilotHistory } from ".
 import {
   clearStudioState,
   loadStudioState,
+  saveStudioState,
   runStudioConversation,
+  type StudioChatMessage,
   STUDIO_SUBAGENTS,
   type StudioSubagentId,
 } from "../../agency/studio-orchestrator.js";
@@ -1441,6 +1444,35 @@ export function agencyRoutes(ctx: WebContext): Route {
             }
             if (seg.length===6 && seg[5]==="snapshots" && method==="GET") {
               return send(res,200,{items:await listStudioSnapshots(dataDir,project,queryInteger(url,"limit",15))});
+            }
+            if (seg.length===6 && seg[5]==="snapshots" && method==="POST") {
+              const body=await readObject(req);
+              const label=typeof body.label==="string" ? body.label.slice(0,120) : "manual checkpoint";
+              const checkpoint=await createStudioSnapshot(dataDir,project,label);
+              const baseCommit=typeof body.baseCommit==="string" ? body.baseCommit : "";
+              const changedPath=typeof body.path==="string" ? body.path : "";
+              let message: StudioChatMessage | undefined;
+              if (baseCommit && changedPath) {
+                const comparison=await getStudioDiff(dataDir,project,baseCommit,checkpoint.commitHash);
+                const changed=comparison.files.find((file) => file.path===changedPath);
+                if (changed) {
+                  const manualMessage: StudioChatMessage = {
+                    id:randomUUID(),
+                    role:"assistant",
+                    mode:"build",
+                    text:`Modification manuelle : ${changed.path} (${changed.status})`,
+                    at:new Date().toISOString(),
+                    modifiedFiles:[changed.path],
+                    snapshotBeforeCommit:comparison.baseCommit,
+                    snapshotCommit:comparison.headCommit,
+                  };
+                  message=manualMessage;
+                  const state=await loadStudioState(dataDir,project.id);
+                  state.messages.push(manualMessage);
+                  await saveStudioState(dataDir,project.id,state);
+                }
+              }
+              return send(res,201,{...checkpoint,...(message ? {message} : {})});
             }
             if (seg.length===6 && seg[5]==="rollback" && method==="POST") {
               const body=await readObject(req);

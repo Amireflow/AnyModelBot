@@ -217,6 +217,25 @@ export function ProjectStudio({
     }
   };
 
+  const createStudioCheckpoint = async (pid, label, details = {}) => {
+    return api(`/agency/${enc(orgId)}/projects/${enc(pid)}/studio/snapshots`, {
+      method: "POST",
+      body: { label, ...details },
+    });
+  };
+
+  const recordManualStudioChange = async (pid, before, label, filePath) => {
+    const after = await createStudioCheckpoint(pid, label, { baseCommit: before.commitHash, path: filePath });
+    if (after.message) setMessages((prev) => [...prev, after.message]);
+    await loadStudioChanges({
+      snapshotBeforeCommit: before.commitHash,
+      snapshotCommit: after.commitHash,
+      modifiedFiles: [filePath],
+    }, pid);
+    void loadSnapshots(pid);
+    return after;
+  };
+
   const loadStudioFileDiff = async (filePath, snapshot = changeSnapshot, pid = project?.id, { quiet = false } = {}) => {
     if (!filePath || !snapshot?.base || !snapshot?.head || !pid || !orgId) {
       setSelectedChangeDiff(null);
@@ -607,10 +626,12 @@ export function ProjectStudio({
     if (!rel || !project?.id) return;
     setBusy("create"); setError(""); setNotice("");
     try {
+      const before = await createStudioCheckpoint(project.id, `avant création manuelle: ${rel}`);
       await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/file`, {
         method: "PUT",
         body: { path: rel, content: "" },
       });
+      await recordManualStudioChange(project.id, before, `création manuelle: ${rel}`, rel);
       setNewFilePath("");
       setNewFileOpen(false);
       await loadFiles(rel);
@@ -621,12 +642,13 @@ export function ProjectStudio({
     if (!selectedPath || !project?.id) return;
     setBusy("save"); setError(""); setNotice("");
     try {
+      const before = await createStudioCheckpoint(project.id, `avant édition manuelle: ${selectedPath}`);
       await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/file`, {
         method: "PUT",
         body: { path: selectedPath, content },
       });
+      await recordManualStudioChange(project.id, before, `édition manuelle: ${selectedPath}`, selectedPath);
       setSavedContent(content);
-      setChangedFiles((prev) => [...new Set([...prev, selectedPath])]);
       setPreviewNonce((n) => n + 1);
       setNotice(`${selectedPath} ✓`);
       await loadFiles(selectedPath);
@@ -650,8 +672,9 @@ export function ProjectStudio({
     if (!selectedPath || !project?.id) return;
     setBusy("del"); setError("");
     try {
+      const before = await createStudioCheckpoint(project.id, `avant suppression manuelle: ${selectedPath}`);
       await api(`/agency/${enc(orgId)}/projects/${enc(project.id)}/studio/file?path=${enc(selectedPath)}`, { method: "DELETE" });
-      setChangedFiles((prev) => [...new Set([...prev, selectedPath])]);
+      await recordManualStudioChange(project.id, before, `suppression manuelle: ${selectedPath}`, selectedPath);
       setPreviewNonce((n) => n + 1);
       await loadFiles();
     } catch (err) { setError(err.message); } finally { setBusy(""); }
