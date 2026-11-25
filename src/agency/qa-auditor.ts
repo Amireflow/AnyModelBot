@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { AgencyError } from "./errors.js";
 import type { Contract, Project, ProjectLot, QaCategory } from "./types.js";
-import { resolveSafeWorkspacePath } from "./workspace-runner.js";
+import { resolveProjectDirectory } from "./workspace-runner.js";
 
 export interface FourAxisQaItem {
   category: QaCategory;
@@ -93,9 +93,9 @@ export async function runFourAxisQaAudit(input: {
   reportPath: string;
   summary: string;
 }> {
-  const { workspaceDir } = resolveSafeWorkspacePath(input.dataDir, input.project.workspacePath);
+  const { workspaceDir } = resolveProjectDirectory(input.dataDir, input.project);
   if (!fs.existsSync(workspaceDir)) {
-    throw new AgencyError("CONFLICT", "Project workspace is not initialized yet. Initialize or scaffold the workspace first.");
+    throw new AgencyError("CONFLICT", "Project workspace is not initialized yet. Initialize the workspace first.");
   }
 
   fs.mkdirSync(path.join(workspaceDir, "qa"), { recursive: true });
@@ -107,7 +107,9 @@ export async function runFourAxisQaAudit(input: {
   // 1. Technical axis
   const techIssues: string[] = [];
   const techLogs: string[] = [];
-  const hasBrief = fs.existsSync(path.join(workspaceDir, "BRIEF.md"));
+  const hasBrief =
+    fs.existsSync(path.join(workspaceDir, "BRIEF.md")) ||
+    fs.existsSync(path.join(workspaceDir, ".anymodelbot", "BRIEF.md"));
   techLogs.push(`BRIEF.md present: ${hasBrief}`);
   if (!hasBrief) techIssues.push("Missing BRIEF.md");
 

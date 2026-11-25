@@ -11,7 +11,6 @@ import type {
   QaCategory, QaCheckStatus, QuoteLineItem, QuoteTier, ServiceCatalogItem, SolutionType,
   UpdateQualificationProfileInput, UpsertNeedsQualificationInput,
 } from "../../agency/types.js";
-import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { HttpError, readJson, send, webEvent, type Route, type WebContext } from "../http.js";
 import { CompanyResearchImportError, findActiveCompanyResearchJob, listCompanyResearchJobs, loadCompanyResearchSources } from "../../agency/company-research-import.js";
@@ -30,39 +29,28 @@ import { runFourAxisQaAudit } from "../../agency/qa-auditor.js";
 import { listAgencySkills, resolveSkillsPromptBlock } from "../../agency/skills.js";
 import { appendCopilotHistory, clearCopilotHistory, loadCopilotHistory } from "../../agency/copilot-history.js";
 import {
-  clearStudioState,
-  loadStudioState,
-  saveStudioState,
-  runStudioConversation,
-  type StudioChatMessage,
-  STUDIO_SUBAGENTS,
-  type StudioSubagentId,
-} from "../../agency/studio-orchestrator.js";
-import {
-  getStudioDevServerStatus,
-  startStudioDevServer,
-  stopStudioDevServer,
-} from "../../agency/studio-devserver.js";
-import {
-  createStudioSnapshot,
-  getStudioDiff,
-  deleteWorkspaceFile,
+  browseMachineDirectories,
   extractReadablePdfText,
+  getProjectEvolutionSnapshot,
+  getProjectGitDiff,
   ingestProjectDocuments,
-  listStudioSnapshots,
-  listWorkspaceFiles,
+  listProjectFiles,
   planProjectLotsWithAi,
-  readWorkspaceFile,
-  resolveStudioPreviewAsset,
-  rewritePreviewHtmlForStudio,
-  rollbackStudioSnapshot,
-  runStudioAiAgent,
-  runStudioCommand,
-  scaffoldProjectTemplate,
-  writeWorkspaceFile,
-  type StudioCommandAction,
-  type StudioTemplateId,
-} from "../../agency/studio.js";
+  readProjectFile,
+  runProjectCommand,
+  syncProjectBriefToDisk,
+  type ProjectCommandAction,
+} from "../../agency/project-tracker.js";
+import {
+  deleteCustomIdeProfile,
+  detectInstalledIdes,
+  dispatchIdeTask,
+  listIdeTaskRuns,
+  openWorkspaceInIde,
+  stopIdeTaskRun,
+  upsertCustomIdeProfile,
+  type IdeCategory,
+} from "../../agency/ide-bridge.js";
 import { buildProjectExecutionBrief, detectLocalDevTools } from "../../agency/orchestrator.js";
 import {
   executeAgencyMission,
@@ -73,11 +61,6 @@ import {
 } from "../../agency/workspace-runner.js";
 
 export const LOCAL_AGENCY_ACTOR = "local-owner";
-
-const STUDIO_EXECUTION_CONTROLLERS = new Map<string, AbortController>();
-function studioExecutionKey(organizationId: string, projectId: string): string {
-  return `${organizationId}:${projectId}`;
-}
 const ERROR_STATUS: Record<string, number> = {
   VALIDATION_ERROR:400, NOT_FOUND:404, FORBIDDEN:403, CONFLICT:409,
   INVALID_TRANSITION:409, CONSENT_REQUIRED:409, APPROVAL_EXPIRED:409,
@@ -119,17 +102,6 @@ function resolveAgentRuntime(
     skills: configured.config.skills,
     displayName: configured.config.displayName,
   };
-}
-
-function resolveStudioRuntimeSafe(
-  service: AgencyService,
-  organizationId: string,
-  actor: string,
-  role: AgencyAgentRole,
-  fallbackModel?: string,
-) {
-  // A disabled profile must be rejected by every Studio execution path.
-  return resolveAgentRuntime(service, organizationId, actor, role, fallbackModel);
 }
 function sendHtmlDocument(
   res: Parameters<Route>[1],
@@ -1083,6 +1055,39 @@ export function agencyRoutes(ctx: WebContext): Route {
         return send(res,200,{items:service.detectDevTools(organizationId,actor)});
       }
 
+      if (seg[2]==="machine" && seg.length===4 && seg[3]==="browse" && method==="GET") {
+        service.getOrganization(organizationId,actor);
+        const dir=url.searchParams.get("path") ?? undefined;
+        return send(res,200,browseMachineDirectories(dir));
+      }
+
+      if (seg[2]==="ide") {
+        service.getOrganization(organizationId,actor);
+        const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
+        if (seg.length===4 && seg[3]==="tools" && method==="GET") {
+          const refresh=url.searchParams.get("refresh")==="1";
+          return send(res,200,{items:detectInstalledIdes(dataDir,refresh)});
+        }
+        if (seg.length===4 && seg[3]==="profiles" && method==="POST") {
+          const body=await readObject(req);
+          const profile=upsertCustomIdeProfile(dataDir,{
+            id:typeof body.id==="string" ? body.id : undefined,
+            name:String(body.name ?? ""),
+            category:body.category==="cli_agent" ? "cli_agent" : "ide",
+            executable:String(body.executable ?? ""),
+            openDirArgs:Array.isArray(body.openDirArgs) ? body.openDirArgs.map(String) : undefined,
+            openFileArgs:Array.isArray(body.openFileArgs) ? body.openFileArgs.map(String) : undefined,
+            promptArgs:Array.isArray(body.promptArgs) ? body.promptArgs.map(String) : undefined,
+          });
+          return send(res,201,{profile,items:detectInstalledIdes(dataDir,true)});
+        }
+        if (seg.length===5 && seg[3]==="profiles" && method==="DELETE") {
+          const id=decodeSegment(seg[4],"ide profile id");
+          const result=deleteCustomIdeProfile(dataDir,id);
+          return send(res,200,{...result,items:detectInstalledIdes(dataDir,true)});
+        }
+      }
+
       if (seg[2]==="projects") {
         if (seg.length===3 && method==="GET") {
           const st=url.searchParams.get("status");
@@ -1094,6 +1099,7 @@ export function agencyRoutes(ctx: WebContext): Route {
             contractId:body.contractId as string,
             title:body.title as string|undefined,
             workspacePath:body.workspacePath as string|undefined,
+            localPath:typeof body.localPath==="string" ? body.localPath : undefined,
             technicalSpecs:body.technicalSpecs as string|undefined,
             targetStack:body.targetStack as string[]|undefined,
             estimatedDays:body.estimatedDays == null ? undefined : Number(body.estimatedDays),
@@ -1112,6 +1118,7 @@ export function agencyRoutes(ctx: WebContext): Route {
             budgetAmount:body.budgetAmount==null ? undefined : Number(body.budgetAmount),
             estimatedDays:body.estimatedDays==null ? undefined : Number(body.estimatedDays),
             workspacePath:typeof body.workspacePath==="string" ? body.workspacePath : undefined,
+            localPath:typeof body.localPath==="string" ? body.localPath : undefined,
           });
           const docFiles=Array.isArray(body.files)
             ? body.files.filter((x): x is Record<string,unknown> => !!x && typeof x==="object" && !Array.isArray(x)).map((f) => ({
@@ -1127,7 +1134,6 @@ export function agencyRoutes(ctx: WebContext): Route {
             contract:created.contract,
             lots:[],
             cahierDesCharges:typeof body.cahierDesCharges==="string" ? body.cahierDesCharges : created.project.technicalSpecs,
-            template:(typeof body.template==="string" ? body.template : "") as StudioTemplateId | "",
             files:docFiles,
           });
           return send(res,201,{ ...created, writtenFiles:ingested.writtenFiles });
@@ -1229,21 +1235,27 @@ export function agencyRoutes(ctx: WebContext): Route {
             }
             const runtime=resolveAgentRuntime(service,organizationId,actor,"developer",ctx.app?.config?.llm?.defaultModel);
             const instruction=[
-              "Corrige les anomalies remontées lors de l'audit QA 4 axes dans ce workspace :",
+              "Corrige les anomalies remontées lors de l'audit QA 4 axes dans ce dossier produit :",
               ...findingLines.map((line) => `- ${line}`),
-              "Inspecte les fichiers concernés, corrige les erreurs, vérifie avec run_check (npm_test/npm_typecheck) si package.json existe, puis résume factuellement les corrections.",
+              "Inspecte les fichiers concernés, corrige les erreurs, puis vérifie avec les scripts de test/build du projet.",
             ].join("\n");
-            const fixResult=await runStudioAiAgent({
-              dataDir,
-              project,
-              instruction,
-              maxSteps:body.maxSteps==null ? Math.max(8,runtime.maxSteps) : Number(body.maxSteps),
-              modelClient:ctx.app?.models,
-              defaultModel:runtime.model,
-              hasLlmEndpoint:isLlmConfigured(ctx),
-              agentInstructions:runtime.agentInstructions,
-              agentRules:runtime.agentRules,
-            });
+            const availableIdes=detectInstalledIdes(dataDir);
+            const preferredIdeId=typeof body.ideId==="string" && body.ideId.trim()
+              ? body.ideId.trim()
+              : (availableIdes.find((x) => x.available && x.category==="cli_agent")?.id ?? availableIdes.find((x) => x.available)?.id);
+            const ideDispatch=preferredIdeId
+              ? await dispatchIdeTask({
+                dataDir,
+                project,
+                ideId:preferredIdeId,
+                title:"Correction QA 4 axes",
+                instruction,
+                contract,
+                lots,
+                agentInstructions:runtime.agentInstructions,
+                agentRules:runtime.agentRules,
+              })
+              : null;
             const audit=await runFourAxisQaAudit({ dataDir, project, contract, lots });
             const checks=audit.items.map((item) => service.recordQaCheck(organizationId,actor,projectId,{
               category:item.category,
@@ -1252,7 +1264,7 @@ export function agencyRoutes(ctx: WebContext): Route {
               evidence:item.evidence,
               findings:item.findings,
             }));
-            return send(res,200,{fixResult,qaResult:{checks,reportPath:audit.reportPath,summary:audit.summary}});
+            return send(res,200,{ideRun:ideDispatch?.run ?? null,qaResult:{checks,reportPath:audit.reportPath,summary:audit.summary}});
           }
           if (seg.length===5 && seg[4]==="delivery-report" && method==="GET") {
             const org=service.getOrganization(organizationId,actor);
@@ -1304,115 +1316,18 @@ export function agencyRoutes(ctx: WebContext): Route {
             res.end(pkg.buffer);
             return;
           }
-          if (seg.length>=6 && seg[4]==="studio") {
+          if (seg[4]==="workspace") {
             const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
+            if (seg.length===5 && method==="PATCH") {
+              const body=await readObject(req);
+              const project=service.linkProjectLocalDirectory(organizationId,actor,projectId,String(body.localPath ?? ""));
+              return send(res,200,{project});
+            }
             const project=service.getProject(organizationId,actor,projectId);
-            const executionKey=studioExecutionKey(organizationId,projectId);
-            if (seg.length===6 && seg[5]==="cancel" && method==="POST") {
-              const active=STUDIO_EXECUTION_CONTROLLERS.get(executionKey);
-              if (!active || active.signal.aborted) return send(res,200,{cancelled:false});
-              active.abort(new Error("Studio generation cancelled by user"));
-              return send(res,200,{cancelled:true});
-            }
-            if (seg.length===6 && seg[5]==="state" && method==="GET") {
-              const st=await loadStudioState(dataDir,projectId);
-              const subagents=STUDIO_SUBAGENTS.map((spec) => {
-                const configured=service.getConfiguredAgent(organizationId,actor,spec.agencyRole).config;
-                return {
-                  id:spec.id,
-                  agencyRole:spec.agencyRole,
-                  focus:spec.focus,
-                  displayName:configured.displayName,
-                  skills:configured.skills,
-                  model:configured.model || ctx.app?.config?.llm?.defaultModel || "",
-                  enabled:configured.enabled,
-                };
-              });
-              return send(res,200,{
-                messages:st.messages,
-                plan:st.plan,
-                subagents,
-                activeRun:STUDIO_EXECUTION_CONTROLLERS.has(executionKey),
-              });
-            }
-            if (seg.length===6 && seg[5]==="history" && method==="DELETE") {
-              await clearStudioState(dataDir,projectId);
-              return send(res,200,{ok:true});
-            }
-            if (seg.length===6 && seg[5]==="chat-stream" && method==="POST") {
-              const body=await readObject(req,4_500_000);
-              if (STUDIO_EXECUTION_CONTROLLERS.has(executionKey)) {
-                throw new HttpError(409,"A Studio generation is already running for this project");
-              }
-              const controller=new AbortController();
-              STUDIO_EXECUTION_CONTROLLERS.set(executionKey,controller);
-              const abortOnDisconnect=() => {
-                if (!res.writableEnded) controller.abort(new Error("Studio client disconnected"));
-              };
-              req.on("aborted",abortOnDisconnect);
-              res.on("close",abortOnDisconnect);
-              let eventStreamStarted=false;
-              const emit=(event: string,data: unknown) => {
-                if (!res.writableEnded && !res.destroyed) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-              };
-              try {
-                const mode=body.mode==="plan" ? "plan" : "build";
-                const message=typeof body.message==="string" ? body.message : "";
-                const executePlan=body.executePlan===true;
-                const targetSubagent=typeof body.targetSubagent==="string" && ["architect","ui_ux","frontend","backend","qa"].includes(body.targetSubagent)
-                  ? (body.targetSubagent as StudioSubagentId)
-                  : undefined;
-                const docFiles=Array.isArray(body.files)
-                  ? body.files.filter((x): x is Record<string,unknown> => !!x && typeof x==="object" && !Array.isArray(x)).map((f) => ({
-                    name:String(f.name || "document.txt"),
-                    mimeType:typeof f.mimeType==="string" ? f.mimeType : undefined,
-                    textContent:typeof f.textContent==="string" ? f.textContent : undefined,
-                    base64Content:typeof f.base64Content==="string" ? f.base64Content : undefined,
-                  }))
-                  : [];
-                let attachedFileNames: string[]=[];
-                if (docFiles.length>0) {
-                  const contract=service.getContract(organizationId,actor,project.contractId);
-                  const lots=service.listProjectLots(organizationId,actor,projectId);
-                  const ingested=await ingestProjectDocuments({ dataDir, project, contract, lots, files:docFiles });
-                  attachedFileNames=ingested.writtenFiles;
-                }
-                res.writeHead(200,{
-                  "content-type":"text/event-stream; charset=utf-8",
-                  "cache-control":"no-cache",
-                  connection:"keep-alive",
-                  "x-content-type-options":"nosniff",
-                });
-                eventStreamStarted=true;
-                emit("ready",{projectId});
-                await runStudioConversation({
-                  dataDir,
-                  project,
-                  message,
-                  mode,
-                  executePlan,
-                  targetSubagent,
-                  attachedFileNames,
-                  modelClient:ctx.app?.models,
-                  defaultModel:ctx.app?.config?.llm?.defaultModel,
-                  hasLlmEndpoint:isLlmConfigured(ctx),
-                  resolveRuntime:(role) => resolveStudioRuntimeSafe(service,organizationId,actor,role,ctx.app?.config?.llm?.defaultModel),
-                  signal:controller.signal,
-                  onEvent:(ev,data) => emit(ev,data),
-                });
-              } catch (err) {
-                if (!eventStreamStarted) throw err;
-                emit("error",{error:(err as Error).message || "Studio orchestrator failed"});
-              } finally {
-                req.off("aborted",abortOnDisconnect);
-                res.off("close",abortOnDisconnect);
-                if (STUDIO_EXECUTION_CONTROLLERS.get(executionKey)===controller) STUDIO_EXECUTION_CONTROLLERS.delete(executionKey);
-                if (eventStreamStarted && !res.writableEnded && !res.destroyed) res.end();
-              }
-              return;
-            }
-            if (seg.length===6 && seg[5]==="files" && method==="GET") {
-              return send(res,200,{items:listWorkspaceFiles(dataDir,project)});
+            if (seg.length===6 && seg[5]==="sync-brief" && method==="POST") {
+              const contract=service.getContract(organizationId,actor,project.contractId);
+              const lots=service.listProjectLots(organizationId,actor,projectId);
+              return send(res,200,{brief:syncProjectBriefToDisk({dataDir,project,contract,lots})});
             }
             if (seg.length===6 && seg[5]==="upload-docs" && method==="POST") {
               const body=await readObject(req,4_500_000);
@@ -1434,254 +1349,80 @@ export function agencyRoutes(ctx: WebContext): Route {
                 cahierDesCharges:typeof body.cahierDesCharges==="string" ? body.cahierDesCharges : undefined,
                 files:docFiles,
               });
-              return send(res,200,{ writtenFiles:ingested.writtenFiles, items:listWorkspaceFiles(dataDir,project) });
+              return send(res,200,{writtenFiles:ingested.writtenFiles,items:listProjectFiles(dataDir,project)});
             }
-            if (seg.length===6 && seg[5]==="file") {
-              if (method==="GET") {
-                const rel=url.searchParams.get("path") ?? "";
-                return send(res,200,readWorkspaceFile(dataDir,project,rel));
-              }
-              if (method==="PUT") {
-                const body=await readObject(req);
-                return send(res,200,writeWorkspaceFile(dataDir,project,String(body.path ?? ""),String(body.content ?? "")));
-              }
-              if (method==="DELETE") {
-                const rel=url.searchParams.get("path") ?? "";
-                return send(res,200,deleteWorkspaceFile(dataDir,project,rel));
-              }
+            if (seg.length===6 && seg[5]==="evolution" && method==="GET") {
+              return send(res,200,{evolution:await getProjectEvolutionSnapshot(dataDir,project)});
             }
-            if (seg.length===6 && seg[5]==="scaffold" && method==="POST") {
-              const body=await readObject(req);
-              const contract=service.getContract(organizationId,actor,project.contractId);
-              const lots=service.listProjectLots(organizationId,actor,projectId);
-              const resScaffold=scaffoldProjectTemplate({
-                dataDir,
-                project,
-                contract,
-                lots,
-                template:String(body.template || "vitrine-html") as StudioTemplateId,
-              });
-              return send(res,201,resScaffold);
+            if (seg.length===6 && seg[5]==="files" && method==="GET") {
+              const q=url.searchParams.get("q") ?? undefined;
+              return send(res,200,{items:listProjectFiles(dataDir,project,{query:q})});
+            }
+            if (seg.length===6 && seg[5]==="file" && method==="GET") {
+              const rel=url.searchParams.get("path") ?? "";
+              return send(res,200,readProjectFile(dataDir,project,rel));
+            }
+            if (seg.length===6 && seg[5]==="diff" && method==="GET") {
+              const rel=url.searchParams.get("path") ?? undefined;
+              return send(res,200,await getProjectGitDiff(dataDir,project,rel));
             }
             if (seg.length===6 && seg[5]==="run" && method==="POST") {
               const body=await readObject(req);
-              const resRun=await runStudioCommand({
+              const resRun=await runProjectCommand({
                 dataDir,
                 project,
-                action:String(body.action || "npm_test") as StudioCommandAction,
+                action:String(body.action || "git_status") as ProjectCommandAction,
               });
               return send(res,200,resRun);
             }
-            if (seg.length===6 && seg[5]==="diff" && method==="GET") {
-              const base=url.searchParams.get("base") ?? "";
-              const head=url.searchParams.get("head") ?? "";
-              if (!base || !head) throw new HttpError(400,"Both base and head snapshot hashes are required");
-              const selectedFile=url.searchParams.get("path");
-              return send(res,200,await getStudioDiff(dataDir,project,base,head,selectedFile ?? undefined));
-            }
-            if (seg.length===6 && seg[5]==="snapshots" && method==="GET") {
-              return send(res,200,{items:await listStudioSnapshots(dataDir,project,queryInteger(url,"limit",15))});
-            }
-            if (seg.length===6 && seg[5]==="snapshots" && method==="POST") {
-              const body=await readObject(req);
-              const label=typeof body.label==="string" ? body.label.slice(0,120) : "manual checkpoint";
-              const checkpoint=await createStudioSnapshot(dataDir,project,label);
-              const baseCommit=typeof body.baseCommit==="string" ? body.baseCommit : "";
-              const changedPath=typeof body.path==="string" ? body.path : "";
-              let message: StudioChatMessage | undefined;
-              if (baseCommit && changedPath) {
-                const comparison=await getStudioDiff(dataDir,project,baseCommit,checkpoint.commitHash);
-                const changed=comparison.files.find((file) => file.path===changedPath);
-                if (changed) {
-                  const manualMessage: StudioChatMessage = {
-                    id:randomUUID(),
-                    role:"assistant",
-                    mode:"build",
-                    text:`Modification manuelle : ${changed.path} (${changed.status})`,
-                    at:new Date().toISOString(),
-                    modifiedFiles:[changed.path],
-                    snapshotBeforeCommit:comparison.baseCommit,
-                    snapshotCommit:comparison.headCommit,
-                  };
-                  message=manualMessage;
-                  const state=await loadStudioState(dataDir,project.id);
-                  state.messages.push(manualMessage);
-                  await saveStudioState(dataDir,project.id,state);
-                }
-              }
-              return send(res,201,{...checkpoint,...(message ? {message} : {})});
-            }
-            if (seg.length===6 && seg[5]==="rollback" && method==="POST") {
-              const body=await readObject(req);
-              const restored=await rollbackStudioSnapshot(
+          }
+          if (seg[4]==="ide") {
+            const dataDir=ctx.app?.config?.dataDir ?? process.cwd();
+            const project=service.getProject(organizationId,actor,projectId);
+            if (seg.length===6 && seg[5]==="open" && method==="POST") {
+              const body=await readObject(req).catch(() => ({} as Record<string,unknown>));
+              const contract=service.getContract(organizationId,actor,project.contractId);
+              const lots=service.listProjectLots(organizationId,actor,projectId);
+              return send(res,200,openWorkspaceInIde({
                 dataDir,
                 project,
-                typeof body.commitHash==="string" ? body.commitHash : undefined,
-              );
-              return send(res,200,restored);
+                ideId:typeof body.ideId==="string" ? body.ideId : undefined,
+                relPath:typeof body.path==="string" ? body.path : undefined,
+                line:body.line==null ? undefined : Number(body.line),
+                contract,
+                lots,
+              }));
             }
-            if (seg.length===6 && seg[5]==="ai-agent-stream" && method==="POST") {
+            if (seg.length===6 && seg[5]==="dispatch" && method==="POST") {
               const body=await readObject(req);
-              const requestedRole=typeof body.agentRole==="string" && ["developer","ui_ux","architect"].includes(body.agentRole)
-                ? (body.agentRole as AgencyAgentRole)
-                : "developer";
-              const instruction=String(body.instruction ?? "").trim();
-              if (!instruction) throw new HttpError(400,"Agent instruction is required");
-              if (!isLlmConfigured(ctx) || !ctx.app?.models) {
-                throw new HttpError(400,"No AI model endpoint is configured in Settings");
-              }
-              const runtime=resolveAgentRuntime(service,organizationId,actor,requestedRole,ctx.app?.config?.llm?.defaultModel);
+              const contract=service.getContract(organizationId,actor,project.contractId);
+              const lots=service.listProjectLots(organizationId,actor,projectId);
               const lot=typeof body.lotId==="string" && body.lotId.trim()
-                ? service.listProjectLots(organizationId,actor,projectId).find((l) => l.id===body.lotId)
+                ? lots.find((l) => l.id===body.lotId)
                 : undefined;
-              res.writeHead(200,{
-                "content-type":"text/event-stream; charset=utf-8",
-                "cache-control":"no-cache",
-                connection:"keep-alive",
-                "x-content-type-options":"nosniff",
-              });
-              const emit=(event: string, data: unknown) => {
-                if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-              };
-              try {
-                const agentRes=await runStudioAiAgent({
-                  dataDir,
-                  project,
-                  instruction,
-                  lot,
-                  maxSteps:body.maxSteps==null ? runtime.maxSteps : Number(body.maxSteps),
-                  modelClient:ctx.app?.models,
-                  defaultModel:runtime.model,
-                  hasLlmEndpoint:true,
-                  agentInstructions:runtime.agentInstructions,
-                  agentRules:runtime.agentRules,
-                  onStep:(step) => emit("step",step),
-                });
-                emit("done",agentRes);
-              } catch (err) {
-                emit("error",{error:(err as Error).message || "Agent studio failed"});
-              } finally {
-                if (!res.writableEnded) res.end();
-              }
-              return;
-            }
-            if (seg.length===6 && seg[5]==="ai-agent" && method==="POST") {
-              const body=await readObject(req);
-              const requestedRole=typeof body.agentRole==="string" && ["developer","ui_ux","architect"].includes(body.agentRole)
-                ? (body.agentRole as AgencyAgentRole)
-                : "developer";
-              const runtime=resolveAgentRuntime(service,organizationId,actor,requestedRole,ctx.app?.config?.llm?.defaultModel);
-              const lot=typeof body.lotId==="string" && body.lotId.trim()
-                ? service.listProjectLots(organizationId,actor,projectId).find((l) => l.id===body.lotId)
-                : undefined;
-              const agentRes=await runStudioAiAgent({
+              const role=lot?.ownerRole ?? "developer";
+              const runtime=service.getConfiguredAgent(organizationId,actor,role).config;
+              const dispatch=await dispatchIdeTask({
                 dataDir,
                 project,
+                ideId:typeof body.ideId==="string" ? body.ideId : undefined,
+                title:typeof body.title==="string" ? body.title : undefined,
                 instruction:String(body.instruction ?? ""),
                 lot,
-                maxSteps:body.maxSteps==null ? runtime.maxSteps : Number(body.maxSteps),
-                modelClient:ctx.app?.models,
-                defaultModel:runtime.model,
-                hasLlmEndpoint:isLlmConfigured(ctx),
-                agentInstructions:runtime.agentInstructions,
-                agentRules:runtime.agentRules,
+                contract,
+                lots,
+                agentInstructions:runtime.systemPrompt,
+                agentRules:runtime.rules,
               });
-              return send(res,200,agentRes);
+              return send(res,200,dispatch);
             }
-            if (seg.length===6 && seg[5]==="devserver" && method==="GET") {
-              return send(res,200,getStudioDevServerStatus(dataDir,project));
+            if (seg.length===6 && seg[5]==="runs" && method==="GET") {
+              return send(res,200,{items:listIdeTaskRuns(project.id)});
             }
-            if (seg.length===7 && seg[5]==="devserver" && seg[6]==="start" && method==="POST") {
-              const body=await readObject(req).catch(() => ({} as Record<string,unknown>));
-              const executionMode=body.executionMode==="host" || body.executionMode==="container" ? body.executionMode : undefined;
-              return send(res,200,await startStudioDevServer(dataDir,project,{ restart:body.restart===true, executionMode }));
-            }
-            if (seg.length===7 && seg[5]==="devserver" && seg[6]==="stop" && method==="POST") {
-              return send(res,200,stopStudioDevServer(project.id));
-            }
-            if (seg[5]==="live" && (method==="GET" || method==="HEAD" || method==="POST" || method==="PUT" || method==="PATCH" || method==="DELETE" || method==="OPTIONS")) {
-              const status=getStudioDevServerStatus(dataDir,project);
-              if (!status.running || !status.port) {
-                return send(res,409,{error:"DEV_SERVER_NOT_RUNNING",message:"Live dev server is not running"});
-              }
-              const parsedReqUrl=new URL(req.url || "/", "http://127.0.0.1");
-              const subPath=seg.length>6 ? "/"+seg.slice(6).join("/") : "/";
-              const targetPath=`${subPath}${parsedReqUrl.search}`;
-              const proxyReqHeaders: Record<string,string|string[]|undefined> = { ...req.headers };
-              delete proxyReqHeaders["host"];
-              delete proxyReqHeaders["accept-encoding"];
-              delete proxyReqHeaders["connection"];
-              await new Promise<void>((resolveProxy) => {
-                const upstream=http.request(
-                  {
-                    hostname:"127.0.0.1",
-                    port:status.port!,
-                    path:targetPath,
-                    method,
-                    headers:proxyReqHeaders,
-                  },
-                  (upRes) => {
-                    const headersOut: Record<string,string|string[]> = {};
-                    for (const [hk,hv] of Object.entries(upRes.headers)) {
-                      if (hv!==undefined && hk.toLowerCase()!=="content-length" && hk.toLowerCase()!=="x-frame-options" && hk.toLowerCase()!=="content-security-policy") {
-                        headersOut[hk]=hv;
-                      }
-                    }
-                    const ct=String(upRes.headers["content-type"] || "");
-                    if (ct.includes("text/html")) {
-                      const chunks: Buffer[]=[];
-                      upRes.on("data",(chunk: Buffer) => chunks.push(chunk));
-                      upRes.on("end",() => {
-                        const rawHtml=Buffer.concat(chunks).toString("utf8");
-                        const basePrefix=parsedReqUrl.pathname.replace(/\/live(?:\/.*)?$/, "/live/");
-                        const rewritten=rewritePreviewHtmlForStudio(rawHtml,{
-                          basePrefix,
-                          injectBridge:true,
-                        });
-                        headersOut["cache-control"]="no-store";
-                        res.writeHead(upRes.statusCode ?? 200,headersOut);
-                        res.end(Buffer.from(rewritten,"utf8"));
-                        resolveProxy();
-                      });
-                    } else {
-                      res.writeHead(upRes.statusCode ?? 200,headersOut);
-                      upRes.pipe(res);
-                      upRes.on("end",() => resolveProxy());
-                    }
-                  },
-                );
-                upstream.on("error",(err) => {
-                  if (!res.headersSent) {
-                    send(res,502,{error:"LIVE_PROXY_ERROR",message:(err as Error).message || "Upstream unavailable"});
-                  } else {
-                    res.end();
-                  }
-                  resolveProxy();
-                });
-                if (method!=="GET" && method!=="HEAD") {
-                  req.pipe(upstream);
-                } else {
-                  upstream.end();
-                }
-              });
-              return;
-            }
-            if (seg[5]==="preview" && method==="GET") {
-              const relPath=seg.length>6 ? seg.slice(6).map((s) => decodeURIComponent(s)).join("/") : "index.html";
-              const asset=resolveStudioPreviewAsset(dataDir,project,relPath);
-              let payload=asset.data;
-              if (asset.mimeType.startsWith("text/html")) {
-                const rewritten=rewritePreviewHtmlForStudio(asset.data.toString("utf8"),{ relativeAssets:true, injectBridge:true });
-                payload=Buffer.from(rewritten,"utf8");
-              }
-              res.writeHead(200,{
-                "content-type":asset.mimeType,
-                "cache-control":"no-store",
-                "x-content-type-options":"nosniff",
-                "content-security-policy":"default-src 'self' https: 'unsafe-inline' 'unsafe-eval' data: blob:; img-src 'self' https: data: blob:; font-src 'self' https: data:; style-src 'self' https: 'unsafe-inline'; script-src 'self' https: 'unsafe-inline' 'unsafe-eval'",
-              });
-              res.end(payload);
-              return;
+            if (seg.length===8 && seg[5]==="runs" && seg[7]==="stop" && method==="POST") {
+              const runId=decodeSegment(seg[6],"ide run id");
+              const stopped=stopIdeTaskRun(runId);
+              return send(res,200,{stopped:Boolean(stopped),run:stopped});
             }
           }
           if (seg.length>=5 && seg[4]==="lots") {
@@ -1750,7 +1491,7 @@ export function agencyRoutes(ctx: WebContext): Route {
                 } catch { /* fallback to deterministic execution brief */ }
               }
 
-              // 2. Developer Studio AI implementation
+              // 2. Dispatch implementation task to selected IDE or available CLI coding agent
               const devRole=lot.ownerRole==="ui_ux" ? "ui_ux" : "developer";
               const devRuntime=resolveAgentRuntime(service,organizationId,actor,devRole,ctx.app?.config?.llm?.defaultModel);
               const devInstruction=[
@@ -1758,20 +1499,26 @@ export function agencyRoutes(ctx: WebContext): Route {
                 lot.description ? `Description : ${lot.description}` : "",
                 lot.acceptanceCriteria.length ? `Critères d'acceptation : ${lot.acceptanceCriteria.join(" | ")}` : "",
                 `Plan architecte :\n${architectBrief}`,
-                "Écris ou mets à jour les fichiers dans le workspace puis exécute les vérifications avant finish.",
+                "Implémente dans le dossier produit et exécute les tests/typecheck avant validation.",
               ].filter(Boolean).join("\n\n");
-              const devResult=await runStudioAiAgent({
-                dataDir,
-                project,
-                lot,
-                instruction:devInstruction,
-                maxSteps:body.maxSteps==null ? Math.max(8,devRuntime.maxSteps) : Number(body.maxSteps),
-                modelClient:ctx.app.models,
-                defaultModel:devRuntime.model,
-                hasLlmEndpoint:true,
-                agentInstructions:devRuntime.agentInstructions,
-                agentRules:devRuntime.agentRules,
-              });
+              const availableIdes=detectInstalledIdes(dataDir);
+              const chosenIdeId=typeof body.ideId==="string" && body.ideId.trim()
+                ? body.ideId.trim()
+                : (availableIdes.find((x) => x.available && x.category==="cli_agent")?.id ?? availableIdes.find((x) => x.available)?.id);
+              const dispatched=chosenIdeId
+                ? await dispatchIdeTask({
+                  dataDir,
+                  project,
+                  ideId:chosenIdeId,
+                  title:`Lot #${lot.lotOrder} — ${lot.title}`,
+                  instruction:devInstruction,
+                  lot,
+                  contract,
+                  lots,
+                  agentInstructions:devRuntime.agentInstructions,
+                  agentRules:devRuntime.agentRules,
+                })
+                : null;
 
               // 3. Independent 4-Axis QA Audit
               const audit=await runFourAxisQaAudit({ dataDir, project, contract, lots });
@@ -1786,11 +1533,11 @@ export function agencyRoutes(ctx: WebContext): Route {
               const allPassed=checks.every((c) => c.status==="passed");
               const updatedLot=service.updateProjectLot(organizationId,actor,projectId,lot.id,{
                 status:allPassed ? "in_qa" : "in_progress",
-                evidenceSummary:`Pipeline IA (${devResult.modifiedFiles.length} fichier(s)): ${devResult.summary} | QA: ${audit.summary}`.slice(0,3900),
+                evidenceSummary:`${dispatched ? `IDE ${dispatched.run.ideName} (${dispatched.run.missionFile})` : "Brief prêt"} | QA: ${audit.summary}`.slice(0,3900),
               });
               return send(res,200,{
                 architectBrief,
-                devResult,
+                ideRun:dispatched?.run ?? null,
                 qaResult:{checks,reportPath:audit.reportPath,summary:audit.summary,passed:allPassed},
                 lot:updatedLot,
               });
@@ -2086,13 +1833,14 @@ export function agencyRoutes(ctx: WebContext): Route {
             }
             if (tool==="create_project") {
               const created=service.createDirectProject(organizationId,actor,{
-                title:String(args.title || "Projet Studio"),
+                title:String(args.title || "Nouveau projet"),
                 clientName:typeof args.clientName==="string" ? args.clientName : undefined,
                 companyId:typeof args.companyId==="string" ? args.companyId : undefined,
                 technicalSpecs:typeof args.technicalSpecs==="string" ? args.technicalSpecs : undefined,
                 targetStack:Array.isArray(args.targetStack) ? args.targetStack.map(String) : undefined,
                 budgetAmount:args.budgetAmount==null ? 0 : Number(args.budgetAmount),
                 estimatedDays:args.estimatedDays==null ? 14 : Number(args.estimatedDays),
+                localPath:typeof args.localPath==="string" ? args.localPath : undefined,
               });
               const includeFiles=args.includeAttachedFiles !== false;
               const docFiles=includeFiles
@@ -2109,14 +1857,70 @@ export function agencyRoutes(ctx: WebContext): Route {
                 contract:created.contract,
                 lots:[],
                 cahierDesCharges:created.project.technicalSpecs,
-                template:(typeof args.template==="string" ? args.template : "") as StudioTemplateId | "",
                 files:docFiles,
               });
               return {
                 ok:true,
-                summary:`Projet "${created.project.title}" créé dans le Studio (${ingested.writtenFiles.length} fichier(s) enregistré(s))`,
-                data:{ projectId:created.project.id, workspacePath:created.project.workspacePath, writtenFiles:ingested.writtenFiles },
+                summary:`Projet "${created.project.title}" créé (${ingested.writtenFiles.length} fichier(s) enregistré(s))`,
+                data:{ projectId:created.project.id, workspacePath:created.project.workspacePath, localPath:created.project.localPath, writtenFiles:ingested.writtenFiles },
               };
+            }
+            if (tool==="link_project_directory") {
+              const pid=String(args.projectId || projectId || "").trim();
+              if (!pid) return { ok:false, summary:"projectId requis pour link_project_directory" };
+              const updated=service.linkProjectLocalDirectory(organizationId,actor,pid,String(args.localPath ?? ""));
+              return {
+                ok:true,
+                summary:updated.localPath ? `Dossier produit lié : ${updated.localPath}` : "Dossier machine délié (retour au workspace géré)",
+                data:{ projectId:updated.id, localPath:updated.localPath },
+              };
+            }
+            if (tool==="inspect_project_evolution") {
+              const pid=String(args.projectId || projectId || "").trim();
+              if (!pid) return { ok:false, summary:"projectId requis pour inspect_project_evolution" };
+              const proj=service.getProject(organizationId,actor,pid);
+              const evo=await getProjectEvolutionSnapshot(dataDir,proj);
+              return {
+                ok:true,
+                summary:`${evo.stats.fileCount} fichier(s), Git=${evo.git.isRepo ? `${evo.git.branch} (${evo.git.changes.length} modif.)` : "non"}`,
+                data:evo,
+              };
+            }
+            if (tool==="open_project_in_ide") {
+              const pid=String(args.projectId || projectId || "").trim();
+              if (!pid) return { ok:false, summary:"projectId requis pour open_project_in_ide" };
+              const proj=service.getProject(organizationId,actor,pid);
+              const contract=service.getContract(organizationId,actor,proj.contractId);
+              const projLots=service.listProjectLots(organizationId,actor,proj.id);
+              const opened=openWorkspaceInIde({
+                dataDir,
+                project:proj,
+                ideId:typeof args.ideId==="string" ? args.ideId : undefined,
+                relPath:typeof args.path==="string" ? args.path : undefined,
+                line:args.line==null ? undefined : Number(args.line),
+                contract,
+                lots:projLots,
+              });
+              return { ok:true, summary:`Ouvert dans ${opened.ideName} : ${opened.openedTarget}`, data:opened };
+            }
+            if (tool==="dispatch_ide_task") {
+              const pid=String(args.projectId || projectId || "").trim();
+              if (!pid) return { ok:false, summary:"projectId requis pour dispatch_ide_task" };
+              const proj=service.getProject(organizationId,actor,pid);
+              const contract=service.getContract(organizationId,actor,proj.contractId);
+              const projLots=service.listProjectLots(organizationId,actor,proj.id);
+              const lot=typeof args.lotId==="string" ? projLots.find((l) => l.id===args.lotId) : undefined;
+              const dispatched=await dispatchIdeTask({
+                dataDir,
+                project:proj,
+                ideId:typeof args.ideId==="string" ? args.ideId : undefined,
+                title:typeof args.title==="string" ? args.title : undefined,
+                instruction:String(args.instruction ?? ""),
+                lot,
+                contract,
+                lots:projLots,
+              });
+              return { ok:true, summary:`Mission envoyée à ${dispatched.run.ideName} (${dispatched.run.missionFile})`, data:dispatched.run };
             }
             if (tool==="run_qa_audit") {
               const pid=String(args.projectId || projectId || "").trim();
@@ -2129,14 +1933,6 @@ export function agencyRoutes(ctx: WebContext): Route {
                 category:item.category, title:item.title, status:item.status, evidence:item.evidence, findings:item.findings,
               }));
               return { ok:true, summary:audit.summary, data:{ reportPath:audit.reportPath, checks } };
-            }
-            if (tool==="write_studio_file") {
-              const pid=String(args.projectId || projectId || "").trim();
-              if (!pid) return { ok:false, summary:"projectId requis pour write_studio_file" };
-              const proj=service.getProject(organizationId,actor,pid);
-              await createStudioSnapshot(dataDir,proj,"avant-copilote").catch(() => undefined);
-              const saved=writeWorkspaceFile(dataDir,proj,String(args.path || ""),String(args.content ?? ""));
-              return { ok:true, summary:`Fichier ${saved.path} écrit (${saved.size} octets)`, data:saved };
             }
             return { ok:false, summary:`Outil non autorisé ou inconnu: ${tool}` };
           } catch (err) {

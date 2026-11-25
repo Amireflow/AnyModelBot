@@ -170,8 +170,7 @@ export function SideActions({ collapsed, bots, onToggleSide, onOpenSearch, onNew
           { label: t("agency.newCompany"), icon: "folder", onSelect: () => onAgency("companies") },
           { label: t("agency.newLead"), icon: "user", onSelect: () => onAgency("leads") },
           { label: t("agency.newQuote"), icon: "wallet", onSelect: () => onAgency("commercial") },
-          { label: t("agency.newStudioProjectBtn"), icon: "code", onSelect: () => onAgency("studio") },
-          { label: t("agency.missionsTitle"), icon: "spark", onSelect: () => onAgency("projects") },
+          { label: t("agency.projects"), icon: "code", onSelect: () => onAgency("projects") },
         ]
         : [
           { label: t("sidebar.newBotItem"), icon: "chat", kbd: isMac ? "⌘N" : "Ctrl+N", onSelect: onNew },
@@ -455,8 +454,7 @@ export function Sidebar({ bots, botsError, reloadBots, selectedId, view, agencyT
         ["leads", "agency.leads", "user"],
         ["commercial", "agency.commercial", "wallet"],
         ["catalog", "agency.catalog", "clipboardCheck"],
-        ["projects", "agency.projects", "spark"],
-        ["studio", "agency.studio", "code"],
+        ["projects", "agency.projects", "code"],
         ["agents", "agency.agents", "chip"],
         ["copilot", "agency.copilot", "chat"],
       ].map(([id, key, icon]) => {

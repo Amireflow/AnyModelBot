@@ -771,6 +771,7 @@ export interface Project {
   title: string;
   status: ProjectStatus;
   workspacePath: string;
+  localPath: string;
   technicalSpecs: string;
   targetStack: string[];
   budgetAmount: number;
@@ -950,6 +951,7 @@ export interface CreateProjectInput {
   contractId: string;
   title?: string;
   workspacePath?: string;
+  localPath?: string;
   technicalSpecs?: string;
   targetStack?: string[];
   estimatedDays?: number;
@@ -965,6 +967,11 @@ export interface CreateDirectProjectInput {
   budgetAmount?: number;
   estimatedDays?: number;
   workspacePath?: string;
+  localPath?: string;
+}
+
+export interface UpdateProjectWorkspaceInput {
+  localPath: string;
 }
 
 export interface CreateProjectLotInput {

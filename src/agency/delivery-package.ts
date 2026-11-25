@@ -3,7 +3,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import { renderDeliveryReportHtml } from "./documents.js";
 import type { Company, Contract, Organization, Project, ProjectDelivery, ProjectLot, QaCheck } from "./types.js";
-import { resolveSafeWorkspacePath } from "./workspace-runner.js";
+import { resolveProjectDirectory } from "./workspace-runner.js";
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -126,7 +126,7 @@ export function buildProjectZipArchive(input: {
   deliveries: readonly ProjectDelivery[];
   lang?: string;
 }): { filename: string; buffer: Buffer; fileCount: number } {
-  const { workspaceDir } = resolveSafeWorkspacePath(input.dataDir, input.project.workspacePath);
+  const { workspaceDir } = resolveProjectDirectory(input.dataDir, input.project);
   const entries: ZipInputEntry[] = [];
   let totalBytes = 0;
 

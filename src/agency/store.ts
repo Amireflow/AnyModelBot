@@ -478,6 +478,7 @@ CREATE TABLE IF NOT EXISTS agency_projects (
   title TEXT NOT NULL,
   status TEXT NOT NULL CHECK(status IN ('handoff_pending','scoping','in_progress','qa_review','ready_for_delivery','delivered','accepted','maintenance','archived')),
   workspace_path TEXT NOT NULL,
+  local_path TEXT NOT NULL DEFAULT '',
   technical_specs TEXT NOT NULL DEFAULT '',
   target_stack_json TEXT NOT NULL DEFAULT '[]',
   budget_amount REAL NOT NULL DEFAULT 0,
@@ -943,6 +944,7 @@ function projectOf(r: Row): Project {
     title: text(r, "title"),
     status: text(r, "status") as ProjectStatus,
     workspacePath: text(r, "workspace_path"),
+    localPath: text(r, "local_path"),
     technicalSpecs: text(r, "technical_specs"),
     targetStack: jsonStringArray(text(r, "target_stack_json")),
     budgetAmount: number(r, "budget_amount"),
@@ -1170,6 +1172,13 @@ export class AgencyStore {
     this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(9, ?)").run(Date.now());
     // v10 adds multi-milestone invoices tied to contracts.
     this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(10, ?)").run(Date.now());
+    // v11 adds optional local_path to agency_projects for real machine product directory tracking.
+    const projCols = this.db.prepare("PRAGMA table_info(agency_projects)").all() as Row[];
+    const existingProjCols = new Set(projCols.map((row) => text(row, "name")));
+    if (!existingProjCols.has("local_path")) {
+      this.db.exec("ALTER TABLE agency_projects ADD COLUMN local_path TEXT NOT NULL DEFAULT ''");
+    }
+    this.db.prepare("INSERT OR IGNORE INTO agency_schema_migrations(version, applied_at) VALUES(11, ?)").run(Date.now());
   }
 
   close(): void { this.db.close(); }
@@ -1773,12 +1782,12 @@ export class AgencyStore {
   insertProject(p: Project): void {
     this.db.prepare(
       `INSERT INTO agency_projects(
-        id,organization_id,lead_id,contract_id,title,status,workspace_path,technical_specs,
+        id,organization_id,lead_id,contract_id,title,status,workspace_path,local_path,technical_specs,
         target_stack_json,budget_amount,currency,estimated_days,handoff_summary,handoff_at,
         delivered_at,accepted_at,created_by,created_at,updated_at
-      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     ).run(
-      p.id, p.organizationId, p.leadId, p.contractId, p.title, p.status, p.workspacePath, p.technicalSpecs,
+      p.id, p.organizationId, p.leadId, p.contractId, p.title, p.status, p.workspacePath, p.localPath ?? "", p.technicalSpecs,
       JSON.stringify(p.targetStack), p.budgetAmount, p.currency, p.estimatedDays, p.handoffSummary,
       p.handoffAt, p.deliveredAt, p.acceptedAt, p.createdBy, p.createdAt, p.updatedAt,
     );
@@ -1803,6 +1812,7 @@ export class AgencyStore {
 
   updateProjectState(orgId: string, id: string, patch: {
     status?: ProjectStatus;
+    localPath?: string;
     budgetAmount?: number;
     estimatedDays?: number;
     technicalSpecs?: string;
@@ -1813,9 +1823,10 @@ export class AgencyStore {
     const cur = this.getProject(orgId, id);
     if (!cur) return undefined;
     this.db.prepare(
-      "UPDATE agency_projects SET status=?,budget_amount=?,estimated_days=?,technical_specs=?,delivered_at=?,accepted_at=?,updated_at=? WHERE organization_id=? AND id=?",
+      "UPDATE agency_projects SET status=?,local_path=?,budget_amount=?,estimated_days=?,technical_specs=?,delivered_at=?,accepted_at=?,updated_at=? WHERE organization_id=? AND id=?",
     ).run(
       patch.status ?? cur.status,
+      patch.localPath === undefined ? cur.localPath : patch.localPath,
       patch.budgetAmount ?? cur.budgetAmount,
       patch.estimatedDays ?? cur.estimatedDays,
       patch.technicalSpecs ?? cur.technicalSpecs,

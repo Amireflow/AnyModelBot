@@ -18,6 +18,7 @@ export * from "./email-outbox.js";
 export * from "./prospecting.js";
 export * from "./delivery-package.js";
 export * from "./qa-auditor.js";
-export * from "./studio.js";
+export * from "./project-tracker.js";
+export * from "./ide-bridge.js";
 export * from "./skills.js";
 export * from "./presets.js";

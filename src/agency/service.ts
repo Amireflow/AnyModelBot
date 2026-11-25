@@ -12,6 +12,7 @@ import { assertProjectTransition, computeAgencyMetrics, evaluateQaGate } from ".
 import {
   AGENCY_AGENT_PROFILES, buildProjectExecutionBrief, detectLocalDevTools, getAgentProfile,
 } from "./orchestrator.js";
+import { validateLocalProductDirectory } from "./workspace-runner.js";
 import type {
   AddConversationMessageInput, AddEvidenceInput, AgencyAgentRole, AgencyDashboard,
   AgencyDeletableEntityType,
@@ -2063,6 +2064,7 @@ export class AgencyService {
       ].filter(Boolean).join("\n");
     const handoffSummary = optionalText(input.handoffSummary, "handoffSummary", 2000)
       || `Signed contract ${contract.id} handed off to production.`;
+    const localPath = input.localPath?.trim() ? validateLocalProductDirectory(input.localPath) : "";
     const now = this.now();
     const project: Project = {
       id: this.id(),
@@ -2072,6 +2074,7 @@ export class AgencyService {
       title: optionalText(input.title, "title", 240) || contract.title.replace(/^Contrat\s*—\s*/i, ""),
       status: "handoff_pending",
       workspacePath: this.sanitizeWorkspacePath(input.workspacePath, contract.id),
+      localPath,
       technicalSpecs,
       targetStack,
       budgetAmount: contract.totalAmount,
@@ -2114,6 +2117,7 @@ export class AgencyService {
       ? 14
       : Math.max(1, Math.round(nonNegativeNumber(input.estimatedDays, "estimatedDays", 14)));
     const clientName = optionalText(input.clientName, "clientName", 200);
+    const localPath = input.localPath?.trim() ? validateLocalProductDirectory(input.localPath) : "";
     const now = this.now();
 
     return this.store.transaction(() => {
@@ -2221,7 +2225,8 @@ export class AgencyService {
         title,
         status: "in_progress",
         workspacePath: this.sanitizeWorkspacePath(input.workspacePath, contract.id),
-        technicalSpecs: technicalSpecs || `Projet démarré directement dans le Studio pour ${company.name}.`,
+        localPath,
+        technicalSpecs: technicalSpecs || `Projet démarré pour ${company.name}.`,
         targetStack,
         budgetAmount,
         currency: org.currency,
@@ -2263,6 +2268,30 @@ export class AgencyService {
     const project = this.store.getProject(organizationId, requiredText(projectId, "projectId", 100));
     if (!project) throw new AgencyError("NOT_FOUND", "Project not found");
     return project;
+  }
+
+  linkProjectLocalDirectory(
+    organizationId: string,
+    actorId: string,
+    projectId: string,
+    localPath: string,
+  ): Project {
+    this.requireMember(organizationId, actorId);
+    const project = this.getProject(organizationId, actorId, projectId);
+    const trimmed = String(localPath ?? "").trim();
+    const validated = trimmed ? validateLocalProductDirectory(trimmed) : "";
+    const now = this.now();
+    return this.store.transaction(() => {
+      const updated = this.store.updateProjectState(organizationId, project.id, {
+        localPath: validated,
+        updatedAt: now,
+      })!;
+      this.audit(organizationId, actorId, "project.workspace_linked", "project", project.id, {
+        localPath: validated,
+        mode: validated ? "linked" : "managed",
+      });
+      return updated;
+    });
   }
 
   transitionProject(organizationId: string, actorId: string, projectId: string, toStatus: ProjectStatus): Project {

@@ -10,14 +10,11 @@ import {
   EmailSecretsFile,
   EnvEmailSender,
   LocalNodeSecretBox,
-  createStudioSnapshot,
-  listStudioSnapshots,
-  readWorkspaceFile,
+  getProjectEvolutionSnapshot,
+  initProjectWorkspace,
+  readProjectFile,
   renderInvoiceDocumentHtml,
-  rollbackStudioSnapshot,
-  runStudioAiAgent,
-  scaffoldProjectTemplate,
-  writeWorkspaceFile,
+  writeProjectMetaFile,
 } from "../src/agency/index.js";
 import { agencyRoutes } from "../src/web/routes/agency.js";
 import type { WebContext } from "../src/web/http.js";
@@ -42,7 +39,7 @@ describe("AnyModelBot Audit Upgrades (P0 / P1 / P2)", () => {
 
   afterEach(() => {
     store.close();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   function setupProject() {
@@ -227,15 +224,15 @@ describe("AnyModelBot Audit Upgrades (P0 / P1 / P2)", () => {
     expect(directHtml).toContain("FACTURE ACQUITTÉE");
   });
 
-  it("P2: creates Git snapshots & rolls back Studio changes, streams steps via SSE, and runs qa-autofix + lot pipeline", async () => {
+  it("P2: tracks workspace files & Git evolution, dispatches IDE/CLI tasks, and runs qa-autofix + lot pipeline", async () => {
     const { project, contract } = setupProject();
-    scaffoldProjectTemplate({
+    initProjectWorkspace({
       dataDir: tmpDir,
       project,
       contract,
       lots: [],
-      template: "vitrine-html",
     });
+    writeProjectMetaFile(tmpDir, project, "index.html", "<!doctype html><html><body><h1>Portail E-commerce Dakar</h1></body></html>");
     const lot = service.createProjectLot(orgId, "local-owner", project.id, {
       title: "Page d'accueil et hero",
       description: "Finaliser le hero HTML",
@@ -243,48 +240,12 @@ describe("AnyModelBot Audit Upgrades (P0 / P1 / P2)", () => {
       ownerRole: "developer",
     });
 
-    const snap1 = await createStudioSnapshot(tmpDir, project, "initial");
-    expect(snap1.created).toBe(true);
-    expect(snap1.commitHash).toMatch(/^[0-9a-f]{7,40}$/i);
+    const evo = await getProjectEvolutionSnapshot(tmpDir, project);
+    expect(evo.exists).toBe(true);
+    expect(evo.stats.fileCount).toBeGreaterThanOrEqual(2);
+    expect(readProjectFile(tmpDir, project, "index.html").content).toContain("Portail E-commerce Dakar");
 
-    writeWorkspaceFile(tmpDir, project, "index.html", "<!doctype html><html><body>Broken edit</body></html>");
-    const rolled = await rollbackStudioSnapshot(tmpDir, project);
-    expect(rolled.restoredCommit).toBe(snap1.commitHash);
-    expect(readWorkspaceFile(tmpDir, project, "index.html").content).toContain("Portail E-commerce Dakar");
-
-    const snaps = await listStudioSnapshots(tmpDir, project);
-    expect(snaps.length).toBeGreaterThanOrEqual(1);
-
-    // Live onStep streaming callback check
-    const liveSteps: any[] = [];
-    let callIdx = 0;
-    const mockClient: ModelClient = {
-      async listModels() { return ["GLM-5.3"]; },
-      async streamChat() {
-        callIdx += 1;
-        if (callIdx === 1) {
-          return JSON.stringify({ tool: "patch_file", path: "index.html", search: "Solutions", replace: "Solutions Pro" });
-        }
-        if (callIdx === 2) {
-          return JSON.stringify({ tool: "write_file", path: "BRIEF.md", content: `# ${project.title}\nBrief validé` });
-        }
-        return JSON.stringify({ tool: "finish", summary: "SSE et auto-fix exécutés." });
-      },
-    } as unknown as ModelClient;
-
-    const agentOut = await runStudioAiAgent({
-      dataDir: tmpDir,
-      project,
-      instruction: "Mettre à jour BRIEF.md",
-      hasLlmEndpoint: true,
-      defaultModel: "GLM-5.3",
-      modelClient: mockClient,
-      onStep: (st) => liveSteps.push(st),
-    });
-    expect(liveSteps.length).toBe(agentOut.steps.length);
-    expect(agentOut.snapshotBefore).toMatch(/^[0-9a-f]{7,40}$/i);
-
-    // HTTP SSE stream + qa-autofix + run-pipeline
+    // Link custom IDE profile and check workspace APIs + qa-autofix + run-pipeline
     const invoke = makeInvoker({
       app: {
         dataDir: tmpDir,
@@ -292,39 +253,65 @@ describe("AnyModelBot Audit Upgrades (P0 / P1 / P2)", () => {
         models: {
           async listModels() { return ["GLM-5.3"]; },
           async streamChat() {
-            return JSON.stringify({ tool: "finish", summary: "Livré proprement" });
+            return "Plan d'architecture : structurer src/ et tests/";
           },
         },
       } as any,
     });
 
-    const sseRes = await invoke("POST", `/agency/${orgId}/projects/${project.id}/studio/ai-agent-stream`, {
-      instruction: "Vérifier l'état du projet",
-      agentRole: "developer",
+    await invoke("POST", `/agency/${orgId}/ide/profiles`, {
+      id: "node-runner",
+      name: "Node Runner CLI",
+      category: "cli_agent",
+      executable: process.execPath,
+      openDirArgs: ["{dir}"],
+      openFileArgs: ["{file}"],
+      promptArgs: ["-e", "console.log('IDE_OK')"],
     });
-    expect(sseRes.status).toBe(200);
-    expect(sseRes.headers["content-type"]).toContain("text/event-stream");
-    expect(sseRes.rawText).toContain("event: step");
-    expect(sseRes.rawText).toContain("event: done");
 
-    // Trigger QA failure deliberately, then run qa-autofix
+    const evoHttp = await invoke("GET", `/agency/${orgId}/projects/${project.id}/workspace/evolution`);
+    expect(evoHttp.status).toBe(200);
+    expect(evoHttp.json.evolution.stats.fileCount).toBeGreaterThanOrEqual(2);
+
+    const dispatchRes = await invoke("POST", `/agency/${orgId}/projects/${project.id}/ide/dispatch`, {
+      ideId: "custom-node-runner",
+      title: "Vérifier l'état du projet",
+      instruction: "Vérifier l'état du projet",
+    });
+    expect(dispatchRes.status).toBe(200);
+    expect(dispatchRes.json.run.ideId).toBe("custom-node-runner");
+    expect(dispatchRes.json.run.missionFile).toContain("missions/");
+
+    // Trigger QA failure deliberately, then run qa-autofix via IDE bridge
     service.recordQaCheck(orgId, "local-owner", project.id, {
       category: "technical",
       title: "Vérif syntaxe",
       status: "failed",
       findings: "Corriger index.html",
     });
-    const fixRes = await invoke("POST", `/agency/${orgId}/projects/${project.id}/qa-autofix`, {});
+    const fixRes = await invoke("POST", `/agency/${orgId}/projects/${project.id}/qa-autofix`, {
+      ideId: "custom-node-runner",
+    });
     expect(fixRes.status).toBe(200);
     expect(fixRes.json.qaResult.checks).toHaveLength(4);
 
-    // 1-click lot pipeline
-    const pipeRes = await invoke("POST", `/agency/${orgId}/projects/${project.id}/lots/${lot.id}/run-pipeline`, {});
+    // 1-click lot pipeline dispatches to selected CLI/IDE + runs 4-axis QA
+    const pipeRes = await invoke("POST", `/agency/${orgId}/projects/${project.id}/lots/${lot.id}/run-pipeline`, {
+      ideId: "custom-node-runner",
+    });
     expect(pipeRes.status).toBe(200);
     expect(pipeRes.json.architectBrief).toBeTruthy();
-    expect(pipeRes.json.devResult.summary).toBe("Livré proprement");
+    expect(pipeRes.json.ideRun.ideId).toBe("custom-node-runner");
     expect(pipeRes.json.qaResult.checks).toHaveLength(4);
     expect(["in_qa", "in_progress"]).toContain(pipeRes.json.lot.status);
+
+    // Wait briefly so spawned CLI runs exit before afterEach temp cleanup
+    for (let i = 0; i < 30; i++) {
+      const runsRes = await invoke("GET", `/agency/${orgId}/projects/${project.id}/ide/runs`);
+      const items = (runsRes.json?.items ?? []) as Array<{ status: string }>;
+      if (!items.some((r) => r.status === "running")) break;
+      await new Promise((r) => setTimeout(r, 80));
+    }
   });
 
   it("Copilot reads attached CSV/brief files and executes governed CRM & prospecting tools", async () => {
@@ -451,11 +438,11 @@ describe("AnyModelBot Audit Upgrades (P0 / P1 / P2)", () => {
 
     const projId = directRes.json.project.id;
     const directProj = service.getProject(orgId, "local-owner", projId);
-    expect(readWorkspaceFile(tmpDir, directProj, "docs/CAHIER-DES-CHARGES.md").content).toContain("panier XOF");
-    expect(readWorkspaceFile(tmpDir, directProj, "BRIEF.md").content).toContain("docs/sources/cahier-client.md");
+    expect(readProjectFile(tmpDir, directProj, "docs/CAHIER-DES-CHARGES.md").content).toContain("panier XOF");
+    expect(readProjectFile(tmpDir, directProj, "BRIEF.md").content).toContain("docs/sources/cahier-client.md");
 
-    // 2. Upload additional doc into existing Studio workspace
-    const upRes = await invoke("POST", `/agency/${orgId}/projects/${projId}/studio/upload-docs`, {
+    // 2. Upload additional doc into existing workspace
+    const upRes = await invoke("POST", `/agency/${orgId}/projects/${projId}/workspace/upload-docs`, {
       files: [{ name: "notes-atelier.txt", mimeType: "text/plain", textContent: "Couleur principale: vert emeraude" }],
     });
     expect(upRes.status).toBe(200);
@@ -464,7 +451,7 @@ describe("AnyModelBot Audit Upgrades (P0 / P1 / P2)", () => {
     // 3. Create project directly via Copilot tool with attached file
     const copProj = await invoke("POST", `/agency/${orgId}/copilot`, {
       tab: "copilot",
-      question: "Crée un projet Studio pour la Clinique Pasteur avec ce brief",
+      question: "Crée un projet pour la Clinique Pasteur avec ce brief",
       attachments: [
         { name: "brief-clinique.txt", mimeType: "text/plain", size: 64, textContent: "Urgent: agenda médecins + SMS" },
       ],
@@ -475,6 +462,6 @@ describe("AnyModelBot Audit Upgrades (P0 / P1 / P2)", () => {
     expect(copProj.json.actions[0].ok).toBe(true);
     const createdProjId = copProj.json.actions[0].data.projectId;
     const copProjectRecord = service.getProject(orgId, "local-owner", createdProjId);
-    expect(readWorkspaceFile(tmpDir, copProjectRecord, "docs/sources/brief-clinique.txt").content).toContain("agenda médecins");
+    expect(readProjectFile(tmpDir, copProjectRecord, "docs/sources/brief-clinique.txt").content).toContain("agenda médecins");
   });
 });

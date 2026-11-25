@@ -440,7 +440,7 @@ export async function runAgencyCopilot(input: {
         ? [
             "",
             "Capacités d'action gouvernées :",
-            "Quand l'utilisateur demande d'agir sur le CRM, la prospection, la qualification, les devis brouillons, les missions, la QA ou le Studio d'un projet, tu PEUX exécuter des outils en répondant UNIQUEMENT avec un objet JSON strict :",
+            "Quand l'utilisateur demande d'agir sur le CRM, la prospection, la qualification, les devis brouillons, les missions, la QA, le dossier machine ou un IDE d'un projet, tu PEUX exécuter des outils en répondant UNIQUEMENT avec un objet JSON strict :",
             `{"tool":"<nom>","args":{...}}`,
             "Outils disponibles :",
             `- list_crm_summary: {"scope":"companies"|"leads"|"quotes"|"contracts"|"projects"|"catalog"}`,
@@ -452,9 +452,12 @@ export async function runAgencyCopilot(input: {
             `- qualify_needs: {"leadId":string,"problemStatement":string,"solutionType":"vitrine"|"ecommerce"|"web_app"|"mobile_app"|"business_platform"|"internal_tool"|"automation"|"maintenance","mustHaveFeatures"?:string[],"desiredTimeline"?:string,"budgetMin"?:number,"budgetMax"?:number}`,
             `- create_quote_draft: {"leadId":string,"title":string,"tier"?:"essential"|"standard"|"advanced"|"custom","discountPct"?:number,"lines":[{"label":string,"quantity":number,"unitPrice":number,"unitCost":number,"estimatedDays":number}]}`,
             `- create_mission: {"title":string,"agentRole":"prospecting"|"qualification"|"commercial"|"estimator"|"project_manager"|"architect"|"developer"|"ui_ux"|"qa_functional"|"qa_technical"|"qa_ui_ux"|"qa_security"|"retention","objective"?:string,"projectId"?:string,"leadId"?:string}`,
-            `- create_project: {"title":string,"clientName"?:string,"companyId"?:string,"technicalSpecs"?:string,"targetStack"?:string[],"budgetAmount"?:number,"estimatedDays"?:number,"template"?:"vitrine-html"|"webapp-node-preact"|"api-node-ts"|"saas-dashboard-app"|"ecommerce-storefront","includeAttachedFiles"?:boolean}`,
+            `- create_project: {"title":string,"clientName"?:string,"companyId"?:string,"technicalSpecs"?:string,"targetStack"?:string[],"budgetAmount"?:number,"estimatedDays"?:number,"localPath"?:string,"includeAttachedFiles"?:boolean}`,
+            `- link_project_directory: {"projectId":string,"localPath":string}`,
+            `- inspect_project_evolution: {"projectId":string}`,
+            `- open_project_in_ide: {"projectId":string,"ideId"?:string,"path"?:string,"line"?:number}`,
+            `- dispatch_ide_task: {"projectId":string,"ideId"?:string,"title"?:string,"instruction":string,"lotId"?:string}`,
             `- run_qa_audit: {"projectId":string}`,
-            `- write_studio_file: {"projectId":string,"path":string,"content":string}`,
             "Règles : n'envoie jamais d'e-mail/WhatsApp ni ne signe/déploie sans approbation humaine. Dès que tu as assez d'informations ou terminé les actions, réponds en Markdown français clair et structuré (tableaux GFM, listes, gras).",
           ].join("\n")
         : "";

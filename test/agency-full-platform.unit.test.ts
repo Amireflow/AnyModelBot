@@ -9,19 +9,16 @@ import {
   AgencyStore,
   auditWebsiteSafely,
   buildProjectZipArchive,
+  initProjectWorkspace,
   isPrivateOrReservedIp,
   listAgencySkills,
+  listProjectFiles,
   prospectWebCompanies,
+  readProjectFile,
   resolveSkillsPromptBlock,
   runAgencyCopilot,
   runFourAxisQaAudit,
-  runStudioAiAgent,
-  scaffoldProjectTemplate,
-  writeWorkspaceFile,
-  readWorkspaceFile,
-  deleteWorkspaceFile,
-  listWorkspaceFiles,
-  resolveStudioPreviewAsset,
+  writeProjectMetaFile,
 } from "../src/agency/index.js";
 import { agencyRoutes } from "../src/web/routes/agency.js";
 import { HttpError, type WebContext } from "../src/web/http.js";
@@ -231,59 +228,25 @@ describe("AnyModelBot Full Agency Platform (Phases 1-6)", () => {
       acceptanceCriteria: ["Responsive", "Valid HTML"],
     });
 
-    const scaffolded = scaffoldProjectTemplate({
+    const ws = initProjectWorkspace({
       dataDir: tmpDir,
       project,
       contract,
       lots: [lot],
-      template: "vitrine-html",
     });
-    expect(scaffolded.files).toContain("index.html");
-    expect(scaffolded.files).toContain("styles.css");
+    fs.writeFileSync(
+      path.join(ws.directory, "index.html"),
+      `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Site E-commerce Keur Mode</title></head><body><h1>Keur Mode</h1><script src="app.js"></script></body></html>\n`,
+      "utf8",
+    );
+    fs.writeFileSync(path.join(ws.directory, "styles.css"), "body { font-family: sans-serif; margin: 0; }\n", "utf8");
+    fs.writeFileSync(path.join(ws.directory, "app.js"), "console.log('Keur Mode ready');\n", "utf8");
 
-    expect(() => writeWorkspaceFile(tmpDir, project, "../escape.txt", "bad")).toThrow();
-
-    writeWorkspaceFile(tmpDir, project, "notes.txt", "v1");
-    expect(readWorkspaceFile(tmpDir, project, "notes.txt").content).toBe("v1");
-    deleteWorkspaceFile(tmpDir, project, "notes.txt");
-    expect(listWorkspaceFiles(tmpDir, project).some((f) => f.path === "notes.txt")).toBe(false);
-
-    let call = 0;
-    const mockModelClient = {
-      async listModels() {
-        return ["coder-pro"];
-      },
-      async streamChat() {
-        call += 1;
-        if (call === 1) {
-          return JSON.stringify({
-            tool: "write_file",
-            path: "app.js",
-            content: "console.log('Keur Mode ready');\n",
-          });
-        }
-        return JSON.stringify({
-          tool: "finish",
-          summary: "Added clean app.js entrypoint",
-        });
-      },
-    } as unknown as ModelClient;
-
-    const agentRes = await runStudioAiAgent({
-      dataDir: tmpDir,
-      project,
-      lot,
-      instruction: "Ajoute un script app.js propre",
-      modelClient: mockModelClient,
-      defaultModel: "coder-pro",
-      hasLlmEndpoint: true,
-    });
-    expect(agentRes.model).toBe("coder-pro");
-    expect(agentRes.modifiedFiles).toContain("app.js");
-
-    const preview = resolveStudioPreviewAsset(tmpDir, project, "index.html");
-    expect(preview.mimeType).toContain("text/html");
-    expect(preview.data.toString("utf8")).toContain("Site E-commerce Keur Mode");
+    expect(() => writeProjectMetaFile(tmpDir, project, "../escape.txt", "bad")).toThrow();
+    expect(readProjectFile(tmpDir, project, "index.html").content).toContain("Site E-commerce Keur Mode");
+    const files = listProjectFiles(tmpDir, project);
+    expect(files.some((f) => f.path === "app.js")).toBe(true);
+    expect(files.some((f) => f.path === "index.html")).toBe(true);
 
     service.updateProjectLot(orgId, "local-owner", project.id, lot.id, {
       status: "verified",
@@ -478,13 +441,13 @@ describe("AnyModelBot Full Agency Platform (Phases 1-6)", () => {
     expect(planRes.status).toBe(201);
     expect(planRes.json.lots.length).toBeGreaterThanOrEqual(3);
 
-    const scafRes = await invoke("POST", `/agency/${orgId}/projects/${projectId}/studio/scaffold`, { template: "vitrine-html" });
-    expect(scafRes.status).toBe(201);
+    const initRes = await invoke("POST", `/agency/${orgId}/projects/${projectId}/workspace/init`, {});
+    expect(initRes.status).toBe(200);
 
     for (const lot of planRes.json.lots as Array<{ id: string }>) {
       await invoke("PATCH", `/agency/${orgId}/projects/${projectId}/lots/${lot.id}`, {
         status: "verified",
-        evidenceSummary: "Verified via Studio",
+        evidenceSummary: "Verified via machine tracker",
       });
     }
 
@@ -521,7 +484,7 @@ describe("AnyModelBot Full Agency Platform (Phases 1-6)", () => {
     expect(emailStatus.status).toBe(200);
     expect(emailStatus.json.configured).toBe(true);
 
-    // Per-agent configuration: list, customize, disable blocks Studio AI execution (409), reset restores default
+    // Per-agent configuration + Skills engine + Workspace linking + Product tracker
     const agentsList = await invoke("GET", `/agency/${orgId}/agents`);
     expect(agentsList.status).toBe(200);
     expect(agentsList.json.items).toHaveLength(13);
@@ -542,76 +505,58 @@ describe("AnyModelBot Full Agency Platform (Phases 1-6)", () => {
     expect(updatedDev.json.agent.config.maxSteps).toBe(12);
     expect(updatedDev.json.agent.config.rules).toEqual(["Never hardcode secrets", "Keep helpers concise"]);
 
-    const blockedStudio = await invoke("POST", `/agency/${orgId}/projects/${projectId}/studio/ai-agent`, {
-      instruction: "Should be blocked while developer agent is disabled",
-    });
-    expect(blockedStudio.status).toBe(409);
-
     const resetDev = await invoke("DELETE", `/agency/${orgId}/agents/developer`);
     expect(resetDev.status).toBe(200);
     expect(resetDev.json.agent.customized).toBe(false);
     expect(resetDev.json.agent.config.enabled).toBe(true);
 
-    // Skills engine + Studio v2 patch_file/search_files + pro templates + idempotent bootstrap
+    // Skills engine + linked machine product directory + evolution tracking
     const skills = listAgencySkills();
-    expect(skills.length).toBe(12);
+    expect(skills.length).toBe(14);
     const skillBlock = resolveSkillsPromptBlock(["tdd-systematic-debugging", "owasp-security-review"]);
     expect(skillBlock).toContain("Active Agent Skills:");
     expect(skillBlock).toContain("tdd-systematic-debugging");
 
     const skillsHttp = await invoke("GET", `/agency/${orgId}/skills`);
     expect(skillsHttp.status).toBe(200);
-    expect(skillsHttp.json.items).toHaveLength(12);
+    expect(skillsHttp.json.items).toHaveLength(14);
 
-    const saasScaf = await invoke("POST", `/agency/${orgId}/projects/${projectId}/studio/scaffold`, {
-      template: "saas-dashboard-app",
-    });
-    expect(saasScaf.status).toBe(201);
-    expect(saasScaf.json.files).toContain("index.html");
+    const externalProductDir = fs.mkdtempSync(path.join(os.tmpdir(), "amb-linked-product-"));
+    try {
+      fs.writeFileSync(
+        path.join(externalProductDir, "package.json"),
+        JSON.stringify({ name: "dakar-solar", scripts: { test: "node --version" }, dependencies: { react: "^18.0.0" } }),
+        "utf8",
+      );
+      fs.mkdirSync(path.join(externalProductDir, "src"), { recursive: true });
+      fs.writeFileSync(path.join(externalProductDir, "src", "App.tsx"), "export function App() { return 'Solar'; }\n", "utf8");
 
-    const saasQa = await runFourAxisQaAudit({
-      dataDir: tmpDir,
-      project: service.getProject(orgId, "local-owner", projectId),
-      contract: service.getContract(orgId, "local-owner", contractId),
-      lots: service.listProjectLots(orgId, "local-owner", projectId),
-    });
-    expect(saasQa.items.every((i) => i.status === "passed")).toBe(true);
+      const linkRes = await invoke("PATCH", `/agency/${orgId}/projects/${projectId}/workspace`, {
+        localPath: externalProductDir,
+      });
+      expect(linkRes.status).toBe(200);
+      expect(linkRes.json.project.localPath).toBe(path.resolve(externalProductDir));
 
-    const ecomScaf = await invoke("POST", `/agency/${orgId}/projects/${projectId}/studio/scaffold`, {
-      template: "ecommerce-storefront",
-    });
-    expect(ecomScaf.status).toBe(201);
+      const syncRes = await invoke("POST", `/agency/${orgId}/projects/${projectId}/workspace/sync-brief`, {});
+      expect(syncRes.status).toBe(200);
+      expect(syncRes.json.brief.path).toBe(".anymodelbot/BRIEF.md");
 
-    let studioStep = 0;
-    const patchRes = await runStudioAiAgent({
-      dataDir: tmpDir,
-      project: service.getProject(orgId, "local-owner", projectId),
-      instruction: "Mettre à jour le titre de la boutique via patch_file",
-      hasLlmEndpoint: true,
-      defaultModel: "GLM-5.3",
-      modelClient: {
-        async listModels() {
-          return ["GLM-5.3"];
-        },
-        async streamChat() {
-          studioStep += 1;
-          if (studioStep === 1) {
-            return JSON.stringify({ tool: "search_files", query: "Collection" });
-          }
-          if (studioStep === 2) {
-            return JSON.stringify({
-              tool: "patch_file",
-              path: "index.html",
-              search: "<h1>Collection & Commandes en ligne</h1>",
-              replace: "<h1>Boutique Dakar Express</h1>",
-            });
-          }
-          return JSON.stringify({ tool: "finish", summary: "Boutique patched cleanly" });
-        },
-      } as unknown as ModelClient,
-    });
-    expect(patchRes.modifiedFiles).toContain("index.html");
-    expect(readWorkspaceFile(tmpDir, service.getProject(orgId, "local-owner", projectId), "index.html").content).toContain("Boutique Dakar Express");
+      const evoRes = await invoke("GET", `/agency/${orgId}/projects/${projectId}/workspace/evolution`);
+      expect(evoRes.status).toBe(200);
+      expect(evoRes.json.evolution.mode).toBe("linked");
+      expect(evoRes.json.evolution.stack).toContain("React");
+      expect(readProjectFile(tmpDir, service.getProject(orgId, "local-owner", projectId), "src/App.tsx").content).toContain("Solar");
+
+      const linkedQa = await runFourAxisQaAudit({
+        dataDir: tmpDir,
+        project: service.getProject(orgId, "local-owner", projectId),
+        contract: service.getContract(orgId, "local-owner", contractId),
+        lots: service.listProjectLots(orgId, "local-owner", projectId),
+      });
+      expect(linkedQa.items.length).toBe(4);
+    } finally {
+      fs.rmSync(externalProductDir, { recursive: true, force: true });
+    }
 
     const boot1 = await invoke("POST", `/agency/${orgId}/bootstrap-defaults`, {});
     expect(boot1.status).toBe(200);

@@ -7,7 +7,7 @@ import { fmtNum, t, useLang } from "../lib/i18n.js";
 import { agentAvatarOf } from "./agency/agent-avatars.js";
 import { AgencyCopilot } from "./agency/copilot.js";
 import { AgencyAgents } from "./agency/agents.js";
-import { ProjectStudio } from "./agency/studio.js";
+import { ProjectWorkspaceIde } from "./agency/project-workspace.js";
 import { SecureDeleteModal } from "./agency/delete-modal.js";
 
 const SIZE=25;
@@ -22,7 +22,7 @@ const blankCatalogDraft={code:"",name:"",category:"web_app",description:"",estim
 const blankRulesDraft={minMarginPct:"30",maxAutonomousDiscountPct:"10",defaultDepositPct:"30",requireOwnerApprovalAboveAmount:"0",paymentTermsDefault:""};
 const blankNeedsDraft={problemStatement:"",solutionType:"web_app",mustHaveFeatures:"",desiredTimeline:"",budgetMin:"0",budgetMax:"0",clientConfirmed:false};
 const blankQuoteDraft={title:"",tier:"standard",lineLabel:"",linePrice:"2500",lineCost:"1200",lineDays:"10",discountPct:"0"};
-const blankProjectDraft={contractId:"",title:"",workspacePath:"",targetStack:"typescript, web",technicalSpecs:"",estimatedDays:"14"};
+const blankProjectDraft={contractId:"",title:"",workspacePath:"",localPath:"",targetStack:"typescript, web",technicalSpecs:"",estimatedDays:"14"};
 const blankLotDraft={title:"",description:"",acceptanceCriteria:"",ownerRole:"developer",estimatedHours:"8"};
 const blankScopeDraft={title:"",description:"",budgetDelta:"0",daysDelta:"0"};
 const blankQaDraft={category:"functional",status:"passed",title:"",evidence:"",findings:""};
@@ -178,7 +178,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const [metrics,setMetrics]=useState(null);
   const [leadStageFilter,setLeadStageFilter]=useState("all");
   const [commercialSubTab,setCommercialSubTab]=useState("conversations");
-  const [projectSubTab,setProjectSubTab]=useState("lots");
+  const [projectSubTab,setProjectSubTab]=useState("workspace");
   const [cliActionByMission,setCliActionByMission]=useState({});
   const [quoteLines,setQuoteLines]=useState([{label:"",unitPrice:"2500",unitCost:"1200",estimatedDays:"10"}]);
   const [prospectQuery,setProspectQuery]=useState("");
@@ -330,7 +330,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         .finally(()=>live&&setBusy(""));
       return ()=>{live=false;};
     }
-    if(tab==="projects"||tab==="studio"||tab==="operations"){
+    if(tab==="projects"||tab==="operations"){
       Promise.all([
         api(`/agency/${enc(orgId)}/dashboard`),
         api(`/agency/${enc(orgId)}/contracts`),
@@ -996,7 +996,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
     setBusy("qa-autofix");setError("");setWorkspaceNotice("");
     try{
       const data=await api(`/agency/${enc(orgId)}/projects/${enc(projectId)}/qa-autofix`,{method:"POST",body:{}});
-      const summary=data.qaResult?.summary||data.fixResult?.summary||t("agency.qaAutofixDone");
+      const summary=data.qaResult?.summary||data.ideRun?.summary||t("agency.qaAutofixDone");
       setWorkspaceNotice(summary);
       setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
@@ -1006,7 +1006,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
     setBusy("lot-pipeline");setError("");setWorkspaceNotice("");
     try{
       const data=await api(`/agency/${enc(orgId)}/projects/${enc(selectedProjectId)}/lots/${enc(lotId)}/run-pipeline`,{method:"POST",body:{}});
-      setWorkspaceNotice(`${data.devResult?.summary||"Pipeline ✓"} · ${data.qaResult?.summary||""}`);
+      setWorkspaceNotice(`${data.ideRun?.summary||"Brief IDE prêt"} · ${data.qaResult?.summary||""}`);
       if(data.architectBrief)setBriefModal(data.architectBrief);
       setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
@@ -1162,20 +1162,35 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
     return ()=>{live=false;};
   },[orgId,tab,selectedProjectId,revision]);
   const createProjectHandoff=async(e)=>{
-    e.preventDefault();if(!projectDraft.contractId)return;
+    e.preventDefault();if(!projectDraft.contractId && !projectDraft.title.trim())return;
     setBusy("proj-handoff");setError("");
     try{
-      const d=await api(`/agency/${enc(orgId)}/projects`,{method:"POST",body:{
-        contractId:projectDraft.contractId,
-        title:projectDraft.title||undefined,
-        workspacePath:projectDraft.workspacePath||undefined,
-        targetStack:splitValues(projectDraft.targetStack),
-        technicalSpecs:projectDraft.technicalSpecs||undefined,
-        estimatedDays:Number(projectDraft.estimatedDays||14)
-      }});
+      const endpoint=projectDraft.contractId
+        ? `/agency/${enc(orgId)}/projects`
+        : `/agency/${enc(orgId)}/projects/direct`;
+      const payload=projectDraft.contractId
+        ? {
+          contractId:projectDraft.contractId,
+          title:projectDraft.title||undefined,
+          workspacePath:projectDraft.workspacePath||undefined,
+          localPath:projectDraft.localPath||undefined,
+          targetStack:splitValues(projectDraft.targetStack),
+          technicalSpecs:projectDraft.technicalSpecs||undefined,
+          estimatedDays:Number(projectDraft.estimatedDays||14),
+        }
+        : {
+          title:projectDraft.title.trim(),
+          workspacePath:projectDraft.workspacePath||undefined,
+          localPath:projectDraft.localPath||undefined,
+          targetStack:splitValues(projectDraft.targetStack),
+          technicalSpecs:projectDraft.technicalSpecs||undefined,
+          estimatedDays:Number(projectDraft.estimatedDays||14),
+        };
+      const d=await api(endpoint,{method:"POST",body:payload});
       setProjectDraft(blankProjectDraft);
       setProjectFormOpen(false);
       setSelectedProjectId(d.project.id);
+      setProjectSubTab("workspace");
       setRevision(v=>v+1);
     }catch(err){setError(err.message);}finally{setBusy("");}
   };
@@ -1356,18 +1371,18 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
   const activeOrg=orgs.find(o=>o.id===orgId);
   const cur=activeOrg?.currency||"";
   const selectedCompany=(tab==="companies"?(rows.items||[]).find(x=>x.id===selected):null);
-  const selectedProject=((tab==="projects"||tab==="studio")?projects.find(p=>p.id===selectedProjectId):null);
+  const selectedProject=(tab==="projects"?projects.find(p=>p.id===selectedProjectId):null);
   const totalPages=Math.max(1,Math.ceil((rows.total||0)/SIZE));
 
-  return html`<section class=${"agency-screen view"+(tab==="copilot"?" is-copilot":"")+(tab==="studio"?" is-studio":"")} data-screen="agency">
+  return html`<section class=${"agency-screen view"+(tab==="copilot"?" is-copilot":"")} data-screen="agency">
     <header class="agency-header">
       <div class="agency-title-wrap">
         <h1 class="t-page">${t(`agency.${tab}`)}</h1>
-        ${cur&&!["studio","copilot","agents"].includes(tab)&&html`<span class="agency-org-pill">${cur}</span>`}
+        ${cur&&!["copilot","agents"].includes(tab)&&html`<span class="agency-org-pill">${cur}</span>`}
       </div>
       ${orgs.length>0&&html`<div class="agency-org-bar">
         <div class="agency-org-picker"><${Select} label=${t("agency.organization")} value=${orgId} options=${orgs.map(o=>[o.id,o.name])} onChange=${changeOrg}/></div>
-        ${!["studio","copilot"].includes(tab)&&html`<button class="btn" type="button" aria-expanded=${orgFormOpen} title=${t("agency.newOrganization")} onClick=${()=>setOrgFormOpen(v=>!v)}><${Icon} name=${orgFormOpen?"close":"plus"} size="sm"/></button>`}
+        ${tab!=="copilot"&&html`<button class="btn" type="button" aria-expanded=${orgFormOpen} title=${t("agency.newOrganization")} onClick=${()=>setOrgFormOpen(v=>!v)}><${Icon} name=${orgFormOpen?"close":"plus"} size="sm"/></button>`}
       </div>`}
     </header>
     ${orgError&&html`<div class="agency-alert" role="alert">${orgError}</div>`}
@@ -1565,7 +1580,6 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
           <button role="tab" aria-selected=${tab==="commercial"} class=${tab==="commercial"?"active":""} onClick=${()=>switchTab("commercial")}>${t("agency.commercial")}</button>
           <button role="tab" aria-selected=${tab==="catalog"} class=${tab==="catalog"?"active":""} onClick=${()=>switchTab("catalog")}>${t("agency.catalog")}</button>
           <button role="tab" aria-selected=${tab==="projects"} class=${tab==="projects"?"active":""} onClick=${()=>switchTab("projects")}>${t("agency.projects")}</button>
-          <button role="tab" aria-selected=${tab==="studio"} class=${tab==="studio"?"active":""} onClick=${()=>switchTab("studio")}>${t("agency.studio")}</button>
           <button role="tab" aria-selected=${tab==="agents"} class=${tab==="agents"?"active":""} onClick=${()=>switchTab("agents")}>${t("agency.agents")}</button>
           <button role="tab" aria-selected=${tab==="copilot"} class=${tab==="copilot"?"active":""} onClick=${()=>switchTab("copilot")}>${t("agency.copilot")}</button>
         </div>
@@ -2043,8 +2057,7 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             ${selectedProject&&html`<span class=${"agency-whatsapp-state "+selectedProject.status}>${t(`agency.projectStatus.${selectedProject.status}`)}</span>`}
           </div>
           <div class="agency-commercial-actions">
-            <button class="btn primary" type="button" onClick=${()=>{setSelectedProjectId("__new__");setProjectFormOpen(false);switchTab("studio");}}><${Icon} name="plus" size="sm"/>${t("agency.newStudioProjectBtn")}</button>
-            <button class="btn" type="button" onClick=${()=>setProjectFormOpen(v=>!v)}><${Icon} name=${projectFormOpen?"close":"plus"} size="sm"/>${projectFormOpen?t("agency.cancel"):t("agency.handoffProjectTitle")}</button>
+            <button class="btn primary" type="button" onClick=${()=>setProjectFormOpen(v=>!v)}><${Icon} name=${projectFormOpen?"close":"plus"} size="sm"/>${projectFormOpen?t("agency.cancel"):t("agency.handoffProjectTitle")}</button>
             ${selectedProject&&html`
               <button class="btn" type="button" disabled=${!!busy} onClick=${()=>initWorkspace(selectedProject.id)}>${t("agency.initWorkspaceBtn")}</button>
               <button class="btn" type="button" disabled=${!!busy} onClick=${()=>runAutoQa(selectedProject.id)}>${busy==="qa-run"?t("agency.runningAutoQa"):t("agency.runAutoQaBtn")}</button>
@@ -2056,23 +2069,24 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
         </div>
         ${projectFormOpen&&html`<form class="agency-form agency-form-grid" onSubmit=${createProjectHandoff}>
           <div class="agency-form-head"><strong>${t("agency.handoffProjectTitle")}</strong><button type="button" class="text" onClick=${()=>setProjectFormOpen(false)}>${t("agency.cancel")}</button></div>
-          <div class="agency-field"><span>${t("agency.selectContract")}</span><${Select} label=${t("agency.selectContract")} value=${projectDraft.contractId} placeholder=${t("agency.chooseOption")} options=${[["",t("agency.chooseOption")],...contracts.filter(c=>c.status==="signed"&&(c.depositAmount===0||c.depositStatus==="paid")).map(c=>[c.id,`${c.title} (${c.totalAmount} ${c.currency})`])]} onChange=${v=>update(setProjectDraft,"contractId",v)}/></div>
-          <${Field} label=${t("agency.workspacePath")} value=${projectDraft.workspacePath} placeholder="workspaces/projects/..." onInput=${v=>update(setProjectDraft,"workspacePath",v)}/>
+          <div class="agency-field"><span>${t("agency.selectContract")}</span><${Select} label=${t("agency.selectContract")} value=${projectDraft.contractId} placeholder=${t("agency.directProjectNoContract")} options=${[["",t("agency.directProjectNoContract")],...contracts.filter(c=>c.status==="signed"&&(c.depositAmount===0||c.depositStatus==="paid")).map(c=>[c.id,`${c.title} (${c.totalAmount} ${c.currency})`])]} onChange=${v=>update(setProjectDraft,"contractId",v)}/></div>
+          <${Field} label=${t("agency.projectTitleLabel")} value=${projectDraft.title} required=${!projectDraft.contractId} placeholder="Portail client..." onInput=${v=>update(setProjectDraft,"title",v)}/>
+          <${Field} label=${t("agency.wsLocalPathLabel")} value=${projectDraft.localPath} placeholder=${t("agency.wsLocalPathPlaceholder")} onInput=${v=>update(setProjectDraft,"localPath",v)}/>
           <${Field} label=${t("agency.targetStack")} value=${projectDraft.targetStack} onInput=${v=>update(setProjectDraft,"targetStack",v)}/>
           <${Field} label=${t("agency.technicalSpecs")} value=${projectDraft.technicalSpecs} onInput=${v=>update(setProjectDraft,"technicalSpecs",v)}/>
-          <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||!projectDraft.contractId}>${t("agency.createProjectBtn")}</button></div>
+          <div class="agency-form-actions"><button class="btn primary" type="submit" disabled=${!!busy||(!projectDraft.contractId&&!projectDraft.title.trim())}>${t("agency.createProjectBtn")}</button></div>
         </form>`}
-        ${!selectedProject&&!projectFormOpen&&html`<${Empty} title=${t("agency.noProjects")} detail=${t("agency.newStudioProjectBtn")}/>`}
+        ${!selectedProject&&!projectFormOpen&&html`<${Empty} title=${t("agency.noProjects")} detail=${t("agency.handoffProjectTitle")}/>`}
         ${selectedProject&&html`<div class="agency-ops-stack">
           ${workspaceNotice&&html`<p class="agency-research-feedback" role="status">${workspaceNotice}</p>`}
           <div class="agency-subtabs" role="tablist">
+            <button type="button" role="tab" aria-selected=${projectSubTab==="workspace"} class=${projectSubTab==="workspace"?"active":""} onClick=${()=>setProjectSubTab("workspace")}>${t("agency.projTabWorkspace")}</button>
             <button type="button" role="tab" aria-selected=${projectSubTab==="lots"} class=${projectSubTab==="lots"?"active":""} onClick=${()=>setProjectSubTab("lots")}>${t("agency.projTabLots")}</button>
-            <button type="button" role="tab" aria-selected=${projectSubTab==="studio"} class=${projectSubTab==="studio"?"active":""} onClick=${()=>setProjectSubTab("studio")}>${t("agency.projTabStudio")}</button>
             <button type="button" role="tab" aria-selected=${projectSubTab==="scope"} class=${projectSubTab==="scope"?"active":""} onClick=${()=>setProjectSubTab("scope")}>${t("agency.projTabScope")}</button>
             <button type="button" role="tab" aria-selected=${projectSubTab==="qa"} class=${projectSubTab==="qa"?"active":""} onClick=${()=>setProjectSubTab("qa")}>${t("agency.projTabQa")}</button>
             <button type="button" role="tab" aria-selected=${projectSubTab==="delivery"} class=${projectSubTab==="delivery"?"active":""} onClick=${()=>setProjectSubTab("delivery")}>${t("agency.projTabDelivery")}</button>
           </div>
-          ${projectSubTab==="studio"&&html`<${ProjectStudio} orgId=${orgId} project=${selectedProject} onChanged=${()=>setRevision(v=>v+1)}/>`}
+          ${projectSubTab==="workspace"&&html`<${ProjectWorkspaceIde} orgId=${orgId} project=${selectedProject} lots=${projectLots} onChanged=${()=>setRevision(v=>v+1)}/>`}
           ${projectSubTab==="lots"&&html`<section class="agency-project-section">
             <div class="agency-commercial-head">
               <h3>${t("agency.projectLotsTitle")}</h3>
@@ -2318,18 +2332,6 @@ export function AgencyScreen({ initialTab = "operations", onTabChange } = {}) {
             </div>
           </section>
         </div>
-      </div>`}
-      ${tab==="studio"&&html`<div class="agency-studio-page">
-        ${workspaceNotice&&html`<p class="agency-research-feedback" role="status">${workspaceNotice}</p>`}
-        <${ProjectStudio}
-          orgId=${orgId}
-          project=${selectedProject||null}
-          projects=${projects}
-          selectedProjectId=${selectedProjectId||"__new__"}
-          onSelectProject=${id=>setSelectedProjectId(id)}
-          onProjectCreated=${proj=>{setSelectedProjectId(proj.id);setRevision(v=>v+1);}}
-          onChanged=${()=>setRevision(v=>v+1)}
-        />
       </div>`}
       ${tab==="agents"&&html`<${AgencyAgents} orgId=${orgId} agents=${agentProfiles} onSaved=${()=>setRevision(v=>v+1)}/>`}
       ${tab==="copilot"&&html`<${AgencyCopilot} orgId=${orgId} activeTab=${tab} companyId=${selected} leadId=${selectedLeadId} projectId=${selectedProjectId} onDataChanged=${()=>setRevision(v=>v+1)}/>`}

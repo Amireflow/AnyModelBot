@@ -152,10 +152,15 @@ const TOOL_PROBES: readonly ToolProbeSpec[] = [
   { id: "git", name: "Git", command: "git", category: "vcs" },
   { id: "node", name: "Node.js", command: "node", category: "runtime" },
   { id: "npm", name: "npm", command: "npm", winCmd: "npm.cmd", category: "runtime" },
+  { id: "antigravity", name: "Antigravity IDE", command: "antigravity", winCmd: "antigravity.cmd", category: "ide" },
   { id: "code", name: "VS Code", command: "code", winCmd: "code.cmd", category: "ide" },
   { id: "cursor", name: "Cursor", command: "cursor", winCmd: "cursor.cmd", category: "ide" },
+  { id: "windsurf", name: "Windsurf", command: "windsurf", winCmd: "windsurf.cmd", category: "ide" },
   { id: "claude", name: "Claude Code CLI", command: "claude", winCmd: "claude.cmd", category: "cli_agent" },
   { id: "codex", name: "OpenAI Codex CLI", command: "codex", winCmd: "codex.cmd", category: "cli_agent" },
+  { id: "gemini", name: "Gemini CLI", command: "gemini", winCmd: "gemini.cmd", category: "cli_agent" },
+  { id: "aider", name: "Aider", command: "aider", category: "cli_agent" },
+  { id: "opencode", name: "OpenCode", command: "opencode", winCmd: "opencode.cmd", category: "cli_agent" },
 ];
 
 /**

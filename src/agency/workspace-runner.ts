@@ -65,16 +65,101 @@ function assertNoSymlinkInHierarchy(rootDir: string, segments: readonly string[]
   }
 }
 
+const PROTECTED_SYSTEM_PATHS_WIN = new Set([
+  "windows",
+  "program files",
+  "program files (x86)",
+  "programdata",
+  "system volume information",
+]);
+
+const PROTECTED_SYSTEM_PATHS_POSIX = new Set([
+  "/",
+  "/bin",
+  "/boot",
+  "/dev",
+  "/etc",
+  "/lib",
+  "/lib64",
+  "/proc",
+  "/root",
+  "/run",
+  "/sbin",
+  "/sys",
+  "/usr",
+  "/var",
+  "/system",
+  "/library",
+]);
+
+export function validateLocalProductDirectory(rawPath: string): string {
+  const raw = String(rawPath ?? "").trim();
+  if (!raw || raw.includes("\0")) {
+    throw new AgencyError("VALIDATION_ERROR", "Local directory path is required");
+  }
+  if (raw.split(/[\\/]+/).some((seg) => seg === "..")) {
+    throw new AgencyError("FORBIDDEN", "Local directory path cannot contain parent traversal segments");
+  }
+  if (!path.isAbsolute(raw)) {
+    throw new AgencyError("VALIDATION_ERROR", "Local product directory must be an absolute path on the machine");
+  }
+  const resolved = path.resolve(raw);
+  const parsed = path.parse(resolved);
+  if (resolved === parsed.root) {
+    throw new AgencyError("FORBIDDEN", "Filesystem root directories cannot be linked as a product workspace");
+  }
+  if (process.platform === "win32") {
+    const rest = resolved.slice(parsed.root.length).replaceAll("\\", "/").toLowerCase();
+    const firstSeg = rest.split("/")[0] || "";
+    if (PROTECTED_SYSTEM_PATHS_WIN.has(firstSeg)) {
+      throw new AgencyError("FORBIDDEN", `Protected OS directory cannot be linked: ${resolved}`);
+    }
+  } else {
+    const lower = resolved.replace(/\/+$/, "").toLowerCase() || "/";
+    if (PROTECTED_SYSTEM_PATHS_POSIX.has(lower)) {
+      throw new AgencyError("FORBIDDEN", `Protected OS directory cannot be linked: ${resolved}`);
+    }
+  }
+  if (!fs.existsSync(resolved)) {
+    throw new AgencyError("NOT_FOUND", `Local directory does not exist: ${resolved}`);
+  }
+  const stat = fs.statSync(resolved);
+  if (!stat.isDirectory()) {
+    throw new AgencyError("VALIDATION_ERROR", `Local path is not a directory: ${resolved}`);
+  }
+  return resolved;
+}
+
+export function resolveProjectDirectory(
+  dataDir: string,
+  project: Pick<Project, "workspacePath" | "localPath">,
+): { workspaceDir: string; mode: "linked" | "managed"; displayPath: string; relativePath: string } {
+  const linked = String(project.localPath ?? "").trim();
+  if (linked) {
+    const resolved = validateLocalProductDirectory(linked);
+    return { workspaceDir: resolved, mode: "linked", displayPath: resolved, relativePath: resolved };
+  }
+  const managed = resolveSafeWorkspacePath(dataDir, project.workspacePath);
+  return {
+    workspaceDir: managed.workspaceDir,
+    mode: "managed",
+    displayPath: managed.workspaceDir,
+    relativePath: managed.relativePath,
+  };
+}
+
 export function initProjectWorkspace(input: {
   dataDir: string;
   project: Project;
   contract?: Contract;
   lots: readonly ProjectLot[];
-}): { relativePath: string; files: string[] } {
-  const { workspaceDir, relativePath } = resolveSafeWorkspacePath(input.dataDir, input.project.workspacePath);
+}): { relativePath: string; mode: "linked" | "managed"; directory: string; files: string[] } {
+  const resolved = resolveProjectDirectory(input.dataDir, input.project);
+  const workspaceDir = resolved.workspaceDir;
   fs.mkdirSync(workspaceDir, { recursive: true });
-  fs.mkdirSync(path.join(workspaceDir, "missions"), { recursive: true });
-  fs.mkdirSync(path.join(workspaceDir, "qa"), { recursive: true });
+  const metaDir = resolved.mode === "linked" ? path.join(workspaceDir, ".anymodelbot") : workspaceDir;
+  fs.mkdirSync(path.join(metaDir, "missions"), { recursive: true });
+  fs.mkdirSync(path.join(metaDir, "qa"), { recursive: true });
 
   const briefLines: string[] = [
     `# ${input.project.title}`,
@@ -119,18 +204,27 @@ export function initProjectWorkspace(input: {
     }
   }
 
-  fs.writeFileSync(path.join(workspaceDir, "BRIEF.md"), briefLines.join("\n"), "utf8");
-  const readmePath = path.join(workspaceDir, "README.md");
-  if (!fs.existsSync(readmePath)) {
-    fs.writeFileSync(
-      readmePath,
-      `# ${input.project.title}\n\nWorkspace initialized for AnyModelBot project \`${input.project.id}\`. See \`BRIEF.md\` for requirements and lots.\n`,
-      "utf8",
-    );
+  const briefRel = resolved.mode === "linked" ? ".anymodelbot/BRIEF.md" : "BRIEF.md";
+  fs.writeFileSync(path.join(workspaceDir, briefRel), briefLines.join("\n"), "utf8");
+  const files = [briefRel];
+  if (resolved.mode === "managed") {
+    const readmePath = path.join(workspaceDir, "README.md");
+    if (!fs.existsSync(readmePath)) {
+      fs.writeFileSync(
+        readmePath,
+        `# ${input.project.title}\n\nWorkspace initialized for AnyModelBot project \`${input.project.id}\`. See \`BRIEF.md\` for requirements and lots.\n`,
+        "utf8",
+      );
+      files.push("README.md");
+    }
   }
 
-  const files = ["BRIEF.md", "README.md"];
-  return { relativePath, files };
+  return {
+    relativePath: resolved.relativePath,
+    mode: resolved.mode,
+    directory: workspaceDir,
+    files,
+  };
 }
 
 function execAllowlisted(
@@ -223,8 +317,9 @@ export async function executeAgencyMission(input: {
   evidencePaths: string[];
   artifactContent?: string;
 }> {
-  const targetPath = input.project ? input.project.workspacePath : `mission-sandbox/${input.mission.id}`;
-  const { workspaceDir } = resolveSafeWorkspacePath(input.dataDir, targetPath);
+  const workspaceDir = input.project
+    ? resolveProjectDirectory(input.dataDir, input.project).workspaceDir
+    : resolveSafeWorkspacePath(input.dataDir, `mission-sandbox/${input.mission.id}`).workspaceDir;
   fs.mkdirSync(workspaceDir, { recursive: true });
   fs.mkdirSync(path.join(workspaceDir, "missions"), { recursive: true });
 
@@ -332,13 +427,16 @@ export async function runProjectWorkspaceQa(input: {
   logPath: string;
   commandsRun: string[];
 }> {
-  const { workspaceDir } = resolveSafeWorkspacePath(input.dataDir, input.project.workspacePath);
+  const resolved = resolveProjectDirectory(input.dataDir, input.project);
+  const workspaceDir = resolved.workspaceDir;
   if (!fs.existsSync(workspaceDir)) {
     throw new AgencyError("CONFLICT", "Project workspace is not initialized yet. Initialize the workspace first.");
   }
 
   fs.mkdirSync(path.join(workspaceDir, "qa"), { recursive: true });
-  const hasBrief = fs.existsSync(path.join(workspaceDir, "BRIEF.md"));
+  const hasBrief =
+    fs.existsSync(path.join(workspaceDir, "BRIEF.md")) ||
+    fs.existsSync(path.join(workspaceDir, ".anymodelbot", "BRIEF.md"));
   const commandsRun: string[] = [];
   const logSections: string[] = [`BRIEF.md present: ${hasBrief}`];
   let allPassed = hasBrief;
