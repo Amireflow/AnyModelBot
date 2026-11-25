@@ -15,11 +15,14 @@ describe("Studio Docker preview isolation", () => {
       scriptName: "dev",
       isVite: true,
       isNext: false,
+      userId: 1001,
+      groupId: 1001,
     });
 
     expect(optionValue(args, "--publish")).toBe("127.0.0.1:43127:4173");
     expect(args).toContain("type=bind,source=/home/user/projects/project-123,target=/workspace");
-    expect(args).toContain("type=volume,source=amb-studio-project_123-node-modules,target=/workspace/node_modules");
+    expect(optionValue(args, "--user")).toBe("1001:1001");
+    expect(args.filter((arg) => arg.startsWith("type=bind,source="))).toHaveLength(1);
     expect(optionValue(args, "--network")).toBe("bridge");
   });
 
@@ -31,11 +34,14 @@ describe("Studio Docker preview isolation", () => {
       scriptName: "dev",
       isVite: true,
       isNext: false,
+      userId: 1001,
+      groupId: 1001,
     });
 
     expect(args).toContain("--read-only");
     expect(args).toContain("--cap-drop=ALL");
     expect(args).toContain("--security-opt=no-new-privileges:true");
+    expect(optionValue(args, "--user")).toBe("1001:1001");
     expect(args).toContain("--pids-limit=128");
     expect(args).toContain("--memory=1024m");
     expect(args).toContain("--cpus=1.5");
@@ -51,6 +57,8 @@ describe("Studio Docker preview isolation", () => {
       scriptName: "start",
       isVite: false,
       isNext: true,
+      userId: 1001,
+      groupId: 1001,
     });
 
     const envValues = args.flatMap((value, index) => value === "--env" ? [args[index + 1]] : []);
@@ -69,6 +77,8 @@ describe("Studio Docker preview isolation", () => {
       scriptName: "dev",
       isVite: true,
       isNext: false,
+      userId: 1001,
+      groupId: 1001,
     });
 
     const command = args.at(-1) || "";

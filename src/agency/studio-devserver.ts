@@ -50,7 +50,7 @@ const MAX_LOGS = 120;
 const IDLE_TTL_MS = 20 * 60_000;
 const HOST_START_TIMEOUT_MS = 25_000;
 const CONTAINER_START_TIMEOUT_MS = 120_000;
-const STUDIO_CONTAINER_IMAGE = "node:22-alpine";
+const STUDIO_CONTAINER_IMAGE = "node:22-bookworm-slim";
 
 interface ExecResult {
   code: number;
@@ -95,10 +95,11 @@ export function buildStudioDockerRunArgs(input: {
   scriptName: "dev" | "start";
   isVite: boolean;
   isNext: boolean;
+  userId: number;
+  groupId: number;
 }): string[] {
   const token = safeProjectToken(input.projectId);
   const containerName = `amb-studio-${token}`;
-  const volumeName = `amb-studio-${token}-node-modules`;
   const serve = input.isVite
     ? `npm run ${input.scriptName} -- --host 0.0.0.0 --port 4173 --strictPort`
     : input.isNext
@@ -121,9 +122,9 @@ export function buildStudioDockerRunArgs(input: {
     "--cpus=1.5",
     "--cap-drop=ALL",
     "--security-opt=no-new-privileges:true",
-    "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=256m",
+    "--user", `${input.userId}:${input.groupId}`,
+    "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m",
     "--mount", `type=bind,source=${input.workspaceDir},target=/workspace`,
-    "--mount", `type=volume,source=${volumeName},target=/workspace/node_modules`,
     "--publish", `127.0.0.1:${input.hostPort}:4173`,
     "--workdir", "/workspace",
     "--env", "NODE_ENV=development",
@@ -417,6 +418,8 @@ export async function startStudioDevServer(
         scriptName: info.scriptName,
         isVite: info.isVite,
         isNext: info.isNext,
+        userId: typeof process.getuid === "function" ? process.getuid() : 1000,
+        groupId: typeof process.getgid === "function" ? process.getgid() : 1000,
       });
       pushLog(srv, "$ docker " + args.map((arg) => (arg.includes(" ") ? JSON.stringify(arg) : arg)).join(" "));
       const started = await runExecFile("docker", args, 45_000);
